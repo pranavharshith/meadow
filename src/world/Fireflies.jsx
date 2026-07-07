@@ -3,12 +3,14 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
 import { P } from '../player-state'
+import { useStore } from '../store'
 
 const COUNT = 90
 const RADIUS = 42
 
 // Soft glowing motes that drift near the player at dusk. Bloom makes them glow.
 export default function Fireflies() {
+  const enabled = useStore((s) => s.fireflies)
   const ref = useRef()
 
   const { positions, offs } = useMemo(() => {
@@ -47,6 +49,7 @@ export default function Fireflies() {
   }, [])
 
   useFrame(({ clock }) => {
+    if (!ref.current) return
     const t = clock.elapsedTime
     const arr = ref.current.geometry.attributes.position.array
     for (let i = 0; i < COUNT; i++) {
@@ -60,6 +63,8 @@ export default function Fireflies() {
     }
     ref.current.geometry.attributes.position.needsUpdate = true
   })
+
+  if (!enabled) return null
 
   return (
     <points ref={ref}>

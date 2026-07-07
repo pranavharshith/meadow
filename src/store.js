@@ -41,6 +41,7 @@ export const useStore = create((set, get) => ({
   // 'third' (follow) | 'first' | 'top' (map)
   viewMode: saved.viewMode ?? 'third',
   muted: false,
+  fireflies: saved.fireflies ?? true,
   gold: saved.gold ?? 0,
   color: saved.color ?? randomColor(),
   name: saved.name ?? 'wanderer',
@@ -62,6 +63,7 @@ export const useStore = create((set, get) => ({
       viewMode: s.viewMode === 'third' ? 'first' : s.viewMode === 'first' ? 'top' : 'third',
     })),
   toggleMute: () => set((s) => ({ muted: !s.muted })),
+  toggleFireflies: () => set((s) => ({ fireflies: !s.fireflies })),
   setName: (name) => {
     set({ name: (name || '').slice(0, 18) || 'wanderer' })
     bridge.saveProfile()
@@ -202,6 +204,7 @@ useStore.subscribe((s) => {
       discovered: s.discovered,
       lastBonus: s.lastBonus,
       viewMode: s.viewMode,
+      fireflies: s.fireflies,
     }
     if (!s.online) base.trees = s.trees
     localStorage.setItem(LS_KEY, JSON.stringify(base))

@@ -102,6 +102,8 @@ export default function Hud() {
   const color = useStore((s) => s.color)
   const cycleView = useStore((s) => s.cycleView)
   const toggleMute = useStore((s) => s.toggleMute)
+  const toggleFireflies = useStore((s) => s.toggleFireflies)
+  const fireflies = useStore((s) => s.fireflies)
   const plantTree = useStore((s) => s.plantTree)
   const [seen, setSeen] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -145,6 +147,9 @@ export default function Hud() {
           </button>
           <button className="btn icon" onClick={toggleMute} aria-label="toggle sound">
             {muted ? 'muted' : 'sound'}
+          </button>
+          <button className="btn icon" onClick={toggleFireflies} aria-label="toggle fireflies">
+            {fireflies ? 'flies on' : 'flies off'}
           </button>
         </div>
       </div>
