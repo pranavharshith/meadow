@@ -35,6 +35,8 @@ export default function Net() {
       // Expose local mute controls even offline (though there's no one to mute)
       bridge.isMuted = isMuted
       bridge.toggleMute = toggleMuteLocal
+      // Offline: claim daily bonus via localStorage path
+      useStore.getState().claimDailyBonus()
       return
     }
 
@@ -130,6 +132,23 @@ export default function Net() {
       useStore.getState().removeRockLocal(payload.id)
     }
 
+    const receivePlot = (payload) => {
+      if (!payload || payload.owner_id === meId.current) return
+      useStore.getState().addPlot({
+        id: payload.id,
+        x: payload.x,
+        z: payload.z,
+        radius: payload.radius ?? 10,
+        owner: false,
+        name: payload.name || '',
+      })
+    }
+
+    const receiveRemovePlot = (payload) => {
+      if (!payload || !payload.id || payload.owner_id === meId.current) return
+      useStore.getState().removePlotLocal(payload.id)
+    }
+
     async function loadRegionTrees(rx, rz) {
       const { data, error } = await supabase
         .from('trees')
@@ -174,6 +193,25 @@ export default function Net() {
       useStore.getState().setRocks(rocks)
     }
 
+    async function loadRegionPlots(rx, rz) {
+      const { data, error } = await supabase
+        .from('plots')
+        .select('*')
+        .eq('region_x', rx)
+        .eq('region_z', rz)
+        .limit(200)
+      if (error || disposed) return
+      const plots = (data || []).map((p) => ({
+        id: p.id,
+        x: p.x,
+        z: p.z,
+        radius: p.radius ?? 10,
+        owner: p.owner_id === meId.current,
+        name: p.owner_id === meId.current ? useStore.getState().name : '',
+      }))
+      useStore.getState().setPlots(plots)
+    }
+
     async function joinRegion(rx, rz) {
       // Tear down previous region channels
       if (posChannelRef.current) {
@@ -199,6 +237,8 @@ export default function Net() {
       posCh.on('broadcast', { event: 'cut' }, ({ payload }) => receiveCut(payload))
       posCh.on('broadcast', { event: 'rock' }, ({ payload }) => receiveRock(payload))
       posCh.on('broadcast', { event: 'removerock' }, ({ payload }) => receiveRemoveRock(payload))
+      posCh.on('broadcast', { event: 'plot' }, ({ payload }) => receivePlot(payload))
+      posCh.on('broadcast', { event: 'removeplot' }, ({ payload }) => receiveRemovePlot(payload))
       posCh.on('presence', { event: 'leave' }, ({ leftPresences }) => {
         for (const p of leftPresences || []) {
           const id = p.id || p.key
@@ -233,6 +273,7 @@ export default function Net() {
       netStatus.region = regionRef.current
       loadRegionTrees(rx, rz)
       loadRegionRocks(rx, rz)
+      loadRegionPlots(rx, rz)
     }
     joinRegionRef.current = joinRegion
 
@@ -285,6 +326,7 @@ export default function Net() {
           name: prof.name,
           color: prof.color,
           discovered: prof.discovered || [],
+          customSpawn: (prof.custom_spawn_x != null ? { x: prof.custom_spawn_x, z: prof.custom_spawn_z } : undefined),
         })
       }
 
@@ -419,6 +461,46 @@ export default function Net() {
         return { ok: true, gold: data }
       }
 
+      bridge.teleport = async (landmarkId) => {
+        const { data, error } = await supabase.rpc('teleport_to_landmark', {
+          p_landmark_id: landmarkId,
+        })
+        if (error) return { ok: false, error: error.message }
+        return { ok: true, gold: data }
+      }
+
+      bridge.setSpawn = async (x, z) => {
+        const { data, error } = await supabase.rpc('set_spawn', { p_x: x, p_z: z })
+        if (error) return { ok: false, error: error.message }
+        return { ok: true, gold: data }
+      }
+
+      bridge.buyPlot = async (plot) => {
+        const { data, error } = await supabase.rpc('buy_plot', {
+          p_id: plot.id,
+          p_x: plot.x,
+          p_z: plot.z,
+        })
+        if (error) return { ok: false, error: error.message }
+        // Broadcast so region peers see the plot immediately.
+        const ch = posChannelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
+            type: 'broadcast',
+            event: 'plot',
+            payload: {
+              id: plot.id,
+              owner_id: meId.current,
+              x: plot.x,
+              z: plot.z,
+              radius: 10,
+              name: useStore.getState().name,
+            },
+          })
+        }
+        return { ok: true, gold: data }
+      }
+
       bridge.sendChat = async (scope, text) => {
         if (scope === 'world') {
           // Server RPC pays, rate-limits, sanitizes, AND emits the broadcast
@@ -451,6 +533,9 @@ export default function Net() {
       useStore.getState().setOnline(true)
       netStatus.online = true
       netStatus.ready = true
+
+      // Online: claim daily bonus via server RPC (authoritative)
+      useStore.getState().claimDailyBonus()
 
       const { rx, rz } = regionOf(P.pos.x, P.pos.z)
       joinRegion(rx, rz)
@@ -506,6 +591,9 @@ export default function Net() {
       bridge.sendChat = async () => ({ ok: false, error: 'offline' })
       bridge.placeRock = async () => ({ ok: false, error: 'offline' })
       bridge.removeRock = async () => ({ ok: false, error: 'offline' })
+      bridge.teleport = async () => ({ ok: false, error: 'offline' })
+      bridge.setSpawn = async () => ({ ok: false, error: 'offline' })
+      bridge.buyPlot = async () => ({ ok: false, error: 'offline' })
       clearTimeout(identityTimer.current)
       clearInterval(reconnectInterval)
       if (authListener && authListener.subscription) authListener.subscription.unsubscribe()

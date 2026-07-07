@@ -23,6 +23,13 @@ export const bridge = {
   placeRock:   async (_rock)               => ({ ok: false, error: 'offline' }),
   removeRock:  async (_rockId)             => ({ ok: false, error: 'offline' }),
 
+  // Gold-sink gated mutations. Each returns { ok, gold?, error? }.
+  teleport:    async (_landmarkId)         => ({ ok: false, error: 'offline' }),
+  setSpawn:    async (_x, _z)             => ({ ok: false, error: 'offline' }),
+
+  // Plot mutation (server-persisted, one per player, permanent)
+  buyPlot:     async (_plot)              => ({ ok: false, error: 'offline' }),
+
   // Chat: gate + broadcast in one call. Returns { ok, gold?, error?, text? }.
   sendChat:    noopAsync,
 

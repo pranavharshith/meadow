@@ -63,6 +63,8 @@ export default function Weather() {
   // Rain streak geometry: two vertices per drop (top and bottom of a streak).
   // We store the drop's TOP-Y in a per-drop scratch to preserve length while
   // both vertices are advanced by the fall speed each frame.
+  const resetRainRef = useRef(() => {})
+
   const { rainGeo, dropTopY, rainCount } = useMemo(() => {
     const g = new THREE.BufferGeometry()
     const positions = new Float32Array(RAIN_DROPS * 2 * 3)
@@ -82,6 +84,26 @@ export default function Weather() {
       positions[i * 6 + 5] = z
     }
     g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+
+    // Expose a reset function so the frame loop can re-randomise drops
+    // when a rain cycle ends, preventing frozen streaks from persisting
+    // into the next rain event.
+    resetRainRef.current = () => {
+      for (let i = 0; i < RAIN_DROPS; i++) {
+        const nx = (Math.random() - 0.5) * RAIN_AREA
+        const nz = (Math.random() - 0.5) * RAIN_AREA
+        const ny = RAIN_CEILING - Math.random() * 4
+        topY[i] = ny
+        positions[i * 6 + 0] = nx + WIND_LEAN_X * 0.02
+        positions[i * 6 + 1] = ny
+        positions[i * 6 + 2] = nz
+        positions[i * 6 + 3] = nx
+        positions[i * 6 + 4] = ny - STREAK_LENGTH
+        positions[i * 6 + 5] = nz
+      }
+      g.attributes.position.needsUpdate = true
+    }
+
     return { rainGeo: g, dropTopY: topY, rainCount: RAIN_DROPS }
   }, [])
 
@@ -126,7 +148,10 @@ export default function Weather() {
 
     // --- rain streaks -----------------------------------------------------
     if (wetness.value <= 0.02) {
-      if (rainRef.current) rainRef.current.visible = false
+      if (rainRef.current && rainRef.current.visible) {
+        rainRef.current.visible = false
+        resetRainRef.current()
+      }
       return
     }
     const rp = rainRef.current

@@ -368,6 +368,7 @@ canvas { display: block; touch-action: none; }
 }
 .btn:hover { background: rgba(40, 48, 38, 0.5); }
 .btn:active { transform: scale(0.96); }
+.btn.disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .btn.plant {
   background: linear-gradient(180deg, rgba(122, 174, 75, 0.9), rgba(90, 140, 55, 0.9));
   border-color: rgba(255, 255, 255, 0.28);
@@ -761,13 +762,22 @@ canvas { display: block; touch-action: none; }
   border: 1px solid rgba(91, 184, 255, 0.4);
   border-radius: 999px;
   padding: 7px 14px;
-  cursor: pointer;
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
   pointer-events: auto;
   transition: background 0.15s ease;
 }
-.nav-indicator:hover { background: rgba(20, 40, 60, 0.75); }
+.nav-name-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
 .nav-arrow {
   color: #5bb8ff;
   font-size: 16px;
@@ -784,6 +794,20 @@ canvas { display: block; touch-action: none; }
   margin-left: 2px;
 }
 .nav-cancel:hover { color: #fff; }
+.nav-teleport {
+  background: rgba(255, 200, 50, 0.2);
+  border: 1px solid rgba(255, 200, 50, 0.5);
+  color: #ffd866;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.nav-teleport:hover { background: rgba(255, 200, 50, 0.35); }
+.nav-teleport.disabled { opacity: 0.4; cursor: default; }
 
 @media (max-width: 640px) {
   .worldmap-canvas { max-width: 95vw; max-height: 70vh; }

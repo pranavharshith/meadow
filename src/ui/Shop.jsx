@@ -101,23 +101,37 @@ function ItemCard({ item, selected, canAfford, onClick }) {
 
 // ── Main Shop Panel ────────────────────────────────────────────────────────
 
+const PLOT_ITEM = {
+  id: 'plot',
+  name: 'Personal Plot',
+  type: 'plot',
+  cost: 250,
+  emoji: '📌',
+  desc: 'Claim a circle of land others can\'t plant on',
+  color: '#5ba8d8',
+}
+
 export default function Shop() {
   const shopOpen = useStore((s) => s.shopOpen)
   const setShopOpen = useStore((s) => s.setShopOpen)
   const selectedItem = useStore((s) => s.selectedItem)
   const setSelectedItem = useStore((s) => s.setSelectedItem)
   const gold = useStore((s) => s.gold)
+  const plots = useStore((s) => s.plots)
 
   const [tab, setTab] = useState('trees')
 
   if (!shopOpen) return null
 
-  const items = tab === 'trees' ? TREE_ITEMS : ROCK_ITEMS
+  const isPlotTab = tab === 'plots'
+  const items = isPlotTab ? [PLOT_ITEM] : (tab === 'trees' ? TREE_ITEMS : ROCK_ITEMS)
+  const isPlot = selectedItem.type === 'plot'
   const isRock = selectedItem.type === 'rock'
-  const currentList = isRock ? ROCK_ITEMS : TREE_ITEMS
+  const currentList = isPlot ? [PLOT_ITEM] : (isRock ? ROCK_ITEMS : TREE_ITEMS)
   const currentItem =
     currentList.find((i) => i.id === selectedItem.id) ||
-    (tab === 'trees' ? TREE_ITEMS[0] : ROCK_ITEMS[0])
+    (tab === 'trees' ? TREE_ITEMS[0] : tab === 'rocks' ? ROCK_ITEMS[0] : PLOT_ITEM)
+  const hasPlot = plots.some((p) => p.owner)
 
   return (
     <div className="shop-overlay no-look" onClick={(e) => { if (e.target === e.currentTarget) setShopOpen(false) }}>
@@ -145,30 +159,38 @@ export default function Shop() {
           >
             🪨 Rocks
           </button>
+          <button
+            className={`shop-tab${tab === 'plots' ? ' active' : ''}`}
+            onClick={() => setTab('plots')}
+          >
+            📌 Plots
+          </button>
         </div>
 
         {/* Grid */}
         <div className="shop-grid">
           {items.map((item) => {
+            const itemType = tab === 'trees' ? 'tree' : tab === 'rocks' ? 'rock' : 'plot'
             const isSelected =
-              selectedItem.id === item.id &&
-              selectedItem.type === (tab === 'trees' ? 'tree' : 'rock')
-            const canAfford = gold >= item.cost
+              selectedItem.id === item.id && selectedItem.type === itemType
+            const cantBuyPlot = itemType === 'plot' && hasPlot
+            const canAfford = gold >= item.cost && !cantBuyPlot
             return (
               <ItemCard
                 key={item.id}
                 item={item}
                 selected={isSelected}
                 canAfford={canAfford}
-                onClick={() =>
+                onClick={() => {
+                  if (cantBuyPlot) return
                   setSelectedItem({
-                    type: tab === 'trees' ? 'tree' : 'rock',
+                    type: itemType,
                     id: item.id,
                     shape: tab === 'trees' ? item.shape : undefined,
                     rockShape: tab === 'rocks' ? item.rockShape : undefined,
                     cost: item.cost,
                   })
-                }
+                }}
               />
             )
           })}
@@ -183,7 +205,7 @@ export default function Shop() {
               &nbsp;·&nbsp;costs <span className="shop-coin" /> {currentItem.cost}
             </span>
           )}
-          <span className="shop-hint-key">press <kbd>E</kbd> or close and use the Plant button</span>
+          <span className="shop-hint-key">press <kbd>E</kbd> to {isPlotTab ? 'claim' : 'place'}</span>
         </div>
       </div>
     </div>

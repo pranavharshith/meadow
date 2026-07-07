@@ -34,7 +34,6 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
     for (let i = 0; i < bladeCount; i++) {
       const x = cx * CHUNK + rngG() * CHUNK
       const z = cz * CHUNK + rngG() * CHUNK
-      // taller, denser grass where the cluster field is high
       const lush = clusterField(x, z)
       d.position.set(x, terrainHeight(x, z), z)
       d.rotation.set(0, rngG() * Math.PI, (rngG() - 0.5) * 0.25)
@@ -42,6 +41,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
       d.updateMatrix()
       grassRef.current.setMatrixAt(i, d.matrix)
     }
+    grassRef.current.count = bladeCount
     grassRef.current.instanceMatrix.needsUpdate = true
 
     const rngF = mulberry32(seedFor(cx, cz) ^ 0xf1)
@@ -49,9 +49,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
     for (let i = 0; i < FLOWERS_PER_CHUNK; i++) {
       const x = cx * CHUNK + rngF() * CHUNK
       const z = cz * CHUNK + rngF() * CHUNK
-      // flowers favour lush clusters so they appear in patches, not evenly
       if (rngF() > 0.25 + clusterField(x, z) * 0.8) {
-        // hide unused instances far below (cheap way to vary count per chunk)
         d.position.set(0, -9999, 0)
         d.scale.setScalar(0.0001)
         d.updateMatrix()
@@ -68,11 +66,11 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
     }
     flowerRef.current.instanceMatrix.needsUpdate = true
     if (flowerRef.current.instanceColor) flowerRef.current.instanceColor.needsUpdate = true
-  }, [cx, cz])
+  }, [cx, cz, bladeCount])
 
   return (
     <group>
-      <instancedMesh ref={grassRef} args={[bladeGeo, bladeMat, bladeCount]} />
+      <instancedMesh ref={grassRef} args={[bladeGeo, bladeMat, BLADES_FULL]} />
       <instancedMesh ref={flowerRef} args={[flowerGeo, flowerMat, FLOWERS_PER_CHUNK]} />
     </group>
   )
@@ -191,7 +189,7 @@ export default function GrassField() {
       const cz = center.cz + dz
       chunks.push(
         <GrassChunk
-          key={`${cx},${cz},${grassDensity},${autoTier}`}
+          key={`${cx},${cz},${grassDensity}`}
           cx={cx}
           cz={cz}
           bladeGeo={bladeGeo}

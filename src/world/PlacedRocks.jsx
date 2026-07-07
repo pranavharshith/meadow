@@ -35,13 +35,13 @@ export default function PlacedRocks() {
   const selection = useStore((s) => s.selection)
   const setSelection = useStore((s) => s.setSelection)
 
-  // Sync placed rocks into registry for collision
+  // Sync placed rocks into rockRegistry for collision.
+  // Uses _source: 'placed' tag so Rocks.jsx's effect doesn't clobber
+  // these entries regardless of execution order.
   useEffect(() => {
-    // Keep decorative rocks already in rockRegistry and add placed ones
-    // Placed rocks are appended — we tag them with placed:true so we can remove them cleanly
-    const filtered = rockRegistry.filter((r) => !r.placed)
-    rockRegistry.length = 0
-    for (const r of filtered) rockRegistry.push(r)
+    for (let i = rockRegistry.length - 1; i >= 0; i--) {
+      if (rockRegistry[i]._source === 'placed') rockRegistry.splice(i, 1)
+    }
     for (const r of placedRocks) {
       // r          — physics radius (fixed so player can still walk around)
       // placementR — actual visual extent so the ghost can't overlap it
@@ -49,7 +49,7 @@ export default function PlacedRocks() {
         x: r.x, z: r.z,
         r: 0.9,
         placementR: Math.max(r.sx, r.sz),
-        placed: true,
+        _source: 'placed',
       })
     }
   }, [placedRocks])

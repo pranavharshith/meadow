@@ -71,9 +71,13 @@ export default function Rocks() {
     return arr
   }, [center.cx, center.cz])
 
-  // Sync rock registry for collision — only large rocks block
+  // Sync decorative rocks into rockRegistry for collision.
+  // Tags entries with _source: 'decorative' so PlacedRocks.jsx can
+  // manage its own entries without conflict regardless of effect order.
   useEffect(() => {
-    rockRegistry.length = 0
+    for (let i = rockRegistry.length - 1; i >= 0; i--) {
+      if (rockRegistry[i]._source === 'decorative') rockRegistry.splice(i, 1)
+    }
     // Two radii per entry:
     //   r          — physics/collision radius (half the visual, ~roomy to
     //                walk around; only tall-enough rocks block movement).
@@ -87,9 +91,10 @@ export default function Rocks() {
           x: r.x, z: r.z,
           r: Math.max(r.sx, r.sz) * 0.5 + 0.3,
           placementR,
+          _source: 'decorative',
         })
       } else {
-        rockRegistry.push({ x: r.x, z: r.z, placementR })
+        rockRegistry.push({ x: r.x, z: r.z, placementR, _source: 'decorative' })
       }
     }
   }, [allRocks])

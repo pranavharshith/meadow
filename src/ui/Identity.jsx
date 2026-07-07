@@ -5,6 +5,7 @@ import { ONLINE, supabase } from '../net/supabase'
 export default function Identity({ open, onClose }) {
   const name = useStore((s) => s.name)
   const color = useStore((s) => s.color)
+  const gold = useStore((s) => s.gold)
   const online = useStore((s) => s.online)
   const setName = useStore((s) => s.setName)
   const setColor = useStore((s) => s.setColor)
@@ -65,6 +66,14 @@ export default function Identity({ open, onClose }) {
           {emailNote && <div className="note">{emailNote}</div>}
         </>
       )}
+      <div className="row" style={{ marginTop: 8 }}>
+        <button
+          className={`btn small${gold < 40 ? ' disabled' : ''}`}
+          onClick={() => gold >= 40 && useStore.getState().setSpawnHere()}
+        >
+          📍 Set Here · 40g
+        </button>
+      </div>
       <button className="btn small" onClick={onClose}>
         done
       </button>

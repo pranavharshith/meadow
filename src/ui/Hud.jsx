@@ -33,10 +33,11 @@ export default function Hud() {
   const [seen, setSeen] = useState(false)
   const [editing, setEditing] = useState(false)
 
+  const isPlot = selectedItem.type === 'plot'
   const isRock = selectedItem.type === 'rock'
-  const allItems = isRock ? ROCK_ITEMS : TREE_ITEMS
-  const currentItem = allItems.find((i) => i.id === selectedItem.id) || allItems[0]
-  const plantLabel = isRock ? `Place ${currentItem.emoji}` : `Plant ${currentItem.emoji}`
+  const allItems = isRock ? ROCK_ITEMS : isPlot ? [] : TREE_ITEMS
+  const currentItem = isPlot ? { name: 'Plot', emoji: '📌' } : (allItems.find((i) => i.id === selectedItem.id) || allItems[0])
+  const plantLabel = isPlot ? 'Claim Plot 📌' : isRock ? `Place ${currentItem.emoji}` : `Plant ${currentItem.emoji}`
 
   return (
     <div className="ui">

@@ -9,6 +9,7 @@ import GrassField from './world/GrassField'
 import TreesField from './world/TreesField'
 import Rocks from './world/Rocks'
 import PlacedRocks from './world/PlacedRocks'
+import PlotList from './world/Plots'
 import PlacementPreview from './world/PlacementPreview'
 import Birds from './world/Birds'
 import Butterflies from './world/Butterflies'
@@ -47,14 +48,8 @@ export default function App() {
   const shadows = useStore((s) => s.shadows)
   const particles = useStore((s) => s.particles)
 
-  // Claim the daily bonus once we know whether we're online (server-truthed)
-  // or offline (localStorage-tracked). Firing after `online` flips avoids a
-  // race where the offline path awards +10 then the server also awards +10.
-  const online = useStore((s) => s.online)
-  useEffect(() => {
-    const t = setTimeout(() => useStore.getState().claimDailyBonus(), 800)
-    return () => clearTimeout(t)
-  }, [online])
+  // Daily bonus is handled in Net.jsx where the definitive online/offline
+  // state is known. Nothing to do here.
 
   return (
     <>
@@ -90,6 +85,7 @@ export default function App() {
             <GrassField />
             <Rocks />
             <PlacedRocks />
+            <PlotList />
             <TreesField />
             <PlacementPreview />
             <Water />

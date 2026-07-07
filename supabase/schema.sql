@@ -564,6 +564,129 @@ grant execute on function public.place_rock(uuid, real, real, real, smallint, re
 grant execute on function public.remove_rock(uuid) to authenticated;
 
 -- ============================================================================
+-- GOLD SINKS: teleport-to-landmark & set-spawn-point
+-- ============================================================================
+
+alter table public.players add column if not exists custom_spawn_x real;
+alter table public.players add column if not exists custom_spawn_z real;
+
+-- Teleport to a discovered landmark. Costs 15 gold. Returns new gold total.
+create or replace function public.teleport_to_landmark(p_landmark_id text)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare g int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if p_landmark_id is null or length(p_landmark_id) = 0 or length(p_landmark_id) > 64 then
+    raise exception 'bad landmark id';
+  end if;
+
+  perform 1 from public.players
+    where id = auth.uid() and p_landmark_id = any(discovered);
+  if not found then raise exception 'not discovered'; end if;
+
+  update public.players
+    set gold = gold - 15,
+        updated_at = now()
+    where id = auth.uid() and gold >= 15
+    returning gold into g;
+  if g is null then raise exception 'not enough gold'; end if;
+  return g;
+end
+$$;
+
+-- Set a custom spawn point. Costs 40 gold. Returns new gold total.
+create or replace function public.set_spawn(p_x real, p_z real)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare g int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  update public.players
+    set gold = gold - 40,
+        custom_spawn_x = p_x,
+        custom_spawn_z = p_z,
+        updated_at = now()
+    where id = auth.uid() and gold >= 40
+    returning gold into g;
+  if g is null then raise exception 'not enough gold'; end if;
+  return g;
+end
+$$;
+
+grant execute on function public.teleport_to_landmark(text) to authenticated;
+grant execute on function public.set_spawn(real, real)      to authenticated;
+
+-- ============================================================================
+-- PERSONAL PLOTS — claim a circle of land (radius 10) others can't plant on.
+-- ============================================================================
+
+create table if not exists public.plots (
+  id          uuid primary key,
+  owner_id    uuid        not null references auth.users (id) on delete cascade,
+  region_x    integer     not null,
+  region_z    integer     not null,
+  x           real        not null,
+  z           real        not null,
+  radius      real        not null default 10,
+  placed_at   timestamptz not null default now()
+);
+
+create index if not exists plots_region_idx on public.plots (region_x, region_z);
+
+alter table public.plots enable row level security;
+drop policy if exists "plots readable" on public.plots;
+create policy "plots readable" on public.plots for select using (true);
+revoke insert, update, delete on public.plots from anon, authenticated;
+
+drop function if exists public.buy_plot(uuid, real, real);
+create or replace function public.buy_plot(p_id uuid, p_x real, p_z real)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare
+  rx int; rz int;
+  crowded int;
+  new_gold int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  perform 1 from public.plots where owner_id = auth.uid();
+  if found then raise exception 'already owned'; end if;
+
+  rx := floor(p_x / 120.0)::int;
+  rz := floor(p_z / 120.0)::int;
+
+  select count(*) into crowded
+    from public.plots
+    where region_x = rx and region_z = rz
+      and (x - p_x) * (x - p_x) + (z - p_z) * (z - p_z) < 225.0; -- 15u spacing
+
+  if crowded > 0 then raise exception 'too close to another plot'; end if;
+
+  insert into public.plots (id, owner_id, region_x, region_z, x, z, radius, placed_at)
+    values (p_id, auth.uid(), rx, rz, p_x, p_z, 10, now());
+
+  update public.players
+    set gold = gold - 250,
+        updated_at = now()
+    where id = auth.uid() and gold >= 250
+    returning gold into new_gold;
+  if new_gold is null then
+    delete from public.plots where id = p_id;
+    raise exception 'not enough gold';
+  end if;
+
+  return new_gold;
+end
+$$;
+
+grant execute on function public.buy_plot(uuid, real, real) to authenticated;
+
+-- ============================================================================
 -- SERVER-SIDE PROFANITY SANITIZATION
 -- Mirrors the client-side word list. Applied in both chat RPCs so even a
 -- modified client that skips maskProfanity() gets its text cleaned here.

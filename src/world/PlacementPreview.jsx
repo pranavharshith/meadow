@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import { P, treeRegistry, rockRegistry, placement } from '../player-state'
 import { useStore } from '../store'
 import { terrainHeight } from './noise'
+import { LANDMARKS } from './places'
 import { PONDS, STREAM_POINTS, STREAM_WIDTH } from './Water'
 
 // Placement preview:
@@ -30,6 +31,9 @@ const PLACE_BUFFER = 0.6          // extra clearance between neighbours
 // on real silhouettes rather than physics radii.
 const TREE_RADIUS = 1.5
 const ROCK_RADIUS = 1.1
+const PLOT_RADIUS = 10
+const PLOT_LANDMARK_MIN = 20      // min distance from a landmark centre
+const PLOT_PLOT_MIN = 15          // min distance from another plot's centre
 const SLOPE_LIMIT = 1.8           // max height delta across a 1-unit probe
 const WATER_MARGIN = 0.4          // extra padding around ponds/streams
 
@@ -129,6 +133,14 @@ function RockGhost({ rockShape, material }) {
   )
 }
 
+function PlotGhost({ material }) {
+  return (
+    <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]} material={material}>
+      <torusGeometry args={[10, 0.15, 8, 48]} />
+    </mesh>
+  )
+}
+
 export default function PlacementPreview() {
   const mode = useStore((s) => s.placementMode)
   const subject = useStore((s) => s.placementSubject)
@@ -160,11 +172,38 @@ export default function PlacementPreview() {
     groupRef.current.rotation.y = mode === 'rock' ? P.avatarYaw : 0
 
     // ── Validity ────────────────────────────────────────────────────────
-    const myR = mode === 'rock' ? ROCK_RADIUS : TREE_RADIUS
+    const myR = mode === 'rock' ? ROCK_RADIUS : mode === 'plot' ? PLOT_RADIUS : TREE_RADIUS
     let valid = true
     let reason = ''
 
-    if (isOverWater(px, pz)) {
+    if (mode === 'plot') {
+      const store = useStore.getState()
+      // Check distance from landmarks
+      for (const lm of LANDMARKS) {
+        if (Math.hypot(lm.x - px, lm.z - pz) < PLOT_LANDMARK_MIN) {
+          valid = false
+          reason = 'too close to a landmark'
+          break
+        }
+      }
+      // Check distance from other plots
+      if (valid) {
+        for (const p of store.plots) {
+          if (Math.hypot(p.x - px, p.z - pz) < PLOT_PLOT_MIN) {
+            valid = false
+            reason = 'overlaps another plot'
+            break
+          }
+        }
+      }
+      // Check gold
+      if (valid && store.gold < 250) {
+        valid = false
+        reason = `need 250 gold`
+      }
+    }
+
+    if (valid && isOverWater(px, pz)) {
       valid = false
       reason = 'cannot place on water'
     }
@@ -183,29 +222,28 @@ export default function PlacementPreview() {
         reason = 'ground is too steep'
       }
     }
-    // Placement uses `placementR` (visual/canopy extent) if the registry
-    // entry provides it, otherwise falls back to `r` (physics radius). This
-    // keeps player movement unaffected while making the ghost-vs-real
-    // overlap check operate on the sizes players actually see.
-    if (valid) {
-      for (const t of treeRegistry) {
-        const other = t.placementR ?? t.r ?? 0.7
-        const d = Math.hypot(t.x - px, t.z - pz)
-        if (d < myR + other + PLACE_BUFFER) {
-          valid = false
-          reason = 'too close to another tree'
-          break
+    // For plots, skip tree/rock proximity checks (plot is territorial, not physical)
+    if (mode !== 'plot') {
+      if (valid) {
+        for (const t of treeRegistry) {
+          const other = t.placementR ?? t.r ?? 0.7
+          const d = Math.hypot(t.x - px, t.z - pz)
+          if (d < myR + other + PLACE_BUFFER) {
+            valid = false
+            reason = 'too close to another tree'
+            break
+          }
         }
       }
-    }
-    if (valid) {
-      for (const r of rockRegistry) {
-        const other = r.placementR ?? r.r ?? 0.9
-        const d = Math.hypot(r.x - px, r.z - pz)
-        if (d < myR + other + PLACE_BUFFER) {
-          valid = false
-          reason = 'too close to a rock'
-          break
+      if (valid) {
+        for (const r of rockRegistry) {
+          const other = r.placementR ?? r.r ?? 0.9
+          const d = Math.hypot(r.x - px, r.z - pz)
+          if (d < myR + other + PLACE_BUFFER) {
+            valid = false
+            reason = 'too close to a rock'
+            break
+          }
         }
       }
     }
@@ -224,7 +262,9 @@ export default function PlacementPreview() {
 
   return (
     <group ref={groupRef}>
-      {mode === 'rock' ? (
+      {mode === 'plot' ? (
+        <PlotGhost material={material} />
+      ) : mode === 'rock' ? (
         <RockGhost rockShape={subject.rockShape ?? 2} material={material} />
       ) : (
         <TreeGhost shape={subject.shape ?? 0} material={material} />

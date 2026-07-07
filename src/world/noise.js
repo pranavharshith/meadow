@@ -68,9 +68,9 @@ export function terrainSlope(x, z) {
 // get taller grass / clusters of flowers, others stay sparse. Deterministic.
 export function clusterField(x, z) {
   const n = valueNoise(x * 0.02 + 11.3, z * 0.02 - 7.1)
-  return smooth(THREE_clamp((n - 0.35) / 0.5, 0, 1))
+  return smooth(clamp((n - 0.35) / 0.5, 0, 1))
 }
 
-function THREE_clamp(v, a, b) {
+function clamp(v, a, b) {
   return v < a ? a : v > b ? b : v
 }

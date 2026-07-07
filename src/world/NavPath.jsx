@@ -8,7 +8,7 @@ import { terrainHeight } from './noise'
 const PATH_SEGMENTS = 48
 const ARROW_SIZE = 1.2
 const ARRIVE_DIST = 15
-const PATH_Y_OFFSET = 0.25 // hover above terrain
+const PATH_Y_OFFSET = 0.8 // hover above terrain
 
 // Generates a smooth curve from player to target with a slight S-bend so it
 // looks like a natural path rather than a straight line.

@@ -11,6 +11,11 @@ const WATER_BOOST = 18000 // ms of growth granted per watering (mirrors server)
 const WORLD_CHAT_COST = 3
 const CHAT_MAX = 60
 
+// Gold sink costs
+const TELEPORT_COST = 15
+const SET_SPAWN_COST = 40
+const PLOT_COST = 250
+
 // Cut reward gold
 const CUT_GROWN_REWARD = 8
 const CUT_SAPLING_REWARD = 2
@@ -69,6 +74,12 @@ export const useStore = create((set, get) => ({
   lastBonus: saved.lastBonus ?? '', // only used offline; server tracks per-day online
   // rocks are server-owned when online (like trees). localStorage for offline.
   placedRocks: saved.placedRocks ?? [],
+
+  // custom spawn point set by the player (null = default spawn at origin)
+  customSpawn: saved.customSpawn ?? null,
+
+  // personal plots (server-owned when online; localStorage for offline)
+  plots: saved.plots ?? [],
 
   // shop
   shopOpen: false,
@@ -145,12 +156,13 @@ export const useStore = create((set, get) => ({
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
   setPlayerCount: (playerCount) => set({ playerCount }),
   // Server is the source of truth for gold + discovered. Overwrites local.
-  hydrateProfile: ({ gold, name, color, discovered }) =>
+  hydrateProfile: ({ gold, name, color, discovered, customSpawn }) =>
     set((s) => ({
       gold: gold ?? s.gold,
       name: name ?? s.name,
       color: color ?? s.color,
       discovered: discovered ?? s.discovered,
+      customSpawn: customSpawn ?? s.customSpawn,
     })),
   setGold: (gold) => set({ gold }),
   setTrees: (trees) => set({ trees }),
@@ -163,6 +175,12 @@ export const useStore = create((set, get) => ({
   addRock: (r) =>
     set((s) => (s.placedRocks.some((x) => x.id === r.id) ? {} : { placedRocks: [...s.placedRocks, r] })),
   removeRockLocal: (id) => set((s) => ({ placedRocks: s.placedRocks.filter((r) => r.id !== id) })),
+
+  // --- Plot server sync ---
+  setPlots: (plots) => set({ plots }),
+  addPlot: (p) =>
+    set((s) => (s.plots.some((x) => x.id === p.id) ? {} : { plots: [...s.plots, p] })),
+  removePlotLocal: (id) => set((s) => ({ plots: s.plots.filter((p) => p.id !== id) })),
 
   addChatMessage: (m) =>
     set((s) => ({ chat: [...s.chat, m].slice(-CHAT_MAX) })),
@@ -187,6 +205,18 @@ export const useStore = create((set, get) => ({
   enterPlacement: () => {
     const state = get()
     const sel = state.selectedItem
+    if (sel.type === 'plot') {
+      if (state.plots.some((p) => p.owner)) {
+        state.flash('you already own a plot')
+        return
+      }
+      if (state.gold < PLOT_COST) {
+        state.flash(`need ${PLOT_COST} gold to claim a plot`)
+        return
+      }
+      set({ placementMode: 'plot', placementSubject: { ...sel, kind: 'plot' } })
+      return
+    }
     const kind = sel.type === 'rock' ? 'rock' : 'tree'
     const cost = sel.cost ?? 0
     if (state.gold < cost) {
@@ -220,8 +250,10 @@ export const useStore = create((set, get) => ({
     set({ placementMode: null, placementSubject: null })
     if (mode === 'tree') {
       await get()._finalizePlant(px, pz, sub)
-    } else {
+    } else if (mode === 'rock') {
       await get()._finalizePlaceRock(px, pz, sub)
+    } else if (mode === 'plot') {
+      await get()._finalizeBuyPlot(px, pz, sub)
     }
   },
 
@@ -304,10 +336,41 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  // ── Personal plot (buy) ─────────────────────────────────────────────────
+  _finalizeBuyPlot: async (px, pz, sub) => {
+    const state = get()
+    if (bridge.online) {
+      const plot = { id: genId(), x: px, z: pz }
+      const res = await bridge.buyPlot(plot)
+      if (!res.ok) {
+        const map = {
+          'already owned': 'you already own a plot',
+          'too close to another plot': 'too close to another plot',
+          'not enough gold': `need ${PLOT_COST} gold`,
+        }
+        state.flash(map[res.error] || 'could not claim plot')
+        return
+      }
+      if (typeof res.gold === 'number') set({ gold: res.gold })
+      // Plot added locally via broadcast receiver
+    } else {
+      if (state.plots.some((p) => p.owner)) {
+        state.flash('you already own a plot')
+        return
+      }
+      set((s) => ({
+        gold: s.gold - PLOT_COST,
+        plots: [...s.plots, { id: genId(), x: px, z: pz, owner: true, radius: 10, name: s.name }],
+      }))
+    }
+    state.flash('plot claimed!')
+  },
+
   // Public entry points: first press → enter placement, second press → confirm.
   plantTree: () => {
     const st = get()
     if (st.placementMode) return st.confirmPlacement()
+    if (st.selectedItem.type === 'plot') return st.enterPlacement()
     return st.enterPlacement()
   },
 
@@ -372,13 +435,22 @@ export const useStore = create((set, get) => ({
     set((s) => ({ cuttingId: tree.id, selection: null, gold: s.gold + reward }))
     state.flash(`${verb} a tree · +${reward} gold`)
 
-    // Kick the server RPC in parallel with the animation. If it rejects,
-    // revert gold and cancel the fall; otherwise reconcile to the truth.
-    let serverOk = true
+    // Kick the server RPC in parallel with the animation. Only remove the tree
+    // from local state after the server confirms — if it rejects, revert gold
+    // and cancel the fall (tree stays). The animation runs for 850ms from the
+    // cut start; tree removal waits for whichever is later: server response or
+    // animation completion.
+    const cutStart = performance.now()
+    const doRemove = () => {
+      set((s) => ({
+        trees: s.trees.filter((t) => t.id !== tree.id),
+        cuttingId: null,
+      }))
+    }
+
     if (bridge.online) {
       bridge.cut(tree.id).then((res) => {
         if (!res.ok) {
-          serverOk = false
           set((s) => ({ gold: goldBefore, cuttingId: null }))
           const map = {
             'cut cooldown': 'wait a moment before cutting again',
@@ -389,16 +461,13 @@ export const useStore = create((set, get) => ({
           return
         }
         if (typeof res.gold === 'number') set({ gold: res.gold })
+        const elapsed = performance.now() - cutStart
+        const remaining = Math.max(0, 850 - elapsed)
+        setTimeout(doRemove, remaining)
       })
+    } else {
+      setTimeout(doRemove, 850)
     }
-
-    setTimeout(() => {
-      if (!serverOk) return // server rejected; leave tree standing
-      set((s) => ({
-        trees: s.trees.filter((t) => t.id !== tree.id),
-        cuttingId: null,
-      }))
-    }, 850)
   },
 
   // Kept as a thin alias so anywhere old code / hooks still called it
@@ -542,6 +611,58 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  teleportTo: async (landmarkId) => {
+    const state = get()
+    if (!state.discovered.includes(landmarkId)) {
+      state.flash('discover this place first')
+      return
+    }
+    const lm = LANDMARKS.find((l) => l.id === landmarkId)
+    if (!lm) { state.flash('unknown landmark'); return }
+    if (state.gold < TELEPORT_COST) {
+      state.flash(`need ${TELEPORT_COST} gold to teleport`)
+      return
+    }
+
+    if (bridge.online) {
+      const res = await bridge.teleport(landmarkId)
+      if (!res.ok) {
+        state.flash(res.error === 'not enough gold' ? `need ${TELEPORT_COST} gold` : 'teleport failed')
+        return
+      }
+      if (typeof res.gold === 'number') set({ gold: res.gold })
+    } else {
+      set((s) => ({ gold: s.gold - TELEPORT_COST }))
+    }
+    P.pos.x = lm.x
+    P.pos.z = lm.z
+    set({ navTarget: null })
+    state.flash(`arrived at ${lm.name}`)
+  },
+
+  setSpawnHere: async () => {
+    const state = get()
+    if (state.gold < SET_SPAWN_COST) {
+      state.flash(`need ${SET_SPAWN_COST} gold to set a spawn point`)
+      return
+    }
+    const x = P.pos.x
+    const z = P.pos.z
+
+    if (bridge.online) {
+      const res = await bridge.setSpawn(x, z)
+      if (!res.ok) {
+        state.flash(res.error === 'not enough gold' ? `need ${SET_SPAWN_COST} gold` : 'could not set spawn')
+        return
+      }
+      if (typeof res.gold === 'number') set({ gold: res.gold })
+    } else {
+      set((s) => ({ gold: s.gold - SET_SPAWN_COST }))
+    }
+    set({ customSpawn: { x, z } })
+    state.flash('spawn point set · -40 gold')
+  },
+
   claimDailyBonus: async () => {
     // Online: server decides. Offline: use localStorage-tracked date.
     if (bridge.online) {
@@ -576,6 +697,7 @@ useStore.subscribe((s) => {
       effects: s.effects,
       particles: s.particles,
       joystickEnabled: s.joystickEnabled,
+      customSpawn: s.customSpawn,
     }
     if (!s.online) {
       base.gold = s.gold
@@ -583,6 +705,7 @@ useStore.subscribe((s) => {
       base.discovered = s.discovered
       base.lastBonus = s.lastBonus
       base.placedRocks = s.placedRocks // offline: keep rocks locally
+      base.plots = s.plots // offline: keep plots locally
     }
     localStorage.setItem(LS_KEY, JSON.stringify(base))
   } catch {

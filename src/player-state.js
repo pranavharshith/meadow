@@ -4,15 +4,27 @@ import * as THREE from 'three'
 // high-frequency movement/look updates don't trigger re-renders.
 
 // ── Spawn: random position within the Spawn Plaza (radius 4–10 units) ──────
-const spawnAngle = Math.random() * Math.PI * 2
-const spawnR = 4 + Math.random() * 6
+// or at the player's custom spawn point if one was saved.
+let spawnX = 0, spawnZ = 0, spawnYaw = 0, lookYaw = 0
+try {
+  const saved = JSON.parse(localStorage.getItem('meadow-save-v1'))
+  if (saved && saved.customSpawn) {
+    spawnX = saved.customSpawn.x
+    spawnZ = saved.customSpawn.z
+    spawnYaw = Math.atan2(-spawnX, -spawnZ) // face toward origin
+  }
+} catch {}
+if (!spawnX && !spawnZ) {
+  const spawnAngle = Math.random() * Math.PI * 2
+  const spawnR = 4 + Math.random() * 6
+  spawnX = Math.cos(spawnAngle) * spawnR
+  spawnZ = Math.sin(spawnAngle) * spawnR
+  spawnYaw = spawnAngle + Math.PI
+}
+lookYaw = spawnYaw
 export const P = {
-  pos: new THREE.Vector3(
-    Math.cos(spawnAngle) * spawnR,
-    0,
-    Math.sin(spawnAngle) * spawnR
-  ),
-  avatarYaw: spawnAngle + Math.PI, // face toward the center on spawn
+  pos: new THREE.Vector3(spawnX, 0, spawnZ),
+  avatarYaw: spawnYaw, // face toward the center on spawn
   moving: false,
   // social state: 'sit' | 'wave' | null
   emote: null,
@@ -20,7 +32,7 @@ export const P = {
 }
 
 // Camera look direction (radians) + zoom multiplier (mouse wheel).
-export const look = { yaw: spawnAngle + Math.PI, pitch: 0.55, zoom: 1 }
+export const look = { yaw: lookYaw, pitch: 0.55, zoom: 1 }
 
 // Raw keyboard state keyed by e.code.
 export const keys = {}
