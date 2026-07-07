@@ -12,8 +12,18 @@ const ZOOM_MAX = 2.2
 // elements are ignored so buttons don't rotate the camera.
 export default function Controls() {
   useEffect(() => {
+    // True when the user is typing into a text field (chat, name, email) so
+    // keyboard input never leaks into movement / actions.
+    const isTyping = () => {
+      const el = document.activeElement
+      if (!el) return false
+      const tag = el.tagName
+      return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable
+    }
+
     const onKeyDown = (e) => {
       if (e.repeat) return
+      if (isTyping()) return
       keys[e.code] = true
       const st = useStore.getState()
       if (e.code === 'KeyE') st.plantTree()
@@ -27,6 +37,7 @@ export default function Controls() {
       }
     }
     const onKeyUp = (e) => {
+      // clear regardless so a key held before focusing an input can't stick
       keys[e.code] = false
     }
 

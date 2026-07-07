@@ -14,11 +14,13 @@ import Petals from './world/Petals'
 import Weather from './world/Weather'
 import Landmarks from './world/Landmarks'
 import Player from './world/Player'
+import RemotePlayers from './world/RemotePlayers'
 import CameraRig from './world/CameraRig'
 import WindClock from './world/WindClock'
 import Effects from './world/Effects'
 import Controls from './Controls'
 import Ambience from './Ambience'
+import Net from './net/Net'
 import Hud from './ui/Hud'
 import { useStore } from './store'
 
@@ -69,10 +71,12 @@ export default function App() {
           <Fireflies />
           <Petals />
           <Weather />
+          <RemotePlayers />
         </Suspense>
 
         <Player />
         <CameraRig />
+        <Net />
         <Effects />
       </Canvas>
 

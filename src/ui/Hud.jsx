@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, PALETTE } from '../store'
 import { place } from '../player-state'
+import { supabase, ONLINE } from '../net/supabase'
 import Minimap from './Minimap'
+import Chat from './Chat'
 
 const VIEW_LABEL = { third: 'Follow', first: 'First person', top: 'Map' }
 
@@ -20,21 +22,36 @@ function PlaceLabel() {
   return <div className={`place${name ? ' show' : ''}`}>{name}</div>
 }
 
+function Status() {
+  const online = useStore((s) => s.online)
+  const count = useStore((s) => s.playerCount)
+  return (
+    <div className={`status${online ? ' on' : ''}`}>
+      <span className="live" />
+      {online ? `${count} here` : 'offline'}
+    </div>
+  )
+}
+
 function Identity({ open, onClose }) {
   const name = useStore((s) => s.name)
   const color = useStore((s) => s.color)
+  const online = useStore((s) => s.online)
   const setName = useStore((s) => s.setName)
   const setColor = useStore((s) => s.setColor)
-  const ref = useRef()
+  const [email, setEmail] = useState('')
+  const [emailNote, setEmailNote] = useState('')
+
+  const saveEmail = async () => {
+    if (!ONLINE || !supabase || !email) return
+    const { error } = await supabase.auth.updateUser({ email })
+    setEmailNote(error ? 'could not send link' : 'check your email to confirm')
+  }
+
   return (
-    <div className={`identity no-look${open ? ' open' : ''}`} ref={ref}>
+    <div className={`identity no-look${open ? ' open' : ''}`}>
       <label>Your name</label>
-      <input
-        value={name}
-        maxLength={18}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="wanderer"
-      />
+      <input value={name} maxLength={18} onChange={(e) => setName(e.target.value)} placeholder="wanderer" />
       <label>Colour</label>
       <div className="swatches">
         {PALETTE.map((c) => (
@@ -47,6 +64,23 @@ function Identity({ open, onClose }) {
           />
         ))}
       </div>
+      {online && (
+        <>
+          <label>Keep across devices (optional)</label>
+          <div className="row">
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@email.com"
+            />
+            <button className="btn small" onClick={saveEmail}>
+              link
+            </button>
+          </div>
+          {emailNote && <div className="note">{emailNote}</div>}
+        </>
+      )}
       <button className="btn small" onClick={onClose}>
         done
       </button>
@@ -64,6 +98,7 @@ export default function Hud() {
   const muted = useStore((s) => s.muted)
   const view = useStore((s) => s.viewMode)
   const name = useStore((s) => s.name)
+  const color = useStore((s) => s.color)
   const cycleView = useStore((s) => s.cycleView)
   const toggleMute = useStore((s) => s.toggleMute)
   const plantTree = useStore((s) => s.plantTree)
@@ -77,12 +112,13 @@ export default function Hud() {
           <div className="title">a shared garden</div>
           <div className="who no-look">
             <button className="tag" onClick={() => setEditing((v) => !v)} title="edit name & colour">
-              <span className="dot" style={{ background: useStore.getState().color }} />
+              <span className="dot" style={{ background: color }} />
               {name}
             </button>
             <div className="gold">
               <span className="coin" /> {gold}
             </div>
+            <Status />
           </div>
           <Identity open={editing} onClose={() => setEditing(false)} />
         </div>
@@ -94,7 +130,7 @@ export default function Hud() {
 
       {!seen && (
         <div className="hint" onPointerDown={() => setSeen(true)}>
-          drag to look · <b>WASD</b> walk · <b>V</b> view · <b>E</b> plant · <b>R</b> water · <b>C</b> sit · <b>F</b> wave · scroll zoom
+          drag to look · <b>WASD</b> walk · <b>V</b> view · <b>E</b> plant · <b>R</b> water · <b>C</b> sit · <b>F</b> wave · <b>Enter</b> chat
         </div>
       )}
 
@@ -111,6 +147,8 @@ export default function Hud() {
           </button>
         </div>
       </div>
+
+      <Chat />
     </div>
   )
 }

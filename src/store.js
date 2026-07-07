@@ -1,11 +1,14 @@
 import { create } from 'zustand'
 import { P } from './player-state'
 import { LANDMARKS } from './world/places'
+import { bridge } from './net/bridge'
 
 const LS_KEY = 'meadow-save-v1'
 const GROW_SECONDS = 90
 const WATER_COOLDOWN = 4000 // ms between watering
 const WATER_BOOST = 18000 // ms of growth granted per watering
+const WORLD_CHAT_COST = 3
+const CHAT_MAX = 60
 
 function genId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
@@ -46,14 +49,27 @@ export const useStore = create((set, get) => ({
   lastBonus: saved.lastBonus ?? '',
   toast: null, // transient message shown in the HUD
 
+  // networking-facing
+  online: false,
+  playerCount: 1,
+  chat: [], // { id, scope, name, color, text, at }
+  chatScope: 'region', // 'region' | 'world'
+
   setView: (v) => set({ viewMode: v }),
   cycleView: () =>
     set((s) => ({
       viewMode: s.viewMode === 'third' ? 'first' : s.viewMode === 'first' ? 'top' : 'third',
     })),
   toggleMute: () => set((s) => ({ muted: !s.muted })),
-  setName: (name) => set({ name: (name || '').slice(0, 18) || 'wanderer' }),
-  setColor: (color) => set({ color }),
+  setName: (name) => {
+    set({ name: (name || '').slice(0, 18) || 'wanderer' })
+    bridge.saveProfile()
+  },
+  setColor: (color) => {
+    set({ color })
+    bridge.saveProfile()
+  },
+  setChatScope: (chatScope) => set({ chatScope }),
 
   flash: (msg) => {
     set({ toast: { msg, at: Date.now() } })
@@ -61,6 +77,21 @@ export const useStore = create((set, get) => ({
       if (get().toast && Date.now() - get().toast.at >= 2600) set({ toast: null })
     }, 2700)
   },
+
+  // --- networking hydration (called by <Net/>) ---
+  setOnline: (online) => set({ online }),
+  setPlayerCount: (playerCount) => set({ playerCount }),
+  hydrateProfile: ({ gold, name, color }) =>
+    set((s) => ({
+      gold: gold ?? s.gold,
+      name: name ?? s.name,
+      color: color ?? s.color,
+    })),
+  setTrees: (trees) => set({ trees }),
+  addTree: (t) =>
+    set((s) => (s.trees.some((x) => x.id === t.id) ? {} : { trees: [...s.trees, t] })),
+  addChatMessage: (m) =>
+    set((s) => ({ chat: [...s.chat, m].slice(-CHAT_MAX) })),
 
   plantTree: () => {
     const x = P.pos.x + Math.sin(P.avatarYaw) * 1.4
@@ -72,9 +103,12 @@ export const useStore = create((set, get) => ({
       plantedAt: Date.now(),
       scale: 0.9 + Math.random() * 0.7,
       variant: (Math.random() * 3) | 0,
+      owner: true,
     }
     set((s) => ({ trees: [...s.trees, t], gold: s.gold + 5 }))
     get().flash('planted a sapling · +5 gold')
+    bridge.plant(t)
+    bridge.saveProfile()
   },
 
   // Water the nearest young sapling near the player to help it grow faster.
@@ -105,6 +139,36 @@ export const useStore = create((set, get) => ({
       gold: s.gold + 1,
     }))
     get().flash('watered a sapling · +1 gold')
+    bridge.saveProfile()
+  },
+
+  // Send a chat message. World chat costs gold (spam control).
+  sendChat: (text) => {
+    const clean = (text || '').trim().slice(0, 160)
+    if (!clean) return
+    const scope = get().chatScope
+    if (scope === 'world') {
+      if (get().gold < WORLD_CHAT_COST) {
+        get().flash(`world chat costs ${WORLD_CHAT_COST} gold`)
+        return
+      }
+      set((s) => ({ gold: s.gold - WORLD_CHAT_COST }))
+      bridge.saveProfile()
+    }
+    const msg = {
+      id: genId(),
+      scope,
+      name: get().name,
+      color: get().color,
+      text: clean,
+      at: Date.now(),
+      self: true,
+    }
+    get().addChatMessage(msg)
+    const accepted = bridge.sendChat(scope, clean)
+    if (!accepted && !get().online) {
+      // offline: nothing else to do, message already shown locally
+    }
   },
 
   discoverLandmark: (id) => {
@@ -112,6 +176,7 @@ export const useStore = create((set, get) => ({
     const lm = LANDMARKS.find((l) => l.id === id)
     set((s) => ({ discovered: [...s.discovered, id], gold: s.gold + 20 }))
     get().flash(`discovered ${lm ? lm.name : 'a place'} · +20 gold`)
+    bridge.saveProfile()
   },
 
   claimDailyBonus: () => {
@@ -120,24 +185,24 @@ export const useStore = create((set, get) => ({
     const first = get().lastBonus === ''
     set((s) => ({ lastBonus: today, gold: s.gold + 10 }))
     get().flash(first ? 'welcome to the meadow · +10 gold' : 'welcome back · +10 gold')
+    bridge.saveProfile()
   },
 }))
 
-// Persist identity + world to localStorage on any relevant change.
+// Persist to localStorage. Online, trees live on the server, so we only cache
+// identity + progress; offline we cache everything so the world survives.
 useStore.subscribe((s) => {
   try {
-    localStorage.setItem(
-      LS_KEY,
-      JSON.stringify({
-        gold: s.gold,
-        color: s.color,
-        name: s.name,
-        trees: s.trees,
-        discovered: s.discovered,
-        lastBonus: s.lastBonus,
-        viewMode: s.viewMode,
-      })
-    )
+    const base = {
+      gold: s.gold,
+      color: s.color,
+      name: s.name,
+      discovered: s.discovered,
+      lastBonus: s.lastBonus,
+      viewMode: s.viewMode,
+    }
+    if (!s.online) base.trees = s.trees
+    localStorage.setItem(LS_KEY, JSON.stringify(base))
   } catch {
     /* ignore quota / private mode */
   }
