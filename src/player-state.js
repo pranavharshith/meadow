@@ -2,9 +2,17 @@ import * as THREE from 'three'
 
 // Shared mutable singletons updated every frame. Kept OUTSIDE React state so
 // high-frequency movement/look updates don't trigger re-renders.
+
+// ── Spawn: random position within the Spawn Plaza (radius 4–10 units) ──────
+const spawnAngle = Math.random() * Math.PI * 2
+const spawnR = 4 + Math.random() * 6
 export const P = {
-  pos: new THREE.Vector3(0, 0, 0),
-  avatarYaw: 0,
+  pos: new THREE.Vector3(
+    Math.cos(spawnAngle) * spawnR,
+    0,
+    Math.sin(spawnAngle) * spawnR
+  ),
+  avatarYaw: spawnAngle + Math.PI, // face toward the center on spawn
   moving: false,
   // social state: 'sit' | 'wave' | null
   emote: null,
@@ -12,7 +20,7 @@ export const P = {
 }
 
 // Camera look direction (radians) + zoom multiplier (mouse wheel).
-export const look = { yaw: 0, pitch: 0.55, zoom: 1 }
+export const look = { yaw: spawnAngle + Math.PI, pitch: 0.55, zoom: 1 }
 
 // Raw keyboard state keyed by e.code.
 export const keys = {}

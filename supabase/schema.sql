@@ -7,7 +7,7 @@
 -- and set VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY in the frontend .env.
 --
 -- Security model:
---   * Direct INSERT/UPDATE/DELETE on `players` and `trees` is REVOKED from
+--   * Direct INSERT/UPDATE/DELETE on `players`, `trees`, and `rocks` is REVOKED from
 --     anon/authenticated. Clients read (SELECT) freely, but all mutations
 --     go through SECURITY DEFINER RPCs that enforce game rules: spacing,
 --     cooldowns, gold costs, daily-bonus once per day, etc.
@@ -76,6 +76,9 @@ revoke insert, update, delete on public.trees   from anon, authenticated;
 -- RPCs (SECURITY DEFINER, fixed search_path). These are the ONLY way a client
 -- can mutate the game state. Every one re-validates auth.uid() and inputs.
 -- ============================================================================
+
+-- Needed for gen_random_bytes() used by trusted chat message ids.
+create extension if not exists pgcrypto with schema extensions;
 
 -- Ensure a player row exists on first sign-in. Returns the row.
 create or replace function public.ensure_profile(p_name text, p_color text)
@@ -441,3 +444,248 @@ end
 $$;
 
 grant execute on function public.send_world_chat(text) to authenticated;
+
+-- ============================================================================
+-- ROCKS — persistent, server-owned, visible to all players in a region.
+-- Same security pattern as trees: SELECT open, INSERT/UPDATE/DELETE revoked,
+-- mutations go through SECURITY DEFINER RPCs.
+-- ============================================================================
+
+create table if not exists public.rocks (
+  id          uuid primary key,
+  owner_id    uuid        not null references auth.users (id) on delete cascade,
+  region_x    integer     not null,
+  region_z    integer     not null,
+  x           real        not null,
+  z           real        not null,
+  rot         real        not null default 0,
+  rock_shape  smallint    not null default 2,
+  sx          real        not null default 1,
+  sy          real        not null default 1,
+  sz          real        not null default 1,
+  mat_idx     smallint    not null default 0,
+  placed_at   timestamptz not null default now()
+);
+
+create index if not exists rocks_region_idx on public.rocks (region_x, region_z);
+
+alter table public.rocks enable row level security;
+drop policy if exists "rocks readable" on public.rocks;
+create policy "rocks readable" on public.rocks for select using (true);
+revoke insert, update, delete on public.rocks from anon, authenticated;
+
+-- Cooldown column for rock placement
+alter table public.players add column if not exists last_rock_at timestamptz;
+
+-- Place a rock. Enforces 500ms cooldown + spacing (2.0 units). Debits gold.
+-- Returns the new player gold total.
+drop function if exists public.place_rock(uuid, real, real, real, smallint, real, real, real, smallint);
+create or replace function public.place_rock(
+  p_id uuid, p_x real, p_z real, p_rot real,
+  p_rock_shape smallint, p_sx real, p_sy real, p_sz real, p_mat_idx smallint,
+  p_cost integer default 5
+)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare
+  last_at  timestamptz;
+  crowded  int;
+  rx int; rz int;
+  new_gold int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  select last_rock_at into last_at from public.players where id = auth.uid();
+  if last_at is not null and now() - last_at < interval '500 milliseconds' then
+    raise exception 'rock cooldown';
+  end if;
+
+  -- Clamp cosmetic values
+  p_rock_shape := greatest(0::smallint, least(2::smallint, coalesce(p_rock_shape, 2::smallint)));
+  p_mat_idx    := greatest(0::smallint, least(2::smallint, coalesce(p_mat_idx,    0::smallint)));
+  p_sx  := greatest(0.3::real, least(2.0::real, coalesce(p_sx, 1.0::real)));
+  p_sy  := greatest(0.3::real, least(2.0::real, coalesce(p_sy, 1.0::real)));
+  p_sz  := greatest(0.3::real, least(2.0::real, coalesce(p_sz, 1.0::real)));
+  p_cost := greatest(0, least(50, coalesce(p_cost, 5)));
+
+  rx := floor(p_x / 120.0)::int;
+  rz := floor(p_z / 120.0)::int;
+
+  -- Spacing: no rock within 2.0 units of requested spot
+  select count(*) into crowded
+    from public.rocks
+    where region_x = rx and region_z = rz
+      and (x - p_x) * (x - p_x) + (z - p_z) * (z - p_z) < 4.0;
+  if crowded > 0 then raise exception 'too crowded'; end if;
+
+  insert into public.rocks (id, owner_id, region_x, region_z, x, z, rot, rock_shape, sx, sy, sz, mat_idx, placed_at)
+    values (p_id, auth.uid(), rx, rz, p_x, p_z, p_rot, p_rock_shape, p_sx, p_sy, p_sz, p_mat_idx, now());
+
+  update public.players
+    set gold = gold - p_cost,
+        last_rock_at = now(),
+        updated_at = now()
+    where id = auth.uid() and gold >= p_cost
+    returning gold into new_gold;
+  if new_gold is null then
+    delete from public.rocks where id = p_id;
+    raise exception 'not enough gold';
+  end if;
+
+  return new_gold;
+end
+$$;
+
+-- Remove a rock the player owns. Credits +3 gold. Returns new gold total.
+create or replace function public.remove_rock(p_rock_id uuid)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare new_gold int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  delete from public.rocks
+    where id = p_rock_id and owner_id = auth.uid();
+  if not found then raise exception 'not your rock'; end if;
+
+  update public.players
+    set gold = gold + 3,
+        updated_at = now()
+    where id = auth.uid()
+    returning gold into new_gold;
+
+  return new_gold;
+end
+$$;
+
+grant execute on function public.place_rock(uuid, real, real, real, smallint, real, real, real, smallint, integer) to authenticated;
+grant execute on function public.remove_rock(uuid) to authenticated;
+
+-- ============================================================================
+-- SERVER-SIDE PROFANITY SANITIZATION
+-- Mirrors the client-side word list. Applied in both chat RPCs so even a
+-- modified client that skips maskProfanity() gets its text cleaned here.
+-- Returns the sanitized text.
+-- ============================================================================
+
+create or replace function public.sanitize_chat(p_text text)
+returns text
+language sql immutable security definer set search_path = public
+as $$
+  select regexp_replace(
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(
+          regexp_replace(
+            regexp_replace(
+              regexp_replace(
+                regexp_replace(
+                  regexp_replace(
+                    regexp_replace(
+                      regexp_replace(
+                        regexp_replace(
+                          regexp_replace(p_text,
+                            '\mfuck\M',    '****',  'gi'),
+                            '\mshit\M',    '****',  'gi'),
+                            '\mbitch\M',   '*****', 'gi'),
+                            '\mcunt\M',    '****',  'gi'),
+                            '\masshole\M', '*******', 'gi'),
+                            '\mdick\M',    '****',  'gi'),
+                            '\mpussy\M',   '*****', 'gi'),
+                            '\mnigger\M',  '******','gi'),
+                            '\mnigga\M',   '*****', 'gi'),
+                            '\mfaggot\M',  '******','gi'),
+                            '\mretard\M',  '******','gi'),
+                            '\mslut\M',    '****',  'gi'),
+                            '\mwhore\M',   '*****', 'gi')
+$$;
+
+-- Re-create check_region_chat with server-side sanitization.
+-- A previous version returned void; PostgreSQL requires dropping before a
+-- return-type change. Safe to re-run because the final function is recreated
+-- immediately below.
+drop function if exists public.check_region_chat(text);
+-- Returns the cleaned text so the client broadcasts the sanitized version.
+create or replace function public.check_region_chat(p_text text)
+returns text
+language plpgsql security definer set search_path = public
+as $$
+declare
+  last_at  timestamptz;
+  clean    text;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if p_text is null or length(btrim(p_text)) = 0 or length(p_text) > 160 then
+    raise exception 'bad text';
+  end if;
+
+  select last_chat_at into last_at from public.players where id = auth.uid();
+  if last_at is not null and now() - last_at < interval '800 milliseconds' then
+    raise exception 'chat cooldown';
+  end if;
+
+  clean := public.sanitize_chat(btrim(p_text));
+  update public.players set last_chat_at = now() where id = auth.uid();
+  return clean;
+end
+$$;
+
+-- Re-create send_world_chat with server-side sanitization.
+-- Signature unchanged (text -> integer) so no drop needed.
+create or replace function public.send_world_chat(p_text text)
+returns integer
+language plpgsql security definer set search_path = public, extensions, realtime
+as $$
+declare
+  g        int;
+  last_at  timestamptz;
+  p        public.players;
+  mid      text;
+  clean    text;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if p_text is null then raise exception 'bad text'; end if;
+
+  p_text := btrim(p_text);
+  if length(p_text) = 0 or length(p_text) > 160 then
+    raise exception 'bad text';
+  end if;
+
+  select * into p from public.players where id = auth.uid();
+  if p.last_chat_at is not null and now() - p.last_chat_at < interval '1500 milliseconds' then
+    raise exception 'chat cooldown';
+  end if;
+
+  update public.players
+    set gold = gold - 3,
+        last_chat_at = now(),
+        updated_at = now()
+    where id = auth.uid() and gold >= 3
+    returning gold into g;
+  if g is null then raise exception 'not enough gold'; end if;
+
+  clean := public.sanitize_chat(p_text);
+  mid   := encode(gen_random_bytes(8), 'hex');
+
+  perform realtime.send(
+    jsonb_build_object(
+      'id',    auth.uid(),
+      'mid',   mid,
+      'name',  p.name,
+      'color', p.color,
+      'text',  clean
+    ),
+    'chat',
+    'world',
+    false
+  );
+
+  return g;
+end
+$$;
+
+grant execute on function public.sanitize_chat(text)          to authenticated;
+grant execute on function public.check_region_chat(text)      to authenticated;
+grant execute on function public.send_world_chat(text)        to authenticated;

@@ -16,6 +16,9 @@ const CUT_GROWN_REWARD = 8
 const CUT_SAPLING_REWARD = 2
 const CUT_RANGE = 4.0 // world units
 
+// Rock reward on removal
+const ROCK_REMOVE_REWARD = 3
+
 function genId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
   return 'x' + Math.random().toString(36).slice(2) + Date.now().toString(36)
@@ -54,6 +57,9 @@ export const useStore = create((set, get) => ({
   particles: saved.particles ?? true,
   settingsOpen: false,
 
+  // touch joystick — auto-enable on touch devices, else off
+  joystickEnabled: saved.joystickEnabled ?? (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0),
+
   // progression (server-owned when online; localStorage fallback offline)
   gold: saved.gold ?? 0,
   color: saved.color ?? randomColor(),
@@ -61,6 +67,7 @@ export const useStore = create((set, get) => ({
   trees: saved.trees ?? [],
   discovered: saved.discovered ?? [],
   lastBonus: saved.lastBonus ?? '', // only used offline; server tracks per-day online
+  // rocks are server-owned when online (like trees). localStorage for offline.
   placedRocks: saved.placedRocks ?? [],
 
   // shop
@@ -113,6 +120,7 @@ export const useStore = create((set, get) => ({
   setSelectedItem: (item) => set({ selectedItem: item }),
   setSelection: (sel) => set({ selection: sel }),
   clearSelection: () => set({ selection: null }),
+  setJoystickEnabled: (v) => set({ joystickEnabled: v }),
 
   setName: (name) => {
     const cleaned = (name || '').slice(0, 18) || 'wanderer'
@@ -149,6 +157,13 @@ export const useStore = create((set, get) => ({
   addTree: (t) =>
     set((s) => (s.trees.some((x) => x.id === t.id) ? {} : { trees: [...s.trees, t] })),
   removeTreeLocal: (id) => set((s) => ({ trees: s.trees.filter((t) => t.id !== id), cuttingId: null })),
+
+  // --- Rock server sync ---
+  setRocks: (rocks) => set({ placedRocks: rocks }),
+  addRock: (r) =>
+    set((s) => (s.placedRocks.some((x) => x.id === r.id) ? {} : { placedRocks: [...s.placedRocks, r] })),
+  removeRockLocal: (id) => set((s) => ({ placedRocks: s.placedRocks.filter((r) => r.id !== id) })),
+
   addChatMessage: (m) =>
     set((s) => ({ chat: [...s.chat, m].slice(-CHAT_MAX) })),
 
@@ -206,7 +221,7 @@ export const useStore = create((set, get) => ({
     if (mode === 'tree') {
       await get()._finalizePlant(px, pz, sub)
     } else {
-      get()._finalizePlaceRock(px, pz, sub)
+      await get()._finalizePlaceRock(px, pz, sub)
     }
   },
 
@@ -243,7 +258,8 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  _finalizePlaceRock: (px, pz, sub) => {
+  // Rock placement — now server-persisted and broadcast to region peers.
+  _finalizePlaceRock: async (px, pz, sub) => {
     const state = get()
     const cost = sub.cost ?? 5
     const rock = {
@@ -256,12 +272,32 @@ export const useStore = create((set, get) => ({
       sy: 0.5 + Math.random() * 0.4,
       sz: 0.7 + Math.random() * 0.5,
       matIdx: (Math.random() * 3) | 0,
+      owner: true,
     }
+    const goldBefore = state.gold
     set((s) => ({
       placedRocks: [...s.placedRocks, rock],
       gold: s.gold - cost,
     }))
     state.flash(`placed a rock · -${cost} gold`)
+
+    if (bridge.online) {
+      const res = await bridge.placeRock(rock, cost)
+      if (!res.ok) {
+        set((s) => ({
+          placedRocks: s.placedRocks.filter((r) => r.id !== rock.id),
+          gold: goldBefore,
+        }))
+        const map = {
+          'rock cooldown': 'wait a moment before placing again',
+          'too crowded':   'too crowded here',
+          'not enough gold': `need ${cost} gold`,
+        }
+        get().flash(map[res.error] || 'could not place rock')
+        return
+      }
+      if (typeof res.gold === 'number') set({ gold: res.gold })
+    }
   },
 
   // Public entry points: first press → enter placement, second press → confirm.
@@ -288,12 +324,29 @@ export const useStore = create((set, get) => ({
     if (sel.kind === 'rock') {
       const rock = state.placedRocks.find((r) => r.id === sel.id)
       if (!rock) { set({ selection: null }); return }
+      const goldBefore = state.gold
       set((s) => ({
         placedRocks: s.placedRocks.filter((r) => r.id !== rock.id),
-        gold: s.gold + 3,
+        gold: s.gold + ROCK_REMOVE_REWARD,
         selection: null,
       }))
-      state.flash('removed a rock · +3 gold')
+      state.flash(`removed a rock · +${ROCK_REMOVE_REWARD} gold`)
+
+      if (bridge.online) {
+        bridge.removeRock(rock.id).then((res) => {
+          if (!res.ok) {
+            // Revert: add rock back and revert gold
+            set((s) => ({
+              placedRocks: [...s.placedRocks, rock],
+              gold: goldBefore,
+              selection: null,
+            }))
+            get().flash(res.error === 'not your rock' ? 'that rock is not yours' : 'could not remove rock')
+          } else if (typeof res.gold === 'number') {
+            set({ gold: res.gold })
+          }
+        })
+      }
       return
     }
 
@@ -395,8 +448,6 @@ export const useStore = create((set, get) => ({
           trees: s.trees.map((t) => (t.id === best.id ? { ...t, plantedAt: plantedBefore } : t)),
           gold: goldBefore,
         }))
-        // Surface the real reason instead of a generic message so the player
-        // (and we) know if it's a cooldown, an ID mismatch, or something else.
         const map = {
           'water cooldown': 'wait a moment before watering again',
           'not waterable': 'that sapling has already grown up',
@@ -456,6 +507,12 @@ export const useStore = create((set, get) => ({
         return
       }
       if (typeof res.gold === 'number') set({ gold: res.gold })
+      // Server returns the server-sanitized text; update our own message to match.
+      if (res.text && res.text !== clean) {
+        set((s) => ({
+          chat: s.chat.map((m) => (m.id === msg.id ? { ...m, text: res.text } : m)),
+        }))
+      }
     }
   },
 
@@ -500,8 +557,8 @@ export const useStore = create((set, get) => ({
   },
 }))
 
-// Persist to localStorage. Online, trees + gold live on the server, so we
-// only cache identity + preferences; offline we cache everything.
+// Persist to localStorage. Online, trees + gold + rocks live on the server, so
+// we only cache identity + preferences; offline we cache everything.
 useStore.subscribe((s) => {
   try {
     const base = {
@@ -514,13 +571,14 @@ useStore.subscribe((s) => {
       grassDensity: s.grassDensity,
       effects: s.effects,
       particles: s.particles,
-      placedRocks: s.placedRocks,
+      joystickEnabled: s.joystickEnabled,
     }
     if (!s.online) {
       base.gold = s.gold
       base.trees = s.trees
       base.discovered = s.discovered
       base.lastBonus = s.lastBonus
+      base.placedRocks = s.placedRocks // offline: keep rocks locally
     }
     localStorage.setItem(LS_KEY, JSON.stringify(base))
   } catch {

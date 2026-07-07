@@ -13,17 +13,21 @@ export const bridge = {
   saveIdentity: async (_name, _color) => null,
 
   // Server-gated mutations. Each returns { ok, gold?, error?, ...extras }.
-  plant:        async (_tree)               => ({ ok: false, error: 'offline' }),
-  water:        async (_treeId)             => ({ ok: false, error: 'offline' }),
-  cut:          async (_treeId)             => ({ ok: false, error: 'offline' }),
-  discover:     async (_landmarkId)         => ({ ok: false, error: 'offline' }),
-  claimDaily:   async ()                    => ({ ok: false, error: 'offline' }),
+  plant:       async (_tree)               => ({ ok: false, error: 'offline' }),
+  water:       async (_treeId)             => ({ ok: false, error: 'offline' }),
+  cut:         async (_treeId)             => ({ ok: false, error: 'offline' }),
+  discover:    async (_landmarkId)         => ({ ok: false, error: 'offline' }),
+  claimDaily:  async ()                    => ({ ok: false, error: 'offline' }),
 
-  // Chat: gate + broadcast in one call. Returns { ok, gold?, error? }.
-  sendChat:     noopAsync,
+  // Rock mutations (server-persisted, visible to all players in region)
+  placeRock:   async (_rock)               => ({ ok: false, error: 'offline' }),
+  removeRock:  async (_rockId)             => ({ ok: false, error: 'offline' }),
+
+  // Chat: gate + broadcast in one call. Returns { ok, gold?, error?, text? }.
+  sendChat:    noopAsync,
 
   // Local mute list — always available (offline too). Populated by Net.jsx
   // from localStorage so it survives reloads.
-  isMuted:      (_userId)                   => false,
-  toggleMute:   (_userId, _muted)           => {},
+  isMuted:     (_userId)                   => false,
+  toggleMute:  (_userId, _muted)           => {},
 }

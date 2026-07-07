@@ -64,15 +64,16 @@ export async function getCaptchaToken() {
       if (widgetId != null) {
         try { turnstile.reset(widgetId) } catch { /* ignore */ }
       }
+      // Note: 'size' no longer supports 'invisible' — that's controlled by
+      // the widget mode configured in the Cloudflare dashboard (set the
+      // widget to "Invisible" or "Managed" there). We just render off-screen
+      // and let the widget mode decide whether a challenge UI appears.
       widgetId = turnstile.render(el, {
         sitekey: SITE_KEY,
-        size: 'invisible',
         callback: done,
         'error-callback': () => done(null),
         'timeout-callback': () => done(null),
       })
-      // Kick off the challenge for invisible widgets.
-      try { turnstile.execute(widgetId) } catch { done(null) }
     })
   } catch {
     return null

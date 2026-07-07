@@ -79,10 +79,10 @@ export default function Player() {
     let ix = 0
     let iy = 0
     if (!sitting) {
-      if (keys['KeyW'] || keys['ArrowUp']) iy += 1
-      if (keys['KeyS'] || keys['ArrowDown']) iy -= 1
-      if (keys['KeyD'] || keys['ArrowRight']) ix += 1
-      if (keys['KeyA'] || keys['ArrowLeft']) ix -= 1
+      if (keys['KeyW'] || keys['ArrowUp']    || keys['JoyUp'])    iy += 1
+      if (keys['KeyS'] || keys['ArrowDown']  || keys['JoyDown'])  iy -= 1
+      if (keys['KeyD'] || keys['ArrowRight'] || keys['JoyRight']) ix += 1
+      if (keys['KeyA'] || keys['ArrowLeft']  || keys['JoyLeft'])  ix -= 1
     }
     const run = keys['ShiftLeft'] || keys['ShiftRight']
 

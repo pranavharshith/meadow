@@ -6,3 +6,7 @@ dist
 .env.*
 !.env.example
 .vercel
+
+# guard against accidental pnpm reintroduction
+.pnpm-store
+pnpm-lock.yaml

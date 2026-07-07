@@ -4,6 +4,9 @@
 // them by walking near, which reveals the name and grants a one-time bonus.
 
 export const LANDMARKS = [
+  // --- Spawn Plaza (world origin — all players start here) ---
+  { id: 'spawn-plaza', name: 'The Meadow Gate', kind: 'spawn', x: 0, z: 0, nearRange: 30, discoverRange: 18 },
+
   // --- Near ring (within ~100 units of origin) ---
   { id: 'lonely-oak', name: 'The Lonely Oak', kind: 'oak', x: 62, z: -48 },
   { id: 'crystal-pond', name: 'Crystal Pond', kind: 'pond', x: -74, z: 40 },
@@ -35,8 +38,8 @@ export const LANDMARKS = [
   { id: 'cloud-overlook', name: 'Cloud Overlook', kind: 'hill', x: -50, z: -400 },
 ]
 
-export const DISCOVER_RANGE = 14 // how close you must be to "discover" a place
-export const NEAR_RANGE = 26 // how close before the place name shows in the HUD
+export const DISCOVER_RANGE = 14 // default: how close you must be to "discover" a place
+export const NEAR_RANGE = 26 // default: how close before the place name shows in the HUD
 
 export function nearestLandmark(x, z) {
   let best = null
@@ -48,5 +51,10 @@ export function nearestLandmark(x, z) {
       best = l
     }
   }
-  return { landmark: best, dist: bestD }
+  return {
+    landmark: best,
+    dist: bestD,
+    nearRange: best ? (best.nearRange ?? NEAR_RANGE) : NEAR_RANGE,
+    discoverRange: best ? (best.discoverRange ?? DISCOVER_RANGE) : DISCOVER_RANGE,
+  }
 }

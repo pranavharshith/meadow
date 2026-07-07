@@ -3,9 +3,10 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
 import { trunkGeo, leafGeo, trunkMat, leafMats } from './tree-assets'
-import { LANDMARKS, nearestLandmark, DISCOVER_RANGE, NEAR_RANGE } from './places'
+import { LANDMARKS, nearestLandmark } from './places'
 import { P, place } from '../player-state'
 import { useStore } from '../store'
+import SpawnPlaza from './SpawnPlaza'
 
 function BigTree({ scale = 2.4 }) {
   return (
@@ -85,6 +86,8 @@ function SunStone({ x, z }) {
 function Feature({ lm }) {
   const y = useMemo(() => terrainHeight(lm.x, lm.z), [lm])
   switch (lm.kind) {
+    case 'spawn':
+      return <SpawnPlaza x={lm.x} z={lm.z} />
     case 'oak':
       return (
         <group position={[lm.x, y, lm.z]}>
@@ -128,10 +131,11 @@ export default function Landmarks() {
   const discoverLandmark = useStore((s) => s.discoverLandmark)
 
   useFrame(() => {
-    const { landmark, dist } = nearestLandmark(P.pos.x, P.pos.z)
+    // nearestLandmark now returns per-landmark nearRange / discoverRange
+    const { landmark, dist, nearRange, discoverRange } = nearestLandmark(P.pos.x, P.pos.z)
     if (!landmark) return
-    place.name = dist < NEAR_RANGE ? landmark.name : ''
-    if (dist < DISCOVER_RANGE) discoverLandmark(landmark.id)
+    place.name = dist < nearRange ? landmark.name : ''
+    if (dist < discoverRange) discoverLandmark(landmark.id)
   })
 
   return (

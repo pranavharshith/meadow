@@ -107,6 +107,29 @@ export default function Net() {
       useStore.getState().removeTreeLocal(payload.id)
     }
 
+    // A remote peer placed a rock. Add it to the local scene.
+    const receiveRock = (payload) => {
+      if (!payload || payload.owner_id === meId.current) return
+      useStore.getState().addRock({
+        id: payload.id,
+        x: payload.x,
+        z: payload.z,
+        rot: payload.rot ?? 0,
+        rockShape: payload.rock_shape ?? 2,
+        sx: payload.sx ?? 1,
+        sy: payload.sy ?? 1,
+        sz: payload.sz ?? 1,
+        matIdx: payload.mat_idx ?? 0,
+        owner: false,
+      })
+    }
+
+    // A remote peer removed a rock. Drop it from the local scene.
+    const receiveRemoveRock = (payload) => {
+      if (!payload || !payload.id || payload.owner_id === meId.current) return
+      useStore.getState().removeRockLocal(payload.id)
+    }
+
     async function loadRegionTrees(rx, rz) {
       const { data, error } = await supabase
         .from('trees')
@@ -126,6 +149,29 @@ export default function Net() {
         owner: t.owner_id === meId.current,
       }))
       useStore.getState().setTrees(trees)
+    }
+
+    async function loadRegionRocks(rx, rz) {
+      const { data, error } = await supabase
+        .from('rocks')
+        .select('*')
+        .eq('region_x', rx)
+        .eq('region_z', rz)
+        .limit(1000)
+      if (error || disposed) return
+      const rocks = (data || []).map((r) => ({
+        id: r.id,
+        x: r.x,
+        z: r.z,
+        rot: r.rot ?? 0,
+        rockShape: r.rock_shape ?? 2,
+        sx: r.sx ?? 1,
+        sy: r.sy ?? 1,
+        sz: r.sz ?? 1,
+        matIdx: r.mat_idx ?? 0,
+        owner: r.owner_id === meId.current,
+      }))
+      useStore.getState().setRocks(rocks)
     }
 
     async function joinRegion(rx, rz) {
@@ -151,6 +197,8 @@ export default function Net() {
       posCh.on('broadcast', { event: 'pos' }, ({ payload }) => receivePos(payload))
       posCh.on('broadcast', { event: 'tree' }, ({ payload }) => receiveTree(payload))
       posCh.on('broadcast', { event: 'cut' }, ({ payload }) => receiveCut(payload))
+      posCh.on('broadcast', { event: 'rock' }, ({ payload }) => receiveRock(payload))
+      posCh.on('broadcast', { event: 'removerock' }, ({ payload }) => receiveRemoveRock(payload))
       posCh.on('presence', { event: 'leave' }, ({ leftPresences }) => {
         for (const p of leftPresences || []) {
           const id = p.id || p.key
@@ -184,6 +232,7 @@ export default function Net() {
       regionRef.current = `${rx}:${rz}`
       netStatus.region = regionRef.current
       loadRegionTrees(rx, rz)
+      loadRegionRocks(rx, rz)
     }
     joinRegionRef.current = joinRegion
 
@@ -268,8 +317,6 @@ export default function Net() {
         })
         if (error) return { ok: false, error: error.message }
         // broadcast so nearby players see it immediately (only if joined).
-        // Peers on other shards of the same region will miss the broadcast
-        // and pick it up on their next region-trees reload — acceptable.
         const ch = posChannelRef.current
         if (ch && ch.state === 'joined') {
           ch.send({
@@ -306,6 +353,58 @@ export default function Net() {
         return { ok: true, gold: data } // scalar integer
       }
 
+      bridge.placeRock = async (rock, cost = 5) => {
+        const { data, error } = await supabase.rpc('place_rock', {
+          p_id:        rock.id,
+          p_x:         rock.x,
+          p_z:         rock.z,
+          p_rot:       rock.rot ?? 0,
+          p_rock_shape: rock.rockShape ?? 2,
+          p_sx:        rock.sx ?? 1,
+          p_sy:        rock.sy ?? 1,
+          p_sz:        rock.sz ?? 1,
+          p_mat_idx:   rock.matIdx ?? 0,
+          p_cost:      cost,
+        })
+        if (error) return { ok: false, error: error.message }
+        // Broadcast so same-shard peers see the rock immediately.
+        const ch = posChannelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
+            type: 'broadcast',
+            event: 'rock',
+            payload: {
+              id:         rock.id,
+              owner_id:   meId.current,
+              x:          rock.x,
+              z:          rock.z,
+              rot:        rock.rot ?? 0,
+              rock_shape: rock.rockShape ?? 2,
+              sx:         rock.sx ?? 1,
+              sy:         rock.sy ?? 1,
+              sz:         rock.sz ?? 1,
+              mat_idx:    rock.matIdx ?? 0,
+            },
+          })
+        }
+        return { ok: true, gold: data } // scalar integer
+      }
+
+      bridge.removeRock = async (rockId) => {
+        const { data, error } = await supabase.rpc('remove_rock', { p_rock_id: rockId })
+        if (error) return { ok: false, error: error.message }
+        // Tell same-shard peers to drop this rock from their scene.
+        const ch = posChannelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
+            type: 'broadcast',
+            event: 'removerock',
+            payload: { id: rockId, owner_id: meId.current },
+          })
+        }
+        return { ok: true, gold: data } // scalar integer
+      }
+
       bridge.discover = async (landmarkId) => {
         const { data, error } = await supabase.rpc('discover_landmark', {
           p_landmark_id: landmarkId,
@@ -322,29 +421,29 @@ export default function Net() {
 
       bridge.sendChat = async (scope, text) => {
         if (scope === 'world') {
-          // Server RPC pays, rate-limits, AND emits the broadcast itself
-          // via realtime.send(). Client is receive-only for world chat now.
+          // Server RPC pays, rate-limits, sanitizes, AND emits the broadcast
+          // itself via realtime.send(). Client is receive-only for world chat.
           const { data, error } = await supabase.rpc('send_world_chat', { p_text: text })
           if (error) return { ok: false, error: error.message }
           return { ok: true, gold: data }
         }
-        // Region chat: server rate-limits, client broadcasts on the
-        // region-wide chat channel so all shards receive it.
-        const { error } = await supabase.rpc('check_region_chat', { p_text: text })
+        // Region chat: server rate-limits + sanitizes, returns the clean text.
+        // Client then broadcasts the sanitized version so all shards get it.
+        const { data: cleanText, error } = await supabase.rpc('check_region_chat', { p_text: text })
         if (error) return { ok: false, error: error.message }
         const s = useStore.getState()
         const payload = {
-          id: meId.current,
-          mid: Math.random().toString(36).slice(2),
+          id:   meId.current,
+          mid:  Math.random().toString(36).slice(2),
           name: s.name,
           color: s.color,
-          text,
+          text: cleanText || text, // use server-sanitized version
         }
         const target = chatChannelRef.current
         if (target && target.state === 'joined') {
           target.send({ type: 'broadcast', event: 'chat', payload })
         }
-        return { ok: true }
+        return { ok: true, text: cleanText || text }
       }
 
       subscribeWorld()
@@ -405,6 +504,8 @@ export default function Net() {
       bridge.discover = async () => ({ ok: false, error: 'offline' })
       bridge.claimDaily = async () => ({ ok: false, error: 'offline' })
       bridge.sendChat = async () => ({ ok: false, error: 'offline' })
+      bridge.placeRock = async () => ({ ok: false, error: 'offline' })
+      bridge.removeRock = async () => ({ ok: false, error: 'offline' })
       clearTimeout(identityTimer.current)
       clearInterval(reconnectInterval)
       if (authListener && authListener.subscription) authListener.subscription.unsubscribe()

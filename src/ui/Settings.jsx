@@ -9,10 +9,12 @@ export default function Settings() {
   const fireflies = useStore((s) => s.fireflies)
   const particles = useStore((s) => s.particles)
   const grassDensity = useStore((s) => s.grassDensity)
+  const joystickEnabled = useStore((s) => s.joystickEnabled)
   const toggleMute = useStore((s) => s.toggleMute)
   const toggleFireflies = useStore((s) => s.toggleFireflies)
   const toggleParticles = useStore((s) => s.toggleParticles)
   const setGrassDensity = useStore((s) => s.setGrassDensity)
+  const setJoystickEnabled = useStore((s) => s.setJoystickEnabled)
 
   return (
     <div className="settings-wrap no-look">
@@ -71,6 +73,25 @@ export default function Settings() {
                 ))}
               </div>
             </label>
+
+            {/* Touch Controls divider */}
+            <div className="settings-divider" />
+
+            <label className="settings-row">
+              <span className="settings-row-icon">🕹️ Touch Controls</span>
+              <button
+                className={`settings-toggle${joystickEnabled ? ' on' : ''}`}
+                onClick={() => setJoystickEnabled(!joystickEnabled)}
+                title="Show on-screen joystick for mobile/touch play"
+              >
+                {joystickEnabled ? 'on' : 'off'}
+              </button>
+            </label>
+            {joystickEnabled && (
+              <div className="settings-hint">
+                Left half = move · Right half = look
+              </div>
+            )}
           </div>
         </div>
       )}
