@@ -401,22 +401,72 @@ canvas { display: block; touch-action: none; }
   pointer-events: auto;
   z-index: 12;
 }
-.chat-head { display: flex; gap: 6px; margin-bottom: 6px; }
-.chip {
+
+/* closed state: single small button */
+.chat-toggle-btn {
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: rgba(255,255,255,0.85);
+  color: rgba(255,255,255,0.88);
   background: rgba(24, 28, 22, 0.34);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
-  padding: 6px 12px;
+  padding: 9px 18px;
   cursor: pointer;
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
+  transition: background 0.15s ease;
 }
-.chip.on { background: rgba(122, 174, 75, 0.7); border-color: rgba(255,255,255,0.3); }
-.chip.ghost { margin-left: auto; }
+.chat-toggle-btn:hover { background: rgba(40, 48, 38, 0.5); }
+
+/* open state: panel with tabs */
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 0;
+  background: rgba(20, 26, 20, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px 12px 0 0;
+  border-bottom: none;
+  overflow: hidden;
+}
+.chat-tab {
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.6);
+  background: transparent;
+  border: none;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+  border-bottom: 2px solid transparent;
+}
+.chat-tab:hover { color: rgba(255,255,255,0.85); }
+.chat-tab.active {
+  color: #fff;
+  background: rgba(122, 174, 75, 0.2);
+  border-bottom-color: rgba(122, 174, 75, 0.8);
+}
+.chat-tab-cost {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+.chat-close {
+  font: inherit;
+  font-size: 18px;
+  color: rgba(255,255,255,0.7);
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  cursor: pointer;
+  line-height: 1;
+}
+.chat-close:hover { color: #fff; }
+
 .chat-list {
   max-height: 190px;
   overflow-y: auto;
@@ -426,7 +476,7 @@ canvas { display: block; touch-action: none; }
   padding: 10px;
   background: rgba(20, 26, 20, 0.42);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 12px 12px 0 0;
+  border-top: none;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
@@ -446,6 +496,7 @@ canvas { display: block; touch-action: none; }
   padding: 9px 12px;
   outline: none;
 }
+.chat-input input:focus { border-color: rgba(139, 179, 82, 0.6); }
 .chat-input button {
   font: inherit;
   font-size: 13px;
@@ -453,6 +504,7 @@ canvas { display: block; touch-action: none; }
   color: #fff;
   background: rgba(122, 174, 75, 0.8);
   border: 1px solid rgba(255, 255, 255, 0.18);
+  border-top: none;
   border-radius: 0 0 12px 0;
   padding: 0 16px;
   cursor: pointer;

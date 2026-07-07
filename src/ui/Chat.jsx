@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 
-// Calm chat: a collapsible panel bottom-left. Two scopes — Region (free, only
-// people near you) and World (costs gold, reaches everyone). Press Enter to
-// focus the input; Escape to blur.
+// Chat panel — bottom-left. Opens on Enter or clicking the chat button.
+// Inside: tabs for Region (free, nearby players) and World (costs gold, everyone).
 export default function Chat() {
   const chat = useStore((s) => s.chat)
   const scope = useStore((s) => s.chatScope)
@@ -22,6 +21,7 @@ export default function Chat() {
         setTimeout(() => inputRef.current && inputRef.current.focus(), 0)
       } else if (e.code === 'Escape' && document.activeElement === inputRef.current) {
         inputRef.current.blur()
+        setOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -34,55 +34,69 @@ export default function Chat() {
 
   const submit = (e) => {
     e.preventDefault()
+    if (!text.trim()) return
     sendChat(text)
     setText('')
   }
 
   const shown = chat.filter((m) => m.scope === scope).slice(-40)
 
+  if (!open) {
+    return (
+      <div className="chat no-look">
+        <button className="chat-toggle-btn" onClick={() => setOpen(true)}>
+          chat
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className={`chat no-look${open ? ' open' : ''}`}>
+    <div className="chat no-look open">
       <div className="chat-head">
-        <button className={`chip${scope === 'region' ? ' on' : ''}`} onClick={() => setChatScope('region')}>
+        <button
+          className={`chat-tab${scope === 'region' ? ' active' : ''}`}
+          onClick={() => setChatScope('region')}
+        >
           Region
         </button>
-        <button className={`chip${scope === 'world' ? ' on' : ''}`} onClick={() => setChatScope('world')}>
-          World
+        <button
+          className={`chat-tab${scope === 'world' ? ' active' : ''}`}
+          onClick={() => setChatScope('world')}
+        >
+          World <span className="chat-tab-cost">3g</span>
         </button>
-        <button className="chip ghost" onClick={() => setOpen((v) => !v)}>
-          {open ? '×' : 'chat'}
+        <button className="chat-close" onClick={() => setOpen(false)} aria-label="close chat">
+          ×
         </button>
       </div>
 
-      {open && (
-        <>
-          <div className="chat-list" ref={listRef}>
-            {shown.length === 0 && (
-              <div className="chat-empty">
-                {online ? 'say hello to the meadow' : 'offline — others appear when connected'}
-              </div>
-            )}
-            {shown.map((m) => (
-              <div className="chat-msg" key={m.id}>
-                <span className="chat-name" style={{ color: m.color }}>
-                  {m.name}
-                </span>
-                <span className="chat-text">{m.text}</span>
-              </div>
-            ))}
+      <div className="chat-list" ref={listRef}>
+        {shown.length === 0 && (
+          <div className="chat-empty">
+            {online ? 'say hello to the meadow' : 'offline — others appear when connected'}
           </div>
-          <form className="chat-input" onSubmit={submit}>
-            <input
-              ref={inputRef}
-              value={text}
-              maxLength={160}
-              placeholder={scope === 'world' ? 'world · costs 3 gold' : 'region · free'}
-              onChange={(e) => setText(e.target.value)}
-            />
-            <button type="submit">send</button>
-          </form>
-        </>
-      )}
+        )}
+        {shown.map((m) => (
+          <div className="chat-msg" key={m.id}>
+            <span className="chat-name" style={{ color: m.color }}>
+              {m.name}
+            </span>
+            <span className="chat-text">{m.text}</span>
+          </div>
+        ))}
+      </div>
+
+      <form className="chat-input" onSubmit={submit}>
+        <input
+          ref={inputRef}
+          value={text}
+          maxLength={160}
+          placeholder={scope === 'world' ? 'world · costs 3 gold' : 'region · free'}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <button type="submit">send</button>
+      </form>
     </div>
   )
 }
