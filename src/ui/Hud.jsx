@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, PALETTE } from '../store'
-import { place } from '../player-state'
+import { place, placement } from '../player-state'
 import { supabase, ONLINE } from '../net/supabase'
 import Minimap from './Minimap'
 import Chat from './Chat'
@@ -100,6 +100,55 @@ function Toast() {
   return <div className={`toast${toast ? ' show' : ''}`}>{toast ? toast.msg : ''}</div>
 }
 
+// Placement banner. Appears at top-center while the player is choosing where
+// to plant a tree / place a rock. Shows the subject, the current validity
+// state, and offers Place / Cancel buttons. `placement.valid` is written
+// every frame by <PlacementPreview/>; we poll it at ~10 Hz for the label.
+function PlacementBanner() {
+  const mode = useStore((s) => s.placementMode)
+  const subject = useStore((s) => s.placementSubject)
+  const confirm = useStore((s) => s.confirmPlacement)
+  const cancel = useStore((s) => s.cancelPlacement)
+  const [status, setStatus] = useState({ valid: true, reason: '' })
+
+  // Poll the shared placement ref a few times a second. Cheap enough not
+  // to matter, and avoids re-rendering the world on every frame.
+  useEffect(() => {
+    if (!mode) return
+    const id = window.setInterval(() => {
+      setStatus({ valid: placement.valid, reason: placement.reason })
+    }, 120)
+    return () => window.clearInterval(id)
+  }, [mode])
+
+  if (!mode || !subject) return null
+  return (
+    <div className={`place-banner no-look ${status.valid ? 'ok' : 'bad'}`}>
+      <div className="place-banner-info">
+        <div className="place-banner-title">
+          {subject.emoji || (mode === 'rock' ? '🪨' : '🌳')} placing {subject.name || (mode === 'rock' ? 'a rock' : 'a tree')}
+        </div>
+        <div className="place-banner-status">
+          {status.valid ? '✓ good spot' : `✗ ${status.reason || 'blocked'}`}
+        </div>
+      </div>
+      <div className="place-banner-actions">
+        <button className="place-banner-cancel" onClick={cancel}>
+          Cancel <kbd>Esc</kbd>
+        </button>
+        <button
+          className={`place-banner-confirm${status.valid ? '' : ' disabled'}`}
+          onClick={() => status.valid && confirm()}
+          disabled={!status.valid}
+          title={status.valid ? 'Confirm placement' : status.reason}
+        >
+          Place <kbd>E</kbd>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // Contextual "Cut" action pill. Sits above the main HUD button row so it
 // never overlaps the persistent commands, and only appears when the player
 // has a tree or rock selected — the outline in the scene already tells
@@ -179,11 +228,12 @@ export default function Hud() {
 
       <PlaceLabel />
       <Toast />
+      <PlacementBanner />
       <CutAction selection={selection} onCut={cutSelection} />
 
       {!seen && (
         <div className="hint" onPointerDown={() => setSeen(true)}>
-          drag to look · <b>WASD</b> walk · <b>V</b> view · <b>E</b> plant · <b>R</b> water · click a tree/rock then <b>X</b> cut · <b>G</b> shop · <b>C</b> sit · <b>F</b> wave · <b>Enter</b> chat
+          drag to look · <b>WASD</b> walk · <b>V</b> view · <b>E</b> plant/place (press again to confirm) · <b>R</b> water · click a tree/rock then <b>X</b> cut · <b>G</b> shop · <b>Enter</b> chat
         </div>
       )}
 

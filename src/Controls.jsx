@@ -26,10 +26,15 @@ export default function Controls() {
       if (isTyping()) return
       keys[e.code] = true
       const st = useStore.getState()
-      if (e.code === 'KeyE') st.plantTree()
+      if (e.code === 'KeyE') st.plantTree() // enters placement, or confirms if already in it
       else if (e.code === 'KeyR') st.waterNearest()
       else if (e.code === 'KeyX') st.cutSelection()
-      else if (e.code === 'Escape') st.clearSelection()
+      else if (e.code === 'Escape') {
+        // Placement takes precedence over selection so pressing Esc doesn't
+        // silently clear a selection that wasn't the user's focus.
+        if (st.placementMode) st.cancelPlacement()
+        else st.clearSelection()
+      }
       else if (e.code === 'KeyG') st.setShopOpen(!st.shopOpen)
       else if (e.code === 'KeyV') st.cycleView()
       else if (e.code === 'KeyM') st.toggleMute()

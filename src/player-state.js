@@ -27,3 +27,18 @@ export const rockRegistry = []
 
 // Name of the place the player is currently standing in (landmark) or ''.
 export const place = { name: '' }
+
+// Placement preview state. Written every frame by <PlacementPreview/>, read
+// by the store's confirmPlacement() action. Kept out of React state so the
+// ghost can move at 60 Hz without triggering re-renders.
+//   x, z    — world-space target position
+//   yaw     — rotation to apply to the placed object
+//   valid   — true if the current spot passes all rules
+//   reason  — human-readable reason when !valid (shown in the HUD)
+export const placement = {
+  x: 0,
+  z: 0,
+  yaw: 0,
+  valid: false,
+  reason: '',
+}

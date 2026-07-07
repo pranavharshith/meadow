@@ -34,7 +34,6 @@ export default function PlacedRocks() {
   const placedRocks = useStore((s) => s.placedRocks)
   const selection = useStore((s) => s.selection)
   const setSelection = useStore((s) => s.setSelection)
-  const [hoveredId, setHoveredId] = useState(null)
 
   // Sync placed rocks into registry for collision
   useEffect(() => {
@@ -52,22 +51,24 @@ export default function PlacedRocks() {
     <group>
       {placedRocks.map((r) => {
         const isSelected = selection && selection.kind === 'rock' && selection.id === r.id
-        const isHovered = hoveredId === r.id && !isSelected
         const baseY = terrainHeight(r.x, r.z)
-        const hoverBump = isHovered ? 1.05 : 1
         return (
-          <group key={r.id} position={[r.x, baseY, r.z]} scale={hoverBump}>
+          <group key={r.id} position={[r.x, baseY, r.z]}>
             <Select enabled={isSelected}>
               <mesh
                 geometry={PLACED_GEOS[r.rockShape ?? 2]}
                 material={PLACED_MATS[r.matIdx ?? 0]}
-                position={[0, -0.15, 0]}
+                // Rock geometry is a unit dodecahedron (radius 1). After
+                // scaling by [sx, sy, sz] it spans ±sy vertically around its
+                // center, so `sy - 0.05` sits the rock ON the ground with a
+                // tiny embed. No hover bump — feedback is cursor + outline.
+                position={[0, r.sy - 0.05, 0]}
                 rotation={[0, r.rot, 0]}
                 scale={[r.sx, r.sy, r.sz]}
                 castShadow
                 receiveShadow
-                onPointerOver={(e) => { e.stopPropagation(); setHoveredId(r.id); document.body.style.cursor = 'pointer' }}
-                onPointerOut={(e) => { e.stopPropagation(); setHoveredId((id) => (id === r.id ? null : id)); document.body.style.cursor = '' }}
+                onPointerOver={() => { document.body.style.cursor = 'pointer' }}
+                onPointerOut={() => { document.body.style.cursor = '' }}
                 onClick={(e) => {
                   e.stopPropagation()
                   // Toggle: clicking the selected rock again deselects it.

@@ -5,6 +5,7 @@ import { terrainHeight, mulberry32, clusterField } from './noise'
 import { CHUNK, seedFor } from './chunk'
 import { P, rockRegistry } from '../player-state'
 import { makeMossyMaterial } from './mossy-material'
+import { useStore } from '../store'
 
 // Three distinct rock shapes for visual variety:
 // 0 = flat boulder (compressed sphere), 1 = tall standing stone, 2 = clustered pebble group
@@ -80,6 +81,15 @@ export default function Rocks() {
     }
   }, [allRocks])
 
+  // Clicking a natural/world-generated rock should tell the player it
+  // can't be removed, and stop the click from bubbling to the canvas
+  // (which would otherwise clear their real selection).
+  const flash = useStore((s) => s.flash)
+  const onDecorativeClick = (e) => {
+    e.stopPropagation()
+    flash('this rock has been here forever — you can only remove rocks you placed')
+  }
+
   return (
     <group>
       {allRocks.map((r, i) => (
@@ -87,11 +97,17 @@ export default function Rocks() {
           key={i}
           geometry={ROCK_GEOS[r.shape]}
           material={rockMats[r.matIdx]}
-          position={[r.x, r.y - r.sink, r.z]}
+          // Sit the rock ON the terrain instead of embedding its centre.
+          // Geometry radius is 1, so after scaling by sy the mesh spans ±sy
+          // vertically around its origin. `sy - sink` places the mesh centre
+          // above terrain such that only the small `sink` amount is buried,
+          // giving a natural embedded look without the "half-underground" bug.
+          position={[r.x, r.y + r.sy - r.sink, r.z]}
           rotation={[0, r.rot, 0]}
           scale={[r.sx, r.sy, r.sz]}
           castShadow
           receiveShadow
+          onClick={onDecorativeClick}
         />
       ))}
     </group>

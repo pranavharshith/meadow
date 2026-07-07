@@ -107,7 +107,7 @@ function PlantedTrees({ trees }) {
   const cuttingId = useStore((s) => s.cuttingId)
   const selection = useStore((s) => s.selection)
   const setSelection = useStore((s) => s.setSelection)
-  const [hoveredId, setHoveredId] = useState(null)
+  const flash = useStore((s) => s.flash)
   const cutStart = useRef({})
 
   useFrame(() => {
@@ -155,49 +155,49 @@ function PlantedTrees({ trees }) {
       {trees.map((t, i) => {
         const age = (now - t.plantedAt) / 1000
         const shape = t.shape || 0
-        const interactive = !!t.owner
-        const isSelected = interactive && selection && selection.kind === 'tree' && selection.id === t.id
-        const isHovered = interactive && hoveredId === t.id && !isSelected
-        const hoverScale = isHovered ? 1.05 : 1 // subtle bump so hover is felt
+        const owned = !!t.owner
+        const isSelected = owned && selection && selection.kind === 'tree' && selection.id === t.id
 
-        const onOver = interactive
-          ? (e) => { e.stopPropagation(); setHoveredId(t.id); document.body.style.cursor = 'pointer' }
+        // Every planted tree is clickable, but only trees the player owns
+        // can be selected/removed. Clicks on others toast a short reason —
+        // no hover state, no scale bump: just a plain object with a proper
+        // response when tapped.
+        const onOver = owned
+          ? () => { document.body.style.cursor = 'pointer' }
           : undefined
-        const onOut = interactive
-          ? (e) => { e.stopPropagation(); setHoveredId((id) => (id === t.id ? null : id)); document.body.style.cursor = '' }
+        const onOut = owned
+          ? () => { document.body.style.cursor = '' }
           : undefined
-        const onClick = interactive
-          ? (e) => {
-              e.stopPropagation()
-              // Toggle: clicking the currently selected tree deselects it.
-              if (isSelected) setSelection(null)
-              else setSelection({ kind: 'tree', id: t.id })
-            }
-          : undefined
+        const onClick = (e) => {
+          e.stopPropagation()
+          if (!owned) {
+            flash('this tree was planted by someone else')
+            return
+          }
+          // Toggle: clicking the currently selected tree deselects it.
+          if (isSelected) setSelection(null)
+          else setSelection({ kind: 'tree', id: t.id })
+        }
 
         return (
           <group key={t.id} position={[t.x, terrainHeight(t.x, t.z), t.z]}>
-            {/* Hover bump lives on its own wrapper so it doesn't fight the
-                growth/cut animation applied inside `refs.current[i]`. */}
-            <group scale={hoverScale}>
-              <group
-                ref={(el) => (refs.current[i] = el)}
-                onPointerOver={onOver}
-                onPointerOut={onOut}
-                onClick={onClick}
-              >
-                {/* Only enable the outline on the currently selected tree so
-                    the amber glow reads as a decisive pick, not visual noise. */}
-                <Select enabled={isSelected}>
-                  {age < SPROUT_END ? (
-                    <Sprout />
-                  ) : age < SAPLING_END ? (
-                    <Sapling variant={t.variant} />
-                  ) : (
-                    <TreeParts variant={t.variant} shape={shape} />
-                  )}
-                </Select>
-              </group>
+            <group
+              ref={(el) => (refs.current[i] = el)}
+              onPointerOver={onOver}
+              onPointerOut={onOut}
+              onClick={onClick}
+            >
+              {/* Only enable the outline on the currently selected tree so
+                  the amber glow reads as a decisive pick, not visual noise. */}
+              <Select enabled={isSelected}>
+                {age < SPROUT_END ? (
+                  <Sprout />
+                ) : age < SAPLING_END ? (
+                  <Sapling variant={t.variant} />
+                ) : (
+                  <TreeParts variant={t.variant} shape={shape} />
+                )}
+              </Select>
             </group>
           </group>
         )
@@ -252,10 +252,26 @@ export default function TreesField() {
     }
   }, [decorative, trees])
 
+  // Clicking a decorative (world-generated) tree tells the player it can't
+  // be removed. Without this, a click on such a tree falls through to
+  // Canvas onPointerMissed and silently clears their real selection —
+  // confusing. This handler both stops that AND gives useful feedback.
+  const flash = useStore((s) => s.flash)
+  const onDecorativeClick = (e) => {
+    e.stopPropagation()
+    flash('this tree grew here on its own — you can only remove trees you planted')
+  }
+
   return (
     <group>
       {decorative.map((t, i) => (
-        <group key={i} position={[t.x, t.y, t.z]} scale={t.s} rotation={[0, t.rot, 0]}>
+        <group
+          key={i}
+          position={[t.x, t.y, t.z]}
+          scale={t.s}
+          rotation={[0, t.rot, 0]}
+          onClick={onDecorativeClick}
+        >
           <TreeParts variant={t.variant} shape={t.shape} />
         </group>
       ))}

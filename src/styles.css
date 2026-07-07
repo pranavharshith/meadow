@@ -1123,6 +1123,98 @@ canvas { display: block; touch-action: none; }
   color: rgba(255,255,255,0.85);
 }
 
+/* Placement mode banner. Appears top-center while the player is choosing a
+   spot; its border and status text switch between green (valid) and red
+   (invalid) to mirror the ghost's colour in-world. */
+.place-banner {
+  position: fixed;
+  left: 50%;
+  top: 108px;                  /* below the .place landmark label (top 74px) */
+  transform: translate(-50%, -8px);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 999px;
+  background: rgba(24, 28, 22, 0.55);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  border: 1px solid rgba(126, 227, 138, 0.4);
+  box-shadow: 0 6px 22px rgba(80, 200, 120, 0.22);
+  color: #fff;
+  z-index: 5;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.22s ease;
+  animation: place-banner-in 0.18s ease-out;
+}
+.place-banner.bad {
+  border-color: rgba(255, 130, 120, 0.5);
+  box-shadow: 0 6px 22px rgba(220, 90, 80, 0.28);
+}
+@keyframes place-banner-in {
+  from { opacity: 0; transform: translate(-50%, -18px); }
+  to   { opacity: 1; transform: translate(-50%, -8px); }
+}
+.place-banner-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.25;
+}
+.place-banner-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.place-banner-status {
+  font-size: 11.5px;
+  color: rgba(126, 227, 138, 0.95);
+}
+.place-banner.bad .place-banner-status { color: rgba(255, 150, 140, 0.95); }
+.place-banner-actions { display: flex; gap: 6px; }
+.place-banner-cancel,
+.place-banner-confirm {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255,255,255,0.16);
+  transition: background 0.15s, transform 0.08s, opacity 0.15s;
+}
+.place-banner-cancel {
+  color: rgba(255,255,255,0.8);
+  background: rgba(255,255,255,0.06);
+}
+.place-banner-cancel:hover { background: rgba(255,255,255,0.14); color: #fff; }
+.place-banner-confirm {
+  color: #0f2617;
+  background: linear-gradient(135deg, #a6ecb4, #6bd08a);
+  border-color: rgba(120,240,150,0.5);
+}
+.place-banner-confirm:hover { transform: translateY(-1px); background: linear-gradient(135deg, #b7f2c1, #78d698); }
+.place-banner-confirm.disabled,
+.place-banner-confirm:disabled {
+  background: rgba(120,120,120,0.28);
+  color: rgba(255,255,255,0.4);
+  border-color: rgba(255,255,255,0.1);
+  cursor: not-allowed;
+  transform: none;
+}
+.place-banner kbd {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: inherit;
+  font-size: 10px;
+  color: rgba(255,255,255,0.85);
+}
+.place-banner-confirm kbd { background: rgba(15, 38, 23, 0.25); color: #0f2617; border-color: rgba(15,38,23,0.28); }
+
 /* Cut button — armed / disabled states */
 .btn.cut.armed {
   background: linear-gradient(135deg, rgba(230,140,90,0.92), rgba(190,90,60,0.92));

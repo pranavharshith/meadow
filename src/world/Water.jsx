@@ -6,7 +6,7 @@ import { terrainHeight } from './noise'
 // Water bodies — ponds and a stream that break up the uniform grass world.
 // Semi-transparent with gentle vertex animation for soft ripples.
 
-const PONDS = [
+export const PONDS = [
   { x: -74, z: 40, r: 12 },     // Crystal Pond
   { x: -300, z: 280, r: 8 },    // Silver Brook area
   { x: 180, z: -140, r: 6 },    // Broken Bridge
@@ -16,7 +16,7 @@ const PONDS = [
 ]
 
 // Stream points forming a winding path from Silver Brook to Crystal Pond
-const STREAM_POINTS = [
+export const STREAM_POINTS = [
   { x: -300, z: 280 },
   { x: -260, z: 250 },
   { x: -220, z: 230 },
@@ -29,7 +29,7 @@ const STREAM_POINTS = [
   { x: -74, z: 40 },
 ]
 
-const STREAM_WIDTH = 3.5
+export const STREAM_WIDTH = 3.5
 
 function createWaterMaterial() {
   const mat = new THREE.MeshStandardMaterial({

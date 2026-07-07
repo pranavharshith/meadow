@@ -9,6 +9,7 @@ import GrassField from './world/GrassField'
 import TreesField from './world/TreesField'
 import Rocks from './world/Rocks'
 import PlacedRocks from './world/PlacedRocks'
+import PlacementPreview from './world/PlacementPreview'
 import Birds from './world/Birds'
 import Butterflies from './world/Butterflies'
 import Fireflies from './world/Fireflies'
@@ -67,9 +68,12 @@ export default function App() {
           gl.toneMappingExposure = 1.05
         }}
         // Clicking any non-interactive object (terrain, sky, empty space)
-        // deselects the currently-picked tree/rock. Clicking a tree/rock
-        // stops propagation so this handler only fires for empty clicks.
-        onPointerMissed={() => useStore.getState().clearSelection()}
+        // deselects the currently-picked tree/rock. During placement mode
+        // we skip this so the ghost isn't interrupted by casual clicks.
+        onPointerMissed={() => {
+          const st = useStore.getState()
+          if (!st.placementMode) st.clearSelection()
+        }}
       >
         {/* warm haze that hides the horizon so the world feels endless */}
         <fog attach="fog" args={['#e7d8b8', 90, 320]} />
@@ -87,6 +91,7 @@ export default function App() {
             <Rocks />
             <PlacedRocks />
             <TreesField />
+            <PlacementPreview />
             <Water />
             <Landmarks />
             {particles && <Birds />}

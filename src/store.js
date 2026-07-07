@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { P } from './player-state'
+import { P, placement } from './player-state'
 import { LANDMARKS } from './world/places'
 import { bridge } from './net/bridge'
 import { maskProfanity, clientChatCooldown } from './net/moderation'
@@ -79,6 +79,14 @@ export const useStore = create((set, get) => ({
   // is selected. `kind` is 'tree' or 'rock'.
   selection: null,
 
+  // Placement mode. While set, a ghost of the object being placed follows
+  // the player and validity is checked every frame. Actual placement only
+  // happens on confirmPlacement() when the ghost is green.
+  //   placementMode:    'tree' | 'rock' | null
+  //   placementSubject: snapshot of selectedItem taken at entry time
+  placementMode: null,
+  placementSubject: null,
+
   // networking status
   online: false,
   connectionStatus: 'offline',
@@ -153,41 +161,58 @@ export const useStore = create((set, get) => ({
   // When offline: just apply locally (same behaviour as before).
   // ---------------------------------------------------------------------
 
-  plantTree: async () => {
+  // ── Placement flow ─────────────────────────────────────────────────────
+  //
+  // `plantTree()` and `placeRock()` are the public entry points bound to the
+  // E key and the HUD Plant button. Pressing them once enters placement
+  // mode; pressing again confirms. Escape cancels. Actual insertion happens
+  // in `_finalizePlant()` / `_finalizePlaceRock()`, which are called only
+  // after `PlacementPreview` has validated the ghost's position.
+
+  enterPlacement: () => {
     const state = get()
     const sel = state.selectedItem
-
-    // If a rock is selected, delegate to placeRock instead
-    if (sel.type === 'rock') {
-      get().placeRock()
-      return
-    }
-
+    const kind = sel.type === 'rock' ? 'rock' : 'tree'
     const cost = sel.cost ?? 0
     if (state.gold < cost) {
-      state.flash(`need ${cost} gold to plant this tree`)
+      state.flash(`need ${cost} gold to place this ${kind}`)
       return
     }
+    // Snapshot the shop item so switching selection during placement doesn't
+    // suddenly change what's about to be placed.
+    set({ placementMode: kind, placementSubject: { ...sel, kind } })
+  },
 
-    const trees = state.trees
-    const baseAngle = P.avatarYaw
-    const dist = 1.8
-    const MIN_SPACING = 2.5
+  cancelPlacement: () => {
+    if (!get().placementMode) return
+    set({ placementMode: null, placementSubject: null })
+    get().flash('placement cancelled')
+  },
 
-    // Find a clear spot around the player
-    let px, pz, found = false
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const angle = baseAngle + attempt * (Math.PI / 4)
-      px = P.pos.x + Math.sin(angle) * dist
-      pz = P.pos.z + Math.cos(angle) * dist
-      const tooClose = trees.some((t) => Math.hypot(t.x - px, t.z - pz) < MIN_SPACING)
-      if (!tooClose) { found = true; break }
-    }
-    if (!found) {
-      state.flash('too crowded here — move somewhere else')
+  confirmPlacement: async () => {
+    const state = get()
+    const mode = state.placementMode
+    if (!mode) return
+    const sub = state.placementSubject
+    // PlacementPreview writes to the shared `placement` ref every frame.
+    if (!placement.valid) {
+      state.flash(placement.reason || 'cannot place here')
       return
     }
+    const px = placement.x
+    const pz = placement.z
+    // Clear mode BEFORE async work so a follow-up E press doesn't reopen it.
+    set({ placementMode: null, placementSubject: null })
+    if (mode === 'tree') {
+      await get()._finalizePlant(px, pz, sub)
+    } else {
+      get()._finalizePlaceRock(px, pz, sub)
+    }
+  },
 
+  _finalizePlant: async (px, pz, sub) => {
+    const state = get()
+    const cost = sub.cost ?? 0
     const t = {
       id: genId(),
       x: px,
@@ -195,12 +220,10 @@ export const useStore = create((set, get) => ({
       plantedAt: Date.now(),
       scale: 1.4 + Math.random() * 0.8,
       variant: (Math.random() * 3) | 0,
-      shape: sel.shape ?? 0,
+      shape: sub.shape ?? 0,
       owner: true,
     }
-
     const goldBefore = state.gold
-    // Optimistic: deduct cost, add tree, then credit the +5 plant reward
     const PLANT_REWARD = 5
     set((s) => ({ trees: [...s.trees, t], gold: s.gold - cost + PLANT_REWARD }))
     const costStr = cost > 0 ? ` · -${cost} gold` : ''
@@ -209,7 +232,6 @@ export const useStore = create((set, get) => ({
     if (bridge.online) {
       const res = await bridge.plant(t)
       if (!res.ok) {
-        // Revert
         set((s) => ({
           trees: s.trees.filter((x) => x.id !== t.id),
           gold: goldBefore,
@@ -217,9 +239,36 @@ export const useStore = create((set, get) => ({
         get().flash(res.error === 'too crowded' ? 'too crowded here' : 'could not plant')
         return
       }
-      // Reconcile gold with server truth
       if (typeof res.gold === 'number') set({ gold: res.gold })
     }
+  },
+
+  _finalizePlaceRock: (px, pz, sub) => {
+    const state = get()
+    const cost = sub.cost ?? 5
+    const rock = {
+      id: genId(),
+      x: px,
+      z: pz,
+      rockShape: sub.rockShape ?? 2,
+      rot: P.avatarYaw,
+      sx: 0.7 + Math.random() * 0.5,
+      sy: 0.5 + Math.random() * 0.4,
+      sz: 0.7 + Math.random() * 0.5,
+      matIdx: (Math.random() * 3) | 0,
+    }
+    set((s) => ({
+      placedRocks: [...s.placedRocks, rock],
+      gold: s.gold - cost,
+    }))
+    state.flash(`placed a rock · -${cost} gold`)
+  },
+
+  // Public entry points: first press → enter placement, second press → confirm.
+  plantTree: () => {
+    const st = get()
+    if (st.placementMode) return st.confirmPlacement()
+    return st.enterPlacement()
   },
 
   // ── Cut/remove the currently selected user-owned tree or placed rock ──
@@ -277,49 +326,14 @@ export const useStore = create((set, get) => ({
   // (like existing UI hint text) continues to work — routes to cutSelection.
   cutNearestTree: () => get().cutSelection(),
 
-  // ── Place a rock from the shop ─────────────────────────────────────────
+  // Public entry for rock placement. Same flow as plantTree — first press
+  // enters placement (with the currently selected rock as subject), second
+  // confirms. If a tree is currently selected in the shop, the ghost will
+  // still be a tree; user should switch to a rock in the shop first.
   placeRock: () => {
-    const state = get()
-    const sel = state.selectedItem
-    if (sel.type !== 'rock') return
-
-    const cost = sel.cost ?? 5
-    if (state.gold < cost) {
-      state.flash(`need ${cost} gold to place this rock`)
-      return
-    }
-
-    // Find a spot slightly in front of the player
-    const dist = 2.2
-    const px = P.pos.x + Math.sin(P.avatarYaw) * dist
-    const pz = P.pos.z + Math.cos(P.avatarYaw) * dist
-
-    // Check not too close to another placed rock
-    const tooClose = state.placedRocks.some(
-      (r) => Math.hypot(r.x - px, r.z - pz) < 1.8
-    )
-    if (tooClose) {
-      state.flash('too close to another rock')
-      return
-    }
-
-    const rock = {
-      id: genId(),
-      x: px,
-      z: pz,
-      rockShape: sel.rockShape ?? 2,
-      rot: Math.random() * Math.PI * 2,
-      sx: 0.7 + Math.random() * 0.5,
-      sy: 0.5 + Math.random() * 0.4,
-      sz: 0.7 + Math.random() * 0.5,
-      matIdx: (Math.random() * 3) | 0,
-    }
-
-    set((s) => ({
-      placedRocks: [...s.placedRocks, rock],
-      gold: s.gold - cost,
-    }))
-    state.flash(`placed a rock · -${cost} gold`)
+    const st = get()
+    if (st.placementMode) return st.confirmPlacement()
+    return st.enterPlacement()
   },
 
   waterNearest: async () => {

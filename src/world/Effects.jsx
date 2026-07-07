@@ -16,13 +16,16 @@ export default function Effects() {
       />
       <Outline
         blendFunction={BlendFunction.SCREEN}
-        visibleEdgeColor={0xffcf6b}     // warm gold when the tree/rock is in view
-        hiddenEdgeColor={0x8a5a1a}      // dimmer amber where it's occluded
+        visibleEdgeColor={0xffcf6b}     // warm gold — visible edges only
+        hiddenEdgeColor={0x000000}
         edgeStrength={9}
         pulseSpeed={0.5}
         blur
         kernelSize={KernelSize.SMALL}
-        xRay
+        // xRay off: don't draw edges that are occluded by terrain. Otherwise
+        // the buried underside of a rock (or a tree behind a hill) would
+        // show as a ghostly outline through the ground.
+        xRay={false}
       />
       <Vignette offset={0.28} darkness={0.55} />
     </EffectComposer>
