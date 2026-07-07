@@ -4,9 +4,19 @@ import { windTime, windStrength } from '../wind'
 // Shared geometries + materials for every tree (decorative and planted) so
 // hundreds of trees stay cheap. Leaves sway via a shared wind shader; no
 // per-frame JS needed.
-export const trunkGeo = new THREE.CylinderGeometry(0.12, 0.2, 1.5, 6)
+
+// Trunk: taller and slightly thicker so trees tower over the player
+export const trunkGeo = new THREE.CylinderGeometry(0.15, 0.28, 2.8, 6)
 export const leafGeo = new THREE.IcosahedronGeometry(1, 0)
 export const trunkMat = new THREE.MeshStandardMaterial({ color: '#6b4a2b', roughness: 0.9 })
+
+// Sapling-specific: thin stick trunk
+export const saplingTrunkGeo = new THREE.CylinderGeometry(0.04, 0.07, 1.2, 5)
+export const saplingLeafGeo = new THREE.IcosahedronGeometry(0.45, 0)
+
+// Sprout: tiny seedling
+export const sproutGeo = new THREE.CylinderGeometry(0.02, 0.035, 0.5, 4)
+export const sproutLeafGeo = new THREE.SphereGeometry(0.18, 8, 6)
 
 function makeLeafMat(color) {
   const m = new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 1 })
@@ -28,3 +38,8 @@ function makeLeafMat(color) {
 }
 
 export const leafMats = [makeLeafMat('#5c8a3a'), makeLeafMat('#6f9b45'), makeLeafMat('#4f7d33')]
+
+// Lighter spring-green for saplings
+export const saplingLeafMat = new THREE.MeshStandardMaterial({ color: '#8cc65e', flatShading: true, roughness: 0.9 })
+// Bright fresh green for sprouts
+export const sproutLeafMat = new THREE.MeshStandardMaterial({ color: '#a8e06c', flatShading: true, roughness: 0.85 })

@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
-import { P, look, keys, treeRegistry } from '../player-state'
+import { P, look, keys, treeRegistry, rockRegistry } from '../player-state'
 import { useStore } from '../store'
 
 const UP = new THREE.Vector3(0, 1, 0)
@@ -16,13 +16,26 @@ function dampAngle(current, target, lambda, dt) {
   return current + diff * (1 - Math.exp(-lambda * dt))
 }
 
-// Resolve soft collision against nearby tree trunks.
+// Resolve soft collision against nearby tree trunks and rocks.
 function pushOut(x, z) {
   for (let i = 0; i < treeRegistry.length; i++) {
     const t = treeRegistry[i]
     const dx = x - t.x
     const dz = z - t.z
     const rr = t.r + 0.45
+    const d2 = dx * dx + dz * dz
+    if (d2 < rr * rr && d2 > 1e-6) {
+      const d = Math.sqrt(d2)
+      const push = rr - d
+      x += (dx / d) * push
+      z += (dz / d) * push
+    }
+  }
+  for (let i = 0; i < rockRegistry.length; i++) {
+    const r = rockRegistry[i]
+    const dx = x - r.x
+    const dz = z - r.z
+    const rr = r.r + 0.4
     const d2 = dx * dx + dz * dz
     if (d2 < rr * rr && d2 > 1e-6) {
       const d = Math.sqrt(d2)
@@ -61,6 +74,7 @@ export default function Player() {
     // expire one-shot wave emote
     if (P.emote === 'wave' && performance.now() > P.emoteUntil) P.emote = null
     const sitting = P.emote === 'sit'
+    const waving = P.emote === 'wave'
 
     let ix = 0
     let iy = 0
@@ -93,6 +107,10 @@ export default function Player() {
       P.pos.z = nz
       P.avatarYaw = Math.atan2(move.x, move.z)
     }
+    // When waving, face the camera direction (toward other players you're looking at)
+    if (waving) {
+      P.avatarYaw = look.yaw
+    }
     P.pos.y = terrainHeight(P.pos.x, P.pos.z)
 
     const g = groupRef.current
@@ -114,12 +132,12 @@ export default function Player() {
       bg.rotation.x = THREE.MathUtils.lerp(bg.rotation.x, 0, 1 - Math.exp(-8 * step))
     }
 
-    // arms: wave with the right arm, otherwise rest / swing while walking
-    const waving = P.emote === 'wave'
+    // arms: wave toward camera direction with both arms, otherwise rest / swing
     if (armRRef.current && armLRef.current) {
       if (waving) {
-        armRRef.current.rotation.z = -2.3 + Math.sin(t * 16) * 0.35
-        armLRef.current.rotation.z = 0.15
+        // Right arm: big enthusiastic wave; left arm: slight supportive raise
+        armRRef.current.rotation.z = -2.4 + Math.sin(t * 14) * 0.4
+        armLRef.current.rotation.z = 0.6 + Math.sin(t * 14 + 1.5) * 0.15
       } else if (P.moving) {
         armRRef.current.rotation.z = Math.sin(t * 9) * 0.35
         armLRef.current.rotation.z = -Math.sin(t * 9) * 0.35

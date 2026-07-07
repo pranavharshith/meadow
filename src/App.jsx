@@ -23,6 +23,7 @@ import Ambience from './Ambience'
 import Net from './net/Net'
 import Hud from './ui/Hud'
 import NavPath from './world/NavPath'
+import WaterEffect from './world/WaterEffect'
 import { useStore } from './store'
 
 // Fades the warm-haze overlay out once the scene is ready, for a soft entrance.
@@ -78,6 +79,7 @@ export default function App() {
         <Player />
         <CameraRig />
         <NavPath />
+        <WaterEffect />
         <Net />
         <Effects />
       </Canvas>

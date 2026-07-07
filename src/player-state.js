@@ -21,5 +21,9 @@ export const keys = {}
 // Each entry: { x, z, r, mature }
 export const treeRegistry = []
 
+// Positions of rocks near the player, used for collision.
+// Each entry: { x, z, r }
+export const rockRegistry = []
+
 // Name of the place the player is currently standing in (landmark) or ''.
 export const place = { name: '' }

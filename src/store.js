@@ -51,6 +51,7 @@ export const useStore = create((set, get) => ({
   toast: null, // transient message shown in the HUD
   mapOpen: false,
   navTarget: null, // { id, x, z, name } or null
+  waterEvent: null, // { x, y, z, at } — triggers water particle effect
 
   // networking-facing
   online: false,
@@ -103,14 +104,33 @@ export const useStore = create((set, get) => ({
     set((s) => ({ chat: [...s.chat, m].slice(-CHAT_MAX) })),
 
   plantTree: () => {
-    const x = P.pos.x + Math.sin(P.avatarYaw) * 1.4
-    const z = P.pos.z + Math.cos(P.avatarYaw) * 1.4
+    const trees = get().trees
+    const baseAngle = P.avatarYaw
+    const dist = 1.8
+    const MIN_SPACING = 2.5
+
+    // Try up to 8 angles around the player to find a clear spot
+    let px, pz, found = false
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const angle = baseAngle + attempt * (Math.PI / 4)
+      px = P.pos.x + Math.sin(angle) * dist
+      pz = P.pos.z + Math.cos(angle) * dist
+      const tooClose = trees.some(
+        (t) => Math.hypot(t.x - px, t.z - pz) < MIN_SPACING
+      )
+      if (!tooClose) { found = true; break }
+    }
+    if (!found) {
+      get().flash('too crowded here — move somewhere else')
+      return
+    }
+
     const t = {
       id: genId(),
-      x,
-      z,
+      x: px,
+      z: pz,
       plantedAt: Date.now(),
-      scale: 0.9 + Math.random() * 0.7,
+      scale: 1.4 + Math.random() * 0.8,
       variant: (Math.random() * 3) | 0,
       owner: true,
     }
@@ -146,6 +166,7 @@ export const useStore = create((set, get) => ({
         t.id === best.id ? { ...t, plantedAt: t.plantedAt - WATER_BOOST } : t
       ),
       gold: s.gold + 1,
+      waterEvent: { x: best.x, z: best.z, at: now },
     }))
     get().flash('watered a sapling · +1 gold')
     bridge.saveProfile()
