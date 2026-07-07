@@ -8,6 +8,8 @@ import WorldMap from './WorldMap'
 import Settings from './Settings'
 import Screenshot from './Screenshot'
 import Compass from './Compass'
+import Shop from './Shop'
+import { TREE_ITEMS, ROCK_ITEMS } from './Shop'
 
 const VIEW_LABEL = { third: 'Follow', first: 'First person', top: 'Map' }
 
@@ -98,6 +100,28 @@ function Toast() {
   return <div className={`toast${toast ? ' show' : ''}`}>{toast ? toast.msg : ''}</div>
 }
 
+// Contextual "Cut" action pill. Sits above the main HUD button row so it
+// never overlaps the persistent commands, and only appears when the player
+// has a tree or rock selected — the outline in the scene already tells
+// them what will be cut.
+function CutAction({ selection, onCut }) {
+  const clearSelection = useStore((s) => s.clearSelection)
+  return (
+    <div className={`cut-pill no-look${selection ? ' show' : ''}`}>
+      <span className="cut-pill-label">
+        {selection ? `${selection.kind === 'rock' ? '🪨 rock' : '🌳 tree'} selected` : ''}
+      </span>
+      <button className="cut-pill-cancel" onClick={clearSelection} title="Cancel (Esc)">
+        ✕
+      </button>
+      <button className="cut-pill-action" onClick={onCut} title="Cut selected (X)">
+        ✂ Cut
+        <span className="cut-pill-key">X</span>
+      </button>
+    </div>
+  )
+}
+
 function NavIndicator() {
   const navTarget = useStore((s) => s.navTarget)
   const clearNav = useStore((s) => s.clearNav)
@@ -118,8 +142,19 @@ export default function Hud() {
   const color = useStore((s) => s.color)
   const cycleView = useStore((s) => s.cycleView)
   const plantTree = useStore((s) => s.plantTree)
+  const cutSelection = useStore((s) => s.cutSelection)
+  const selection = useStore((s) => s.selection)
+  const shopOpen = useStore((s) => s.shopOpen)
+  const setShopOpen = useStore((s) => s.setShopOpen)
+  const selectedItem = useStore((s) => s.selectedItem)
   const [seen, setSeen] = useState(false)
   const [editing, setEditing] = useState(false)
+
+  // Derive label for the plant/place button from selected item
+  const isRock = selectedItem.type === 'rock'
+  const allItems = isRock ? ROCK_ITEMS : TREE_ITEMS
+  const currentItem = allItems.find((i) => i.id === selectedItem.id) || allItems[0]
+  const plantLabel = isRock ? `Place ${currentItem.emoji}` : `Plant ${currentItem.emoji}`
 
   return (
     <div className="ui">
@@ -144,10 +179,11 @@ export default function Hud() {
 
       <PlaceLabel />
       <Toast />
+      <CutAction selection={selection} onCut={cutSelection} />
 
       {!seen && (
         <div className="hint" onPointerDown={() => setSeen(true)}>
-          drag to look · <b>WASD</b> walk · <b>V</b> view · <b>E</b> plant · <b>R</b> water · <b>C</b> sit · <b>F</b> wave · <b>Enter</b> chat
+          drag to look · <b>WASD</b> walk · <b>V</b> view · <b>E</b> plant · <b>R</b> water · click a tree/rock then <b>X</b> cut · <b>G</b> shop · <b>C</b> sit · <b>F</b> wave · <b>Enter</b> chat
         </div>
       )}
 
@@ -156,8 +192,15 @@ export default function Hud() {
           <button className="btn" onClick={cycleView}>
             {VIEW_LABEL[view]}
           </button>
-          <button className="btn plant" onClick={plantTree}>
-            Plant
+          <button className="btn plant" onClick={plantTree} title="Plant / Place selected item (E)">
+            {plantLabel}
+          </button>
+          <button
+            className={`btn shop-btn${shopOpen ? ' active' : ''}`}
+            onClick={() => setShopOpen(!shopOpen)}
+            title="Nature Shop (G)"
+          >
+            🌿 Shop
           </button>
           <Screenshot />
           <Settings />
@@ -165,6 +208,7 @@ export default function Hud() {
       </div>
 
       <Chat />
+      <Shop />
       <WorldMap />
       <NavIndicator />
     </div>

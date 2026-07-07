@@ -28,6 +28,9 @@ export default function Controls() {
       const st = useStore.getState()
       if (e.code === 'KeyE') st.plantTree()
       else if (e.code === 'KeyR') st.waterNearest()
+      else if (e.code === 'KeyX') st.cutSelection()
+      else if (e.code === 'Escape') st.clearSelection()
+      else if (e.code === 'KeyG') st.setShopOpen(!st.shopOpen)
       else if (e.code === 'KeyV') st.cycleView()
       else if (e.code === 'KeyM') st.toggleMute()
       else if (e.code === 'KeyC') P.emote = P.emote === 'sit' ? null : 'sit'
@@ -65,6 +68,9 @@ export default function Controls() {
       dragging = false
     }
     const onWheel = (e) => {
+      // Same guard as onDown: scrolling inside a UI panel (chat, settings,
+      // shop, worldmap, etc.) must not steal the wheel for camera zoom.
+      if (e.target && e.target.closest && e.target.closest('.no-look')) return
       look.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, look.zoom + e.deltaY * 0.0012))
     }
 

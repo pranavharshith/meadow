@@ -13,8 +13,10 @@ import {
 } from './tree-assets'
 import { treeRegistry, P } from '../player-state'
 import { useStore } from '../store'
+import { Select } from '@react-three/postprocessing'
 
 const GROW_SECONDS = 90
+const CUT_DURATION = 0.85 // seconds the cut animation runs
 
 function easeOut(t) {
   return 1 - Math.pow(1 - t, 3)
@@ -102,6 +104,11 @@ const SAPLING_END = 90
 
 function PlantedTrees({ trees }) {
   const refs = useRef([])
+  const cuttingId = useStore((s) => s.cuttingId)
+  const selection = useStore((s) => s.selection)
+  const setSelection = useStore((s) => s.setSelection)
+  const [hoveredId, setHoveredId] = useState(null)
+  const cutStart = useRef({})
 
   useFrame(() => {
     const now = Date.now()
@@ -110,6 +117,24 @@ function PlantedTrees({ trees }) {
       if (!g) continue
       const t = trees[i]
       const age = (now - t.plantedAt) / 1000
+
+      // Cut animation overrides normal growth display
+      if (cuttingId === t.id) {
+        if (!cutStart.current[t.id]) cutStart.current[t.id] = performance.now()
+        const elapsed = (performance.now() - cutStart.current[t.id]) / 1000
+        const p = Math.min(elapsed / CUT_DURATION, 1)
+        // Shrink scale toward 0 with a little tilt
+        const baseScale = t.scale || 1
+        g.scale.setScalar(baseScale * (1 - p))
+        g.rotation.z = p * 1.1 // tip over
+        continue
+      } else {
+        // Reset cut state if this tree was previously being cut
+        if (cutStart.current[t.id]) {
+          delete cutStart.current[t.id]
+          g.rotation.z = 0
+        }
+      }
 
       if (age < SPROUT_END) {
         const p = age / SPROUT_END
@@ -130,19 +155,50 @@ function PlantedTrees({ trees }) {
       {trees.map((t, i) => {
         const age = (now - t.plantedAt) / 1000
         const shape = t.shape || 0
+        const interactive = !!t.owner
+        const isSelected = interactive && selection && selection.kind === 'tree' && selection.id === t.id
+        const isHovered = interactive && hoveredId === t.id && !isSelected
+        const hoverScale = isHovered ? 1.05 : 1 // subtle bump so hover is felt
+
+        const onOver = interactive
+          ? (e) => { e.stopPropagation(); setHoveredId(t.id); document.body.style.cursor = 'pointer' }
+          : undefined
+        const onOut = interactive
+          ? (e) => { e.stopPropagation(); setHoveredId((id) => (id === t.id ? null : id)); document.body.style.cursor = '' }
+          : undefined
+        const onClick = interactive
+          ? (e) => {
+              e.stopPropagation()
+              // Toggle: clicking the currently selected tree deselects it.
+              if (isSelected) setSelection(null)
+              else setSelection({ kind: 'tree', id: t.id })
+            }
+          : undefined
+
         return (
-          <group
-            key={t.id}
-            ref={(el) => (refs.current[i] = el)}
-            position={[t.x, terrainHeight(t.x, t.z), t.z]}
-          >
-            {age < SPROUT_END ? (
-              <Sprout />
-            ) : age < SAPLING_END ? (
-              <Sapling variant={t.variant} />
-            ) : (
-              <TreeParts variant={t.variant} shape={shape} />
-            )}
+          <group key={t.id} position={[t.x, terrainHeight(t.x, t.z), t.z]}>
+            {/* Hover bump lives on its own wrapper so it doesn't fight the
+                growth/cut animation applied inside `refs.current[i]`. */}
+            <group scale={hoverScale}>
+              <group
+                ref={(el) => (refs.current[i] = el)}
+                onPointerOver={onOver}
+                onPointerOut={onOut}
+                onClick={onClick}
+              >
+                {/* Only enable the outline on the currently selected tree so
+                    the amber glow reads as a decisive pick, not visual noise. */}
+                <Select enabled={isSelected}>
+                  {age < SPROUT_END ? (
+                    <Sprout />
+                  ) : age < SAPLING_END ? (
+                    <Sapling variant={t.variant} />
+                  ) : (
+                    <TreeParts variant={t.variant} shape={shape} />
+                  )}
+                </Select>
+              </group>
+            </group>
           </group>
         )
       })}

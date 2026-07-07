@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import { terrainHeight, mulberry32, clusterField } from './noise'
 import { CHUNK, seedFor } from './chunk'
 import { P, rockRegistry } from '../player-state'
+import { makeMossyMaterial } from './mossy-material'
 
 // Three distinct rock shapes for visual variety:
 // 0 = flat boulder (compressed sphere), 1 = tall standing stone, 2 = clustered pebble group
@@ -27,34 +28,11 @@ const roundGeo = new THREE.DodecahedronGeometry(1, 0)
 
 const ROCK_GEOS = [boulderGeo, standingGeo, roundGeo]
 
-// Materials with moss: vertex-coloured — upward-facing verts get green tint
-function makeMossyMaterial(baseColor, mossColor) {
-  const mat = new THREE.MeshStandardMaterial({
-    vertexColors: false,
-    color: baseColor,
-    roughness: 1,
-    metalness: 0,
-    flatShading: true,
-  })
-  // We'll use onBeforeCompile to tint top faces green
-  mat.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <color_fragment>',
-      `#include <color_fragment>
-       // Moss on upward-facing surfaces
-       vec3 worldNorm = normalize(vNormal);
-       float topFactor = smoothstep(0.4, 0.85, worldNorm.y);
-       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${mossColor}), topFactor * 0.55);`
-    )
-  }
-  return mat
-}
-
 // Three material variants for colour diversity
 const rockMats = [
-  makeMossyMaterial('#8d8b83', '0.38, 0.52, 0.28'), // grey + green moss
-  makeMossyMaterial('#7a7870', '0.32, 0.48, 0.24'), // darker grey
-  makeMossyMaterial('#9a9488', '0.42, 0.55, 0.30'), // warm grey
+  makeMossyMaterial({ base: '#8d8b83', moss: 'vec3(0.38, 0.52, 0.28)' }),
+  makeMossyMaterial({ base: '#7a7870', moss: 'vec3(0.32, 0.48, 0.24)' }),
+  makeMossyMaterial({ base: '#9a9488', moss: 'vec3(0.42, 0.55, 0.30)' }),
 ]
 
 export default function Rocks() {

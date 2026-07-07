@@ -167,13 +167,21 @@ $$;
 
 -- Water a tree. Only works on trees younger than the 90s growth window.
 -- Enforces per-player cooldown. Awards +1 gold, boosts growth by 18s.
+-- Returns the new gold total (scalar) so we avoid OUT-parameter/column
+-- name shadowing that previously caused the UPDATE to match nothing.
+--
+-- Note: Postgres refuses `CREATE OR REPLACE FUNCTION` when the return type
+-- changes. A prior version of this function returned `table(gold, planted_at)`;
+-- we drop it first so re-running this schema actually installs the new one.
+drop function if exists public.water_tree(uuid);
 create or replace function public.water_tree(p_tree_id uuid)
-returns table(gold integer, planted_at timestamptz)
+returns integer
 language plpgsql security definer set search_path = public
 as $$
 declare
-  last_at timestamptz;
-  new_pl  timestamptz;
+  last_at   timestamptz;
+  affected  int;
+  new_gold  int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
 
@@ -185,19 +193,18 @@ begin
   update public.trees
     set planted_at = planted_at - interval '18 seconds'
     where id = p_tree_id
-      and now() - planted_at < interval '90 seconds'
-    returning trees.planted_at into new_pl;
-
-  if new_pl is null then raise exception 'not waterable'; end if;
+      and now() - planted_at < interval '90 seconds';
+  get diagnostics affected = row_count;
+  if affected = 0 then raise exception 'not waterable'; end if;
 
   update public.players
     set gold = gold + 1,
         last_water_at = now(),
         updated_at = now()
-    where id = auth.uid();
+    where id = auth.uid()
+    returning gold into new_gold;
 
-  return query
-    select p.gold, new_pl from public.players p where p.id = auth.uid();
+  return new_gold;
 end
 $$;
 

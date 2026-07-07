@@ -1,12 +1,14 @@
 import { Canvas } from '@react-three/fiber'
 import { Suspense, useEffect, useState } from 'react'
 import { useProgress } from '@react-three/drei'
+import { Selection } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import Environment from './world/Environment'
 import Terrain from './world/Terrain'
 import GrassField from './world/GrassField'
 import TreesField from './world/TreesField'
 import Rocks from './world/Rocks'
+import PlacedRocks from './world/PlacedRocks'
 import Birds from './world/Birds'
 import Butterflies from './world/Butterflies'
 import Fireflies from './world/Fireflies'
@@ -64,34 +66,44 @@ export default function App() {
           gl.toneMapping = THREE.ACESFilmicToneMapping
           gl.toneMappingExposure = 1.05
         }}
+        // Clicking any non-interactive object (terrain, sky, empty space)
+        // deselects the currently-picked tree/rock. Clicking a tree/rock
+        // stops propagation so this handler only fires for empty clicks.
+        onPointerMissed={() => useStore.getState().clearSelection()}
       >
         {/* warm haze that hides the horizon so the world feels endless */}
         <fog attach="fog" args={['#e7d8b8', 90, 320]} />
 
         <WindClock />
 
-        <Suspense fallback={null}>
-          <Environment />
-          <Terrain />
-          <GrassField />
-          <Rocks />
-          <TreesField />
-          <Water />
-          <Landmarks />
-          {particles && <Birds />}
-          {particles && <Butterflies />}
-          <Fireflies />
-          {particles && <Petals />}
-          <Weather />
-          <RemotePlayers />
-        </Suspense>
+        {/* <Selection> gives postprocessing's Outline effect a place to
+            collect selected meshes. Any <Select enabled> inside this tree
+            (see TreesField/PlacedRocks) opts its meshes into the outline. */}
+        <Selection>
+          <Suspense fallback={null}>
+            <Environment />
+            <Terrain />
+            <GrassField />
+            <Rocks />
+            <PlacedRocks />
+            <TreesField />
+            <Water />
+            <Landmarks />
+            {particles && <Birds />}
+            {particles && <Butterflies />}
+            <Fireflies />
+            {particles && <Petals />}
+            <Weather />
+            <RemotePlayers />
+          </Suspense>
 
-        <Player />
-        <CameraRig />
-        <NavPath />
-        <WaterEffect />
-        <Net />
-        <Effects />
+          <Player />
+          <CameraRig />
+          <NavPath />
+          <WaterEffect />
+          <Net />
+          <Effects />
+        </Selection>
       </Canvas>
 
       <Controls />

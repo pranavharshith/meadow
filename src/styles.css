@@ -199,8 +199,102 @@ canvas { display: block; touch-action: none; }
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   white-space: nowrap;
+  /* Cap width so it doesn't run under the fixed button pill at the right edge. */
+  max-width: min(calc(100vw - 340px), 900px);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .hint b { color: #fff; font-weight: 600; }
+
+/* Floating contextual pill for the Cut action. Appears above the persistent
+   button row so it stays out of the way of both the topbar landmark label
+   (.place, top: 74px) and the main command pill. Kept OUT of that pill so
+   the two never collide visually or spatially. */
+.cut-pill {
+  position: fixed;
+  left: 50%;
+  bottom: 88px;
+  transform: translate(-50%, 8px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 999px;
+  background: rgba(28, 22, 18, 0.55);
+  border: 1px solid rgba(255, 200, 140, 0.28);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 6px 22px rgba(220, 130, 60, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.22s ease;
+  z-index: 5;
+}
+.cut-pill.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+/* When the cut pill is showing, nudge the hint out of the way. Both are
+   bottom-centered, so we drop the hint down a touch so the pill stacks
+   cleanly above it. */
+.cut-pill.show ~ .hint { bottom: 20px; opacity: 0.7; }
+.cut-pill-label {
+  font-size: 12.5px;
+  color: rgba(255, 230, 200, 0.9);
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+.cut-pill-cancel {
+  font: inherit;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.cut-pill-cancel:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.cut-pill-action {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(230,140,90,0.95), rgba(190,90,60,0.95));
+  border: 1px solid rgba(255,180,130,0.5);
+  border-radius: 999px;
+  padding: 8px 14px 8px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.02em;
+  transition: background 0.15s, transform 0.08s;
+  box-shadow: 0 3px 12px rgba(220,110,70,0.35);
+}
+.cut-pill-action:hover {
+  background: linear-gradient(135deg, rgba(240,155,105,1), rgba(200,100,70,1));
+  transform: translateY(-1px);
+}
+.cut-pill-action:active { transform: scale(0.96); }
+.cut-pill-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  border: 1px solid rgba(255,255,255,0.2);
+}
 
 .controls {
   position: fixed;
@@ -243,9 +337,10 @@ canvas { display: block; touch-action: none; }
 .btn.icon { text-transform: lowercase; }
 
 @media (max-width: 640px) {
-  .hint { font-size: 11px; bottom: 160px; }
+  .hint { font-size: 11px; bottom: 160px; white-space: normal; text-align: center; line-height: 1.5; }
   .minimap { width: 116px; height: 116px; }
   .buttons { flex-direction: column; align-items: flex-end; right: 18px; bottom: 22px; }
+  .cut-pill { bottom: 220px; }
 }
 
 /* identity tag + panel */
@@ -773,3 +868,279 @@ canvas { display: block; touch-action: none; }
   color: rgba(255,255,255,0.55);
   font-size: 10px;
 }
+
+/* ── Cut button ── */
+.btn.cut {
+  background: linear-gradient(180deg, rgba(180, 80, 60, 0.82), rgba(140, 56, 40, 0.82));
+  border-color: rgba(255, 140, 100, 0.35);
+}
+.btn.cut:hover {
+  background: linear-gradient(180deg, rgba(205, 95, 70, 0.92), rgba(160, 65, 48, 0.92));
+}
+
+/* ── Shop button ── */
+.btn.shop-btn {
+  background: linear-gradient(180deg, rgba(80, 130, 180, 0.75), rgba(55, 95, 145, 0.75));
+  border-color: rgba(160, 210, 255, 0.30);
+}
+.btn.shop-btn:hover {
+  background: linear-gradient(180deg, rgba(95, 148, 200, 0.88), rgba(65, 110, 165, 0.88));
+}
+.btn.shop-btn.active {
+  background: linear-gradient(180deg, rgba(60, 170, 120, 0.85), rgba(40, 130, 90, 0.85));
+  border-color: rgba(120, 230, 180, 0.40);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NATURE SHOP — full-screen overlay + slide-up drawer
+   ══════════════════════════════════════════════════════════════ */
+.shop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(4, 8, 5, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding-bottom: 90px; /* sit above the bottom button row */
+  animation: shopOverlayIn 0.22s ease-out;
+  pointer-events: auto;
+}
+@keyframes shopOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.shop-drawer {
+  width: min(540px, 96vw);
+  background: rgba(16, 22, 16, 0.78);
+  border: 1px solid rgba(100, 180, 120, 0.28);
+  border-radius: 22px 22px 18px 18px;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow:
+    0 -4px 60px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255,255,255,0.06) inset,
+    0 40px 80px rgba(0,0,0,0.35);
+  overflow: hidden;
+  animation: shopDrawerIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes shopDrawerIn {
+  from { transform: translateY(32px) scale(0.97); opacity: 0; }
+  to   { transform: translateY(0)    scale(1);    opacity: 1; }
+}
+
+/* Header */
+.shop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.shop-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.04em;
+}
+.shop-title-icon {
+  font-size: 20px;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(100,220,140,0.6));
+}
+.shop-close {
+  font: inherit;
+  font-size: 18px;
+  color: rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+.shop-close:hover { background: rgba(255,80,80,0.2); color: #ff9090; }
+
+/* Tabs */
+.shop-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.shop-tab {
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  background: transparent;
+  border: none;
+  padding: 11px 14px;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  border-bottom: 2px solid transparent;
+  transition: color 0.18s, background 0.18s, border-color 0.18s;
+}
+.shop-tab:hover { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.04); }
+.shop-tab.active {
+  color: #7ddbaa;
+  background: rgba(80, 200, 140, 0.10);
+  border-bottom-color: rgba(100, 210, 150, 0.75);
+}
+
+/* Item grid */
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  padding: 16px;
+}
+
+/* Item card */
+.shop-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.045);
+  border: 1.5px solid rgba(255,255,255,0.10);
+  border-radius: 14px;
+  padding: 14px 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: #fff;
+  transition: background 0.18s, border-color 0.18s, transform 0.14s;
+  overflow: hidden;
+}
+.shop-card:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.2);
+  transform: translateY(-2px);
+}
+.shop-card.selected {
+  background: rgba(80, 200, 140, 0.13);
+  border-color: rgba(100, 220, 160, 0.65);
+}
+.shop-card.cant-afford {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.shop-card.cant-afford:hover { transform: none; }
+
+.shop-card-emoji {
+  font-size: 30px;
+  line-height: 1;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
+}
+.shop-card-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.92);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+.shop-card-desc {
+  font-size: 10px;
+  color: rgba(255,255,255,0.45);
+  text-align: center;
+  line-height: 1.3;
+}
+.shop-card-cost {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f2c14e;
+  margin-top: 2px;
+}
+.shop-free {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7ddbaa;
+  letter-spacing: 0.03em;
+}
+.shop-coin {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe9a8, #f2c14e 70%, #d69a2a);
+  box-shadow: 0 0 5px rgba(242,193,78,0.55);
+  flex-shrink: 0;
+}
+
+/* Selected ring glow */
+.shop-card-sel-ring {
+  position: absolute;
+  inset: -1px;
+  border-radius: 14px;
+  border: 2px solid rgba(100,220,160,0.75);
+  box-shadow: 0 0 14px rgba(100,220,160,0.25) inset, 0 0 10px rgba(100,220,160,0.2);
+  pointer-events: none;
+  animation: selRingPulse 2.4s ease-in-out infinite;
+}
+@keyframes selRingPulse {
+  0%, 100% { box-shadow: 0 0 14px rgba(100,220,160,0.25) inset, 0 0 10px rgba(100,220,160,0.2); }
+  50%       { box-shadow: 0 0 22px rgba(100,220,160,0.45) inset, 0 0 18px rgba(100,220,160,0.35); }
+}
+
+/* Shop hint — replaces the old footer action bar. Just a small confirmation
+   of what's picked; the HUD's Plant button + E key are the real action. */
+.shop-hint {
+  padding: 12px 16px 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.5;
+}
+.shop-hint b { color: rgba(255,255,255,0.95); font-weight: 700; }
+.shop-hint-cost { color: rgba(255,255,255,0.55); display: inline-flex; align-items: center; gap: 4px; }
+.shop-hint-key { flex-basis: 100%; color: rgba(255,255,255,0.45); font-size: 11px; margin-top: 2px; }
+.shop-hint kbd {
+  background: rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: inherit;
+  font-size: 10px;
+  color: rgba(255,255,255,0.85);
+}
+
+/* Cut button — armed / disabled states */
+.btn.cut.armed {
+  background: linear-gradient(135deg, rgba(230,140,90,0.92), rgba(190,90,60,0.92));
+  border-color: rgba(255,180,130,0.5);
+  color: #fff;
+  box-shadow: 0 4px 18px rgba(220,110,70,0.28);
+}
+.btn.cut.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn.cut.disabled:hover { transform: none; background: inherit; }
+
+@media (max-width: 640px) {
+  .shop-overlay { padding-bottom: 120px; }
+  .shop-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 12px; }
+  .shop-card-emoji { font-size: 24px; }
+  .shop-footer { flex-direction: column; align-items: stretch; }
+  .shop-action-btn { justify-content: center; }
+}
+

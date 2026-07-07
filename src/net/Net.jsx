@@ -216,9 +216,10 @@ export default function Net() {
           p_scale: tree.scale,
         })
         if (error) return { ok: false, error: error.message }
-        // broadcast so nearby players see it immediately
-        if (channelRef.current) {
-          channelRef.current.send({
+        // broadcast so nearby players see it immediately (only if joined)
+        const ch = channelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
             type: 'broadcast',
             event: 'tree',
             payload: {
@@ -234,8 +235,7 @@ export default function Net() {
       bridge.water = async (treeId) => {
         const { data, error } = await supabase.rpc('water_tree', { p_tree_id: treeId })
         if (error) return { ok: false, error: error.message }
-        const row = Array.isArray(data) ? data[0] : data
-        return { ok: true, gold: row ? row.gold : undefined }
+        return { ok: true, gold: data } // scalar integer
       }
 
       bridge.discover = async (landmarkId) => {
@@ -273,7 +273,7 @@ export default function Net() {
           text,
         }
         const target = scope === 'world' ? worldRef.current : channelRef.current
-        if (target) {
+        if (target && target.state === 'joined') {
           target.send({ type: 'broadcast', event: 'chat', payload })
         }
         return { ok: true, gold: newGold }
@@ -371,17 +371,23 @@ export default function Net() {
     acc.current += dt
     if (acc.current >= 1 / POS_HZ) {
       acc.current = 0
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'pos',
-        payload: {
-          id: meId.current,
-          x: +P.pos.x.toFixed(2),
-          z: +P.pos.z.toFixed(2),
-          yaw: +P.avatarYaw.toFixed(2),
-          emote: P.emote,
-        },
-      })
+      // Only send once the channel finished joining; before that, `.send`
+      // silently falls back to REST httpSend which triggers a deprecation
+      // warning every tick.
+      const ch = channelRef.current
+      if (ch.state === 'joined') {
+        ch.send({
+          type: 'broadcast',
+          event: 'pos',
+          payload: {
+            id: meId.current,
+            x: +P.pos.x.toFixed(2),
+            z: +P.pos.z.toFixed(2),
+            yaw: +P.avatarYaw.toFixed(2),
+            emote: P.emote,
+          },
+        })
+      }
     }
   })
 
