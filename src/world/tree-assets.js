@@ -1,23 +1,36 @@
 import * as THREE from 'three'
 import { windTime, windStrength } from '../wind'
 
-// Shared geometries + materials for every tree (decorative and planted) so
-// hundreds of trees stay cheap. Leaves sway via a shared wind shader; no
-// per-frame JS needed.
+// Shared geometries + materials for every tree. Multiple silhouettes keep the
+// world visually rich while staying cheap (shared geos + instancing-friendly).
 
-// Trunk: taller and slightly thicker so trees tower over the player
+// --- Shape 0: Classic broadleaf (original, now bigger) ---
 export const trunkGeo = new THREE.CylinderGeometry(0.15, 0.28, 2.8, 6)
 export const leafGeo = new THREE.IcosahedronGeometry(1, 0)
 export const trunkMat = new THREE.MeshStandardMaterial({ color: '#6b4a2b', roughness: 0.9 })
 
-// Sapling-specific: thin stick trunk
+// --- Shape 1: Pine / Conifer — tall cone canopy ---
+export const pineTrunkGeo = new THREE.CylinderGeometry(0.1, 0.22, 3.2, 6)
+export const pineLeafGeo = new THREE.ConeGeometry(0.9, 2.4, 6)
+export const pineTrunkMat = new THREE.MeshStandardMaterial({ color: '#5a3d20', roughness: 0.95 })
+
+// --- Shape 2: Round / Bushy — dense sphere canopy, shorter ---
+export const bushyTrunkGeo = new THREE.CylinderGeometry(0.18, 0.3, 1.8, 6)
+export const bushyLeafGeo = new THREE.SphereGeometry(1.1, 8, 6)
+
+// --- Shape 3: Willow — tall trunk, elongated drooping canopy ---
+export const willowTrunkGeo = new THREE.CylinderGeometry(0.12, 0.24, 3.4, 6)
+export const willowLeafGeo = new THREE.SphereGeometry(1, 8, 6)
+// Stretch it vertically for drooping look
+willowLeafGeo.scale(0.8, 1.4, 0.8)
+
+// --- Growth stage geos (shared across all shapes) ---
 export const saplingTrunkGeo = new THREE.CylinderGeometry(0.04, 0.07, 1.2, 5)
 export const saplingLeafGeo = new THREE.IcosahedronGeometry(0.45, 0)
-
-// Sprout: tiny seedling
 export const sproutGeo = new THREE.CylinderGeometry(0.02, 0.035, 0.5, 4)
 export const sproutLeafGeo = new THREE.SphereGeometry(0.18, 8, 6)
 
+// --- Wind-sway leaf material factory ---
 function makeLeafMat(color) {
   const m = new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 1 })
   m.onBeforeCompile = (shader) => {
@@ -37,9 +50,18 @@ function makeLeafMat(color) {
   return m
 }
 
+// Broadleaf colours
 export const leafMats = [makeLeafMat('#5c8a3a'), makeLeafMat('#6f9b45'), makeLeafMat('#4f7d33')]
 
-// Lighter spring-green for saplings
+// Pine: dark blue-green
+export const pineLeafMats = [makeLeafMat('#2d5a3a'), makeLeafMat('#3a6b45'), makeLeafMat('#1f4a2e')]
+
+// Bushy: warm orange-green
+export const bushyLeafMats = [makeLeafMat('#7a9a3a'), makeLeafMat('#8aaa44'), makeLeafMat('#6b8830')]
+
+// Willow: pale silver-green
+export const willowLeafMats = [makeLeafMat('#6a9a70'), makeLeafMat('#7aaa7a'), makeLeafMat('#5a8a60')]
+
+// Growth stage materials
 export const saplingLeafMat = new THREE.MeshStandardMaterial({ color: '#8cc65e', flatShading: true, roughness: 0.9 })
-// Bright fresh green for sprouts
 export const sproutLeafMat = new THREE.MeshStandardMaterial({ color: '#a8e06c', flatShading: true, roughness: 0.85 })

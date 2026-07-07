@@ -6,12 +6,14 @@ import { terrainHeight, mulberry32, clusterField } from './noise'
 import { CHUNK, seedFor } from './chunk'
 import { windTime, windStrength } from '../wind'
 import { P } from '../player-state'
+import { useStore } from '../store'
 
-const BLADES_PER_CHUNK = 3400
+const BLADES_FULL = 3400
+const BLADES_HALF = 1700
 const FLOWERS_PER_CHUNK = 60
 const FLOWER_PALETTE = ['#ffffff', '#fff2b0', '#ffd1e8', '#e6d4ff', '#fff7d6', '#ffb3c1']
 
-function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat }) {
+function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCount }) {
   const grassRef = useRef()
   const flowerRef = useRef()
 
@@ -19,7 +21,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat }) {
     const d = new THREE.Object3D()
 
     const rngG = mulberry32(seedFor(cx, cz) ^ 0xa1)
-    for (let i = 0; i < BLADES_PER_CHUNK; i++) {
+    for (let i = 0; i < bladeCount; i++) {
       const x = cx * CHUNK + rngG() * CHUNK
       const z = cz * CHUNK + rngG() * CHUNK
       // taller, denser grass where the cluster field is high
@@ -60,7 +62,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat }) {
 
   return (
     <group>
-      <instancedMesh ref={grassRef} args={[bladeGeo, bladeMat, BLADES_PER_CHUNK]} frustumCulled={false} />
+      <instancedMesh ref={grassRef} args={[bladeGeo, bladeMat, bladeCount]} frustumCulled={false} />
       <instancedMesh ref={flowerRef} args={[flowerGeo, flowerMat, FLOWERS_PER_CHUNK]} frustumCulled={false} />
     </group>
   )
@@ -68,12 +70,17 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat }) {
 
 export default function GrassField() {
   const [center, setCenter] = useState({ cx: 0, cz: 0 })
+  const grassDensity = useStore((s) => s.grassDensity)
 
   useFrame(() => {
     const cx = Math.floor(P.pos.x / CHUNK)
     const cz = Math.floor(P.pos.z / CHUNK)
     if (cx !== center.cx || cz !== center.cz) setCenter({ cx, cz })
   })
+
+  if (grassDensity === 'off') return null
+
+  const bladeCount = grassDensity === 'half' ? BLADES_HALF : BLADES_FULL
 
   const bladeGeo = useMemo(() => {
     const g = new THREE.PlaneGeometry(0.09, 0.7, 1, 4)
@@ -133,13 +140,14 @@ export default function GrassField() {
       const cz = center.cz + dz
       chunks.push(
         <GrassChunk
-          key={`${cx},${cz}`}
+          key={`${cx},${cz},${grassDensity}`}
           cx={cx}
           cz={cz}
           bladeGeo={bladeGeo}
           bladeMat={bladeMat}
           flowerGeo={flowerGeo}
           flowerMat={flowerMat}
+          bladeCount={bladeCount}
         />
       )
     }

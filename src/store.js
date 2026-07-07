@@ -40,8 +40,14 @@ export const PALETTE = PASTELS
 export const useStore = create((set, get) => ({
   // 'third' (follow) | 'first' | 'top' (map)
   viewMode: saved.viewMode ?? 'third',
-  muted: false,
+  muted: saved.muted ?? false,
   fireflies: saved.fireflies ?? true,
+  // Quality settings
+  shadows: saved.shadows ?? true,
+  grassDensity: saved.grassDensity ?? 'full', // 'full' | 'half' | 'off'
+  effects: saved.effects ?? true,
+  particles: saved.particles ?? true, // butterflies, petals, birds
+  settingsOpen: false,
   gold: saved.gold ?? 0,
   color: saved.color ?? randomColor(),
   name: saved.name ?? 'wanderer',
@@ -67,6 +73,11 @@ export const useStore = create((set, get) => ({
     })),
   toggleMute: () => set((s) => ({ muted: !s.muted })),
   toggleFireflies: () => set((s) => ({ fireflies: !s.fireflies })),
+  toggleShadows: () => set((s) => ({ shadows: !s.shadows })),
+  setGrassDensity: (v) => set({ grassDensity: v }),
+  toggleEffects: () => set((s) => ({ effects: !s.effects })),
+  toggleParticles: () => set((s) => ({ particles: !s.particles })),
+  setSettingsOpen: (v) => set({ settingsOpen: v }),
   setMapOpen: (v) => set({ mapOpen: v }),
   setNavTarget: (target) => set({ navTarget: target }),
   clearNav: () => set({ navTarget: null }),
@@ -132,6 +143,7 @@ export const useStore = create((set, get) => ({
       plantedAt: Date.now(),
       scale: 1.4 + Math.random() * 0.8,
       variant: (Math.random() * 3) | 0,
+      shape: (Math.random() * 4) | 0,
       owner: true,
     }
     set((s) => ({ trees: [...s.trees, t], gold: s.gold + 5 }))
@@ -231,6 +243,11 @@ useStore.subscribe((s) => {
       lastBonus: s.lastBonus,
       viewMode: s.viewMode,
       fireflies: s.fireflies,
+      muted: s.muted,
+      shadows: s.shadows,
+      grassDensity: s.grassDensity,
+      effects: s.effects,
+      particles: s.particles,
     }
     if (!s.online) base.trees = s.trees
     localStorage.setItem(LS_KEY, JSON.stringify(base))

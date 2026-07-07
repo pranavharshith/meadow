@@ -24,6 +24,7 @@ import Net from './net/Net'
 import Hud from './ui/Hud'
 import NavPath from './world/NavPath'
 import WaterEffect from './world/WaterEffect'
+import Water from './world/Water'
 import { useStore } from './store'
 
 // Fades the warm-haze overlay out once the scene is ready, for a soft entrance.
@@ -40,6 +41,10 @@ function LoadingFade() {
 }
 
 export default function App() {
+  const shadows = useStore((s) => s.shadows)
+  const effects = useStore((s) => s.effects)
+  const particles = useStore((s) => s.particles)
+
   useEffect(() => {
     useStore.getState().claimDailyBonus()
   }, [])
@@ -47,10 +52,10 @@ export default function App() {
   return (
     <>
       <Canvas
-        shadows
+        shadows={shadows}
         dpr={[1, 1.75]}
         camera={{ position: [0, 4, 10], fov: 62, near: 0.1, far: 600 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
         onCreated={({ gl }) => {
           gl.toneMapping = THREE.ACESFilmicToneMapping
           gl.toneMappingExposure = 1.05
@@ -67,11 +72,12 @@ export default function App() {
           <GrassField />
           <Rocks />
           <TreesField />
+          <Water />
           <Landmarks />
-          <Birds />
-          <Butterflies />
+          {particles && <Birds />}
+          {particles && <Butterflies />}
           <Fireflies />
-          <Petals />
+          {particles && <Petals />}
           <Weather />
           <RemotePlayers />
         </Suspense>
@@ -81,7 +87,7 @@ export default function App() {
         <NavPath />
         <WaterEffect />
         <Net />
-        <Effects />
+        {effects && <Effects />}
       </Canvas>
 
       <Controls />

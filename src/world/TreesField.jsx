@@ -3,17 +3,25 @@ import { useMemo, useRef, useState, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight, mulberry32 } from './noise'
 import { CHUNK, seedFor } from './chunk'
-import { trunkGeo, leafGeo, trunkMat, leafMats, saplingTrunkGeo, saplingLeafGeo, saplingLeafMat, sproutGeo, sproutLeafGeo, sproutLeafMat } from './tree-assets'
+import {
+  trunkGeo, leafGeo, trunkMat, leafMats,
+  pineTrunkGeo, pineLeafGeo, pineTrunkMat, pineLeafMats,
+  bushyTrunkGeo, bushyLeafGeo, bushyLeafMats,
+  willowTrunkGeo, willowLeafGeo, willowLeafMats,
+  saplingTrunkGeo, saplingLeafGeo, saplingLeafMat,
+  sproutGeo, sproutLeafGeo, sproutLeafMat,
+} from './tree-assets'
 import { treeRegistry, P } from '../player-state'
 import { useStore } from '../store'
 
-const GROW_SECONDS = 90 // sapling -> full grown, over real time
+const GROW_SECONDS = 90
 
 function easeOut(t) {
   return 1 - Math.pow(1 - t, 3)
 }
 
-function TreeParts({ variant }) {
+// Shape 0: Classic broadleaf
+function BroadleafTree({ variant }) {
   return (
     <>
       <mesh geometry={trunkGeo} material={trunkMat} position={[0, 1.4, 0]} castShadow receiveShadow />
@@ -24,10 +32,52 @@ function TreeParts({ variant }) {
   )
 }
 
-// --- Growth stage visuals for planted trees ---
+// Shape 1: Pine / Conifer
+function PineTree({ variant }) {
+  return (
+    <>
+      <mesh geometry={pineTrunkGeo} material={pineTrunkMat} position={[0, 1.6, 0]} castShadow receiveShadow />
+      <mesh geometry={pineLeafGeo} material={pineLeafMats[variant % 3]} position={[0, 3.6, 0]} castShadow />
+      <mesh geometry={pineLeafGeo} material={pineLeafMats[(variant + 1) % 3]} position={[0, 2.8, 0]} scale={[1.2, 0.7, 1.2]} castShadow />
+    </>
+  )
+}
 
-// Stage 1: tiny sprout (0–30s) — a thin green stick with a small leaf blob
-function Sprout({ variant }) {
+// Shape 2: Round bushy
+function BushyTree({ variant }) {
+  return (
+    <>
+      <mesh geometry={bushyTrunkGeo} material={trunkMat} position={[0, 0.9, 0]} castShadow receiveShadow />
+      <mesh geometry={bushyLeafGeo} material={bushyLeafMats[variant % 3]} position={[0, 2.5, 0]} scale={[1.3, 1.1, 1.3]} castShadow />
+      <mesh geometry={bushyLeafGeo} material={bushyLeafMats[(variant + 1) % 3]} position={[0.4, 2.2, 0.3]} scale={0.7} castShadow />
+    </>
+  )
+}
+
+// Shape 3: Willow
+function WillowTree({ variant }) {
+  return (
+    <>
+      <mesh geometry={willowTrunkGeo} material={trunkMat} position={[0, 1.7, 0]} castShadow receiveShadow />
+      <mesh geometry={willowLeafGeo} material={willowLeafMats[variant % 3]} position={[0, 3.8, 0]} scale={[1.6, 1.8, 1.6]} castShadow />
+      <mesh geometry={willowLeafGeo} material={willowLeafMats[(variant + 1) % 3]} position={[0.5, 3.2, 0.4]} scale={0.8} castShadow />
+      <mesh geometry={willowLeafGeo} material={willowLeafMats[(variant + 2) % 3]} position={[-0.4, 3.0, -0.3]} scale={0.7} castShadow />
+    </>
+  )
+}
+
+// Picks the right tree shape component based on shape index
+function TreeParts({ variant, shape = 0 }) {
+  switch (shape) {
+    case 1: return <PineTree variant={variant} />
+    case 2: return <BushyTree variant={variant} />
+    case 3: return <WillowTree variant={variant} />
+    default: return <BroadleafTree variant={variant} />
+  }
+}
+
+// --- Growth stages ---
+function Sprout() {
   return (
     <>
       <mesh geometry={sproutGeo} material={trunkMat} position={[0, 0.25, 0]} castShadow />
@@ -37,7 +87,6 @@ function Sprout({ variant }) {
   )
 }
 
-// Stage 2: sapling (30–90s) — slender trunk, small crown, lighter leaf color
 function Sapling({ variant }) {
   return (
     <>
@@ -48,10 +97,8 @@ function Sapling({ variant }) {
   )
 }
 
-// Stage 3: mature tree — full size (uses TreeParts)
-
-const SPROUT_END = 30 // seconds
-const SAPLING_END = 90 // seconds (= GROW_SECONDS)
+const SPROUT_END = 30
+const SAPLING_END = 90
 
 function PlantedTrees({ trees }) {
   const refs = useRef([])
@@ -65,15 +112,12 @@ function PlantedTrees({ trees }) {
       const age = (now - t.plantedAt) / 1000
 
       if (age < SPROUT_END) {
-        // Sprout: grow from 0.3 to 0.7
         const p = age / SPROUT_END
         g.scale.setScalar(0.3 + easeOut(p) * 0.4)
       } else if (age < SAPLING_END) {
-        // Sapling: grow from 0.5 to 0.85
         const p = (age - SPROUT_END) / (SAPLING_END - SPROUT_END)
         g.scale.setScalar(0.5 + easeOut(p) * 0.35)
       } else {
-        // Mature: settle at full scale
         g.scale.setScalar(t.scale)
       }
     }
@@ -85,6 +129,7 @@ function PlantedTrees({ trees }) {
     <group>
       {trees.map((t, i) => {
         const age = (now - t.plantedAt) / 1000
+        const shape = t.shape || 0
         return (
           <group
             key={t.id}
@@ -92,11 +137,11 @@ function PlantedTrees({ trees }) {
             position={[t.x, terrainHeight(t.x, t.z), t.z]}
           >
             {age < SPROUT_END ? (
-              <Sprout variant={t.variant} />
+              <Sprout />
             ) : age < SAPLING_END ? (
               <Sapling variant={t.variant} />
             ) : (
-              <TreeParts variant={t.variant} />
+              <TreeParts variant={t.variant} shape={shape} />
             )}
           </group>
         )
@@ -133,6 +178,7 @@ export default function TreesField() {
             s: 1.4 + rng() * 1.2,
             rot: rng() * Math.PI * 2,
             variant: (rng() * 3) | 0,
+            shape: (rng() * 4) | 0, // 0=broadleaf, 1=pine, 2=bushy, 3=willow
           })
         }
       }
@@ -140,7 +186,6 @@ export default function TreesField() {
     return arr
   }, [center.cx, center.cz])
 
-  // keep the registry (minimap + collision + wildlife anchors) in sync
   useEffect(() => {
     const now = Date.now()
     treeRegistry.length = 0
@@ -155,7 +200,7 @@ export default function TreesField() {
     <group>
       {decorative.map((t, i) => (
         <group key={i} position={[t.x, t.y, t.z]} scale={t.s} rotation={[0, t.rot, 0]}>
-          <TreeParts variant={t.variant} />
+          <TreeParts variant={t.variant} shape={t.shape} />
         </group>
       ))}
       <PlantedTrees trees={trees} />

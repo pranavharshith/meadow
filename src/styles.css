@@ -602,3 +602,156 @@ canvas { display: block; touch-action: none; }
   .worldmap-canvas { max-width: 95vw; max-height: 70vh; }
   .nav-indicator { top: 150px; right: 14px; font-size: 11px; padding: 6px 10px; }
 }
+
+
+/* ---- Settings Panel ---- */
+.settings-gear {
+  font: inherit;
+  color: rgba(255,255,255,0.85);
+  background: rgba(24, 28, 22, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  transition: background 0.15s ease;
+}
+.settings-gear:hover { background: rgba(40, 48, 38, 0.55); }
+
+.settings-panel {
+  background: rgba(20, 26, 20, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  padding: 14px 16px;
+  min-width: 200px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.settings-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.9);
+}
+.settings-close {
+  font: inherit;
+  font-size: 18px;
+  color: rgba(255,255,255,0.7);
+  background: none;
+  border: none;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+}
+.settings-close:hover { color: #fff; }
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+}
+.settings-toggle {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  min-width: 42px;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+.settings-toggle.on {
+  color: #fff;
+  background: rgba(122, 174, 75, 0.6);
+  border-color: rgba(122, 174, 75, 0.8);
+}
+.settings-seg {
+  display: flex;
+  gap: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.settings-seg-btn {
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.05);
+  border: none;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.settings-seg-btn.active {
+  color: #fff;
+  background: rgba(122, 174, 75, 0.6);
+}
+
+
+/* ---- Screenshot Button ---- */
+.screenshot-btn {
+  font: inherit;
+  color: rgba(255,255,255,0.85);
+  background: rgba(24, 28, 22, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  transition: background 0.15s ease;
+}
+.screenshot-btn:hover { background: rgba(40, 48, 38, 0.55); }
+
+
+/* ---- Compass ---- */
+.compass {
+  position: absolute;
+  top: 164px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  background: rgba(24, 28, 22, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 5px 12px;
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  pointer-events: none;
+}
+.compass-cardinal {
+  color: #fff;
+  letter-spacing: 0.04em;
+}
+.compass-deg {
+  color: rgba(255,255,255,0.55);
+  font-size: 10px;
+}

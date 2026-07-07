@@ -5,12 +5,57 @@ import { terrainHeight, mulberry32, clusterField } from './noise'
 import { CHUNK, seedFor } from './chunk'
 import { P, rockRegistry } from '../player-state'
 
-// Low-poly boulders scattered across the meadow as quiet, natural detail.
-// Streamed as a 3x3 window of chunks around the player like the grass/trees,
-// so the world stays endless without a growing instance count. Rocks avoid the
-// lush flower clusters so they read as rocky, sparser ground.
-const geo = new THREE.DodecahedronGeometry(1, 0)
-const mat = new THREE.MeshStandardMaterial({ color: '#8d8b83', roughness: 1, metalness: 0, flatShading: true })
+// Three distinct rock shapes for visual variety:
+// 0 = flat boulder (compressed sphere), 1 = tall standing stone, 2 = clustered pebble group
+
+// Shape 0: flat boulder
+const boulderGeo = (() => {
+  const g = new THREE.DodecahedronGeometry(1, 0)
+  g.scale(1, 0.5, 1)
+  return g
+})()
+
+// Shape 1: tall standing stone (stretched)
+const standingGeo = (() => {
+  const g = new THREE.DodecahedronGeometry(1, 0)
+  g.scale(0.6, 1.4, 0.6)
+  return g
+})()
+
+// Shape 2: original round rock
+const roundGeo = new THREE.DodecahedronGeometry(1, 0)
+
+const ROCK_GEOS = [boulderGeo, standingGeo, roundGeo]
+
+// Materials with moss: vertex-coloured — upward-facing verts get green tint
+function makeMossyMaterial(baseColor, mossColor) {
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: false,
+    color: baseColor,
+    roughness: 1,
+    metalness: 0,
+    flatShading: true,
+  })
+  // We'll use onBeforeCompile to tint top faces green
+  mat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+       // Moss on upward-facing surfaces
+       vec3 worldNorm = normalize(vNormal);
+       float topFactor = smoothstep(0.4, 0.85, worldNorm.y);
+       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${mossColor}), topFactor * 0.55);`
+    )
+  }
+  return mat
+}
+
+// Three material variants for colour diversity
+const rockMats = [
+  makeMossyMaterial('#8d8b83', '0.38, 0.52, 0.28'), // grey + green moss
+  makeMossyMaterial('#7a7870', '0.32, 0.48, 0.24'), // darker grey
+  makeMossyMaterial('#9a9488', '0.42, 0.55, 0.30'), // warm grey
+]
 
 export default function Rocks() {
   const [center, setCenter] = useState({ cx: 0, cz: 0 })
@@ -32,24 +77,25 @@ export default function Rocks() {
         for (let i = 0; i < n; i++) {
           const x = cx * CHUNK + rng() * CHUNK
           const z = cz * CHUNK + rng() * CHUNK
-          if (clusterField(x, z) > 0.5) { rng(); rng(); rng(); rng(); continue }
+          if (clusterField(x, z) > 0.5) { rng(); rng(); rng(); rng(); rng(); continue }
           const rot = rng() * Math.PI * 2
           const sx = 0.6 + rng() * 1.6
           const sy = 0.4 + rng() * 0.8
           const sz = 0.6 + rng() * 1.6
           const sink = 0.15 + rng() * 0.25
-          arr.push({ x, z, y: terrainHeight(x, z), rot, sx, sy, sz, sink })
+          const shape = (rng() * 3) | 0
+          const matIdx = (rng() * 3) | 0
+          arr.push({ x, z, y: terrainHeight(x, z), rot, sx, sy, sz, sink, shape, matIdx })
         }
       }
     }
     return arr
   }, [center.cx, center.cz])
 
-  // Sync rock registry for collision — only large rocks block the player
+  // Sync rock registry for collision — only large rocks block
   useEffect(() => {
     rockRegistry.length = 0
     for (const r of allRocks) {
-      // Only rocks tall enough to block (above knee height ~0.4)
       if (r.sy >= 0.55) {
         rockRegistry.push({ x: r.x, z: r.z, r: Math.max(r.sx, r.sz) * 0.5 + 0.3 })
       }
@@ -61,8 +107,8 @@ export default function Rocks() {
       {allRocks.map((r, i) => (
         <mesh
           key={i}
-          geometry={geo}
-          material={mat}
+          geometry={ROCK_GEOS[r.shape]}
+          material={rockMats[r.matIdx]}
           position={[r.x, r.y - r.sink, r.z]}
           rotation={[0, r.rot, 0]}
           scale={[r.sx, r.sy, r.sz]}
