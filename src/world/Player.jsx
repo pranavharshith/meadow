@@ -46,6 +46,9 @@ export default function Player() {
   const right = useMemo(() => new THREE.Vector3(), [])
   const move = useMemo(() => new THREE.Vector3(), [])
 
+  const legLRef = useRef()
+  const legRRef = useRef()
+
   const bodyMat = useMemo(() => new THREE.MeshStandardMaterial({ color, roughness: 0.7 }), [color])
   const headMat = useMemo(
     () => new THREE.MeshStandardMaterial({ color: new THREE.Color(color).lerp(new THREE.Color('#fff'), 0.18), roughness: 0.6 }),
@@ -125,6 +128,22 @@ export default function Player() {
         armLRef.current.rotation.z = THREE.MathUtils.lerp(armLRef.current.rotation.z, -0.12, 1 - Math.exp(-8 * step))
       }
     }
+
+    // legs: swing forward/back opposite to each other while walking
+    if (legLRef.current && legRRef.current) {
+      if (sitting) {
+        // legs bend forward when sitting
+        legLRef.current.rotation.x = THREE.MathUtils.lerp(legLRef.current.rotation.x, -1.2, 1 - Math.exp(-8 * step))
+        legRRef.current.rotation.x = THREE.MathUtils.lerp(legRRef.current.rotation.x, -1.2, 1 - Math.exp(-8 * step))
+      } else if (P.moving) {
+        const legSpeed = run ? 12 : 9
+        legLRef.current.rotation.x = Math.sin(t * legSpeed) * 0.45
+        legRRef.current.rotation.x = -Math.sin(t * legSpeed) * 0.45
+      } else {
+        legLRef.current.rotation.x = THREE.MathUtils.lerp(legLRef.current.rotation.x, 0, 1 - Math.exp(-8 * step))
+        legRRef.current.rotation.x = THREE.MathUtils.lerp(legRRef.current.rotation.x, 0, 1 - Math.exp(-8 * step))
+      }
+    }
   })
 
   return (
@@ -145,6 +164,17 @@ export default function Player() {
         <group ref={armLRef} position={[-0.28, 0.92, 0]}>
           <mesh position={[0, -0.2, 0]} material={bodyMat} castShadow>
             <capsuleGeometry args={[0.075, 0.34, 4, 8]} />
+          </mesh>
+        </group>
+        {/* legs hinge at the hip */}
+        <group ref={legLRef} position={[0.12, 0.22, 0]}>
+          <mesh position={[0, -0.22, 0]} material={bodyMat} castShadow>
+            <capsuleGeometry args={[0.09, 0.32, 4, 8]} />
+          </mesh>
+        </group>
+        <group ref={legRRef} position={[-0.12, 0.22, 0]}>
+          <mesh position={[0, -0.22, 0]} material={bodyMat} castShadow>
+            <capsuleGeometry args={[0.09, 0.32, 4, 8]} />
           </mesh>
         </group>
       </group>

@@ -51,6 +51,7 @@ export const useStore = create((set, get) => ({
 
   // networking-facing
   online: false,
+  connectionStatus: 'offline', // 'connected' | 'reconnecting' | 'offline'
   playerCount: 1,
   chat: [], // { id, scope, name, color, text, at }
   chatScope: 'region', // 'region' | 'world'
@@ -79,7 +80,8 @@ export const useStore = create((set, get) => ({
   },
 
   // --- networking hydration (called by <Net/>) ---
-  setOnline: (online) => set({ online }),
+  setOnline: (online) => set({ online, connectionStatus: online ? 'connected' : 'offline' }),
+  setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
   setPlayerCount: (playerCount) => set({ playerCount }),
   hydrateProfile: ({ gold, name, color }) =>
     set((s) => ({

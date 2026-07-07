@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { supabase, ONLINE } from './supabase'
 import { bridge } from './bridge'
-import { regionOf, regionChannel, REGION } from './region'
+import { regionOf, regionChannel, REGION, isDeepInRegion } from './region'
 import { remotePlayers, netStatus } from './state'
 import { P } from '../player-state'
 import { useStore } from '../store'
@@ -242,6 +242,54 @@ export default function Net() {
 
     init()
 
+    // --- Reconnection handling ---
+    // Listen for Supabase auth state changes (token refresh, sign-out, etc.)
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (disposed) return
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+        if (netStatus.ready) {
+          useStore.getState().setConnectionStatus('connected')
+          useStore.getState().setOnline(true)
+          netStatus.online = true
+        }
+      }
+    })
+
+    // Poll realtime connection state to detect disconnects and auto-rejoin
+    const reconnectInterval = setInterval(() => {
+      if (disposed) return
+      const sock = supabase.realtime && supabase.realtime.conn
+      const isConnected = sock ? sock.readyState === 1 : true // WebSocket.OPEN = 1
+
+      if (!isConnected && netStatus.online) {
+        // Connection lost
+        netStatus.online = false
+        useStore.getState().setConnectionStatus('reconnecting')
+        useStore.getState().setOnline(false)
+      } else if (isConnected && !netStatus.online && netStatus.ready) {
+        // Connection restored — rejoin channels
+        netStatus.online = true
+        useStore.getState().setConnectionStatus('connected')
+        useStore.getState().setOnline(true)
+        // Re-join current region
+        const { rx, rz } = regionOf(P.pos.x, P.pos.z)
+        if (!switchingRef.current) {
+          switchingRef.current = true
+          Promise.resolve(joinRegionRef.current(rx, rz)).finally(() => {
+            switchingRef.current = false
+          })
+        }
+        // Re-subscribe world chat
+        if (worldRef.current) {
+          try { supabase.removeChannel(worldRef.current) } catch {}
+        }
+        const world = supabase.channel('world', { config: { broadcast: { self: false } } })
+        world.on('broadcast', { event: 'chat' }, ({ payload }) => receiveChat(payload, 'world'))
+        world.subscribe()
+        worldRef.current = world
+      }
+    }, 3000)
+
     return () => {
       disposed = true
       bridge.online = false
@@ -249,6 +297,8 @@ export default function Net() {
       bridge.plant = () => {}
       bridge.sendChat = () => false
       clearTimeout(saveTimer.current)
+      clearInterval(reconnectInterval)
+      if (authListener && authListener.subscription) authListener.subscription.unsubscribe()
       if (channelRef.current) supabase.removeChannel(channelRef.current)
       if (worldRef.current) supabase.removeChannel(worldRef.current)
       remotePlayers.clear()
@@ -259,10 +309,10 @@ export default function Net() {
   useFrame((_, dt) => {
     if (!netStatus.online || !channelRef.current) return
 
-    // switch region when the player crosses a boundary
+    // switch region when the player crosses a boundary (with hysteresis)
     const { rx, rz } = regionOf(P.pos.x, P.pos.z)
     const key = `${rx}:${rz}`
-    if (key !== regionRef.current && !switchingRef.current) {
+    if (key !== regionRef.current && !switchingRef.current && isDeepInRegion(P.pos.x, P.pos.z, rx, rz)) {
       switchingRef.current = true
       Promise.resolve(joinRegionRef.current(rx, rz)).finally(() => {
         switchingRef.current = false

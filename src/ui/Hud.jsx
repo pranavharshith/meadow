@@ -25,10 +25,11 @@ function PlaceLabel() {
 function Status() {
   const online = useStore((s) => s.online)
   const count = useStore((s) => s.playerCount)
+  const connectionStatus = useStore((s) => s.connectionStatus)
   return (
-    <div className={`status${online ? ' on' : ''}`}>
+    <div className={`status${online ? ' on' : ''}${connectionStatus === 'reconnecting' ? ' reconnecting' : ''}`}>
       <span className="live" />
-      {online ? `${count} here` : 'offline'}
+      {connectionStatus === 'reconnecting' ? 'reconnecting…' : online ? `${count} here` : 'offline'}
     </div>
   )
 }

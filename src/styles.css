@@ -359,6 +359,8 @@ canvas { display: block; touch-action: none; }
 }
 .status .live { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.35); }
 .status.on .live { background: #7fd07f; box-shadow: 0 0 8px rgba(127, 208, 127, 0.8); }
+.status.reconnecting .live { background: #f0c060; box-shadow: 0 0 8px rgba(240, 192, 96, 0.8); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 /* remote player nameplate + chat bubble (rendered via drei Html) */
 .nameplate {
