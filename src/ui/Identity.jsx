@@ -13,8 +13,23 @@ export default function Identity({ open, onClose }) {
 
   const saveEmail = async () => {
     if (!ONLINE || !supabase || !email) return
-    const { error } = await supabase.auth.updateUser({ email })
-    setEmailNote(error ? 'could not send link' : 'check your email to confirm')
+    setEmailNote('sending…')
+    const { error } = await supabase.auth.updateUser(
+      { email },
+      { emailRedirectTo: window.location.origin }
+    )
+    if (!error) {
+      setEmailNote('check your email to confirm')
+      return
+    }
+    // Surface the real reason so setup problems are debuggable.
+    const msg = (error.message || '').toLowerCase()
+    if (msg.includes('rate')) setEmailNote('too many requests — wait a minute')
+    else if (msg.includes('already') || msg.includes('registered'))
+      setEmailNote('that email is already linked to another account')
+    else if (msg.includes('signup') || msg.includes('disabled'))
+      setEmailNote('email sign-in is disabled on the server')
+    else setEmailNote(`could not send: ${error.message}`)
   }
 
   return (

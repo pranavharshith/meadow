@@ -49,19 +49,7 @@ canvas { display: block; touch-action: none; }
   text-shadow: 0 1px 14px rgba(0, 0, 0, 0.45);
   font-weight: 500;
 }
-.hint {
-  color: rgba(255, 255, 255, 0.88);
-  font-size: 13px;
-  letter-spacing: 0.03em;
-  background: rgba(24, 28, 22, 0.30);
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
-  padding: 11px 18px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  transition: opacity 0.6s ease;
-}
-.hint b { color: #fff; font-weight: 600; }
+/* (.hint styles live below with the other bottom-strip UI) */
 
 /* soft loading / entrance fade in the warm haze colour */
 .fade {
@@ -207,18 +195,20 @@ canvas { display: block; touch-action: none; }
   pointer-events: auto;
 }
 
-/* Controls hint: pinned at top-center under the landmark label, well out of
-   the way of chat (bottom-left), buttons (bottom-right), and cut-pill
-   (bottom-center). Dismissible on first click. */
+/* Controls hint: bottom-center strip, sits ABOVE the buttons row and
+   between the chat panel (left) and the buttons cluster (right). Wraps
+   onto multiple rows if the middle strip is too narrow so it never
+   overlaps its neighbours. Click to dismiss. */
 .hint {
   position: fixed;
-  top: 108px;
+  bottom: 82px;                              /* clears the ~62px button row */
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   color: rgba(255, 255, 255, 0.9);
   font-size: 12.5px;
   font: inherit;
@@ -227,12 +217,15 @@ canvas { display: block; touch-action: none; }
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
   padding: 8px 16px;
-  border-radius: 999px;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.16);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: calc(100vw - 40px);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.35;
+  /* Middle safe strip: chat (340px + 20px margin) on the left, buttons
+     (~360px + 20px margin) on the right. Whatever remains is the hint's. */
+  max-width: calc(100vw - 720px);
+  min-width: 0;
   pointer-events: auto;
   cursor: pointer;
   z-index: 4;
@@ -245,20 +238,20 @@ canvas { display: block; touch-action: none; }
 }
 .hint b { color: #fff; font-weight: 600; }
 
+/* (hint stays fully opaque even when cut-pill appears since cut-pill is at top) */
+
 /* Floating contextual pill for the Cut action. Appears above the persistent
    button row so it stays out of the way of both the topbar landmark label
    (.place, top: 74px) and the main command pill. Kept OUT of that pill so
    the two never collide visually or spatially. */
 .cut-pill {
   position: fixed;
-  /* Center the pill in the safe strip between chat (left 20 + 340 = 360)
-     and buttons (right 20 + ~360 buttons zone). That midpoint is roughly
-     ((100vw - 340 - 360) / 2 + 340) — but simpler: horizontally center in
-     viewport and rely on chat/buttons never encroaching past their own
-     max-widths. Sits above the button row so it never overlaps. */
+  /* Top-center, same lane as the placement banner. Selection and placement
+     are mutually exclusive interactions so they don't co-appear. Keeps the
+     bottom strip (chat/hint/buttons) completely untouched. */
   left: 50%;
-  bottom: 76px;
-  transform: translate(-50%, 8px);
+  top: 108px;
+  transform: translate(-50%, -8px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -279,9 +272,7 @@ canvas { display: block; touch-action: none; }
   pointer-events: auto;
   transform: translate(-50%, 0);
 }
-/* Hint lives at the top now, so no vertical fight with the cut pill.
-   We only fade the hint when the cut pill takes over the player's focus. */
-.cut-pill.show ~ .hint { opacity: 0.55; }
+/* Hint is always fully visible — no dimming, no fade. */
 .cut-pill-label {
   font-size: 12.5px;
   color: rgba(255, 230, 200, 0.9);
@@ -385,28 +376,21 @@ canvas { display: block; touch-action: none; }
 .btn.icon { text-transform: lowercase; }
 
 @media (max-width: 720px) {
-  /* At narrow widths, keep hint at top but wrap onto two lines if needed */
+  /* Narrow layout: chat and buttons stack sensibly, hint spans the top of
+     the bottom-strip full-width so it doesn't fight the narrow safe zone. */
   .hint {
     left: 12px;
     right: 12px;
     transform: none;
     max-width: calc(100vw - 24px);
-    flex-wrap: wrap;
     gap: 4px 8px;
     font-size: 11px;
-    white-space: normal;
-    text-align: center;
-    line-height: 1.35;
     border-radius: 14px;
     padding: 7px 12px;
-    top: 96px;
+    bottom: 200px;  /* above stacked buttons + chat toggle */
   }
   .hint-wide { display: none; }
   .minimap { width: 116px; height: 116px; }
-
-  /* Chat stays bottom-left but slims down; buttons stack vertically on the
-     right so a WASD hint at top and stacked buttons at right leave the
-     bottom strip for chat + cut-pill only. */
   .chat { width: 260px; max-width: 60vw; left: 14px; bottom: 14px; }
   .buttons {
     flex-direction: column;
@@ -416,11 +400,8 @@ canvas { display: block; touch-action: none; }
     max-width: none;
     gap: 6px;
   }
-  .cut-pill { bottom: unset; top: 150px; }
 }
 
-/* On very narrow screens, chat collapses so the cut-pill and buttons don't
-   have to compete with a wide chat panel. */
 @media (max-width: 460px) {
   .chat { width: 220px; max-width: 55vw; }
 }
@@ -510,16 +491,19 @@ canvas { display: block; touch-action: none; }
 }
 .place.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-/* transient toast (gold, discovery, etc.) */
+/* Transient toast (gold gains, discoveries, "not your tree", etc.)
+   Pinned to TOP-center under the landmark label + placement banner so it
+   never overlaps the bottom hint / chat / buttons. Higher z-index than
+   place-banner so a toast fired during placement is still visible. */
 .toast {
   position: fixed;
-  bottom: 88px;
+  top: 172px;   /* below the placement banner (top 108 + ~50 tall) */
   left: 50%;
-  transform: translateX(-50%) translateY(8px);
+  transform: translateX(-50%) translateY(-8px);
   color: #fff;
   font-size: 13px;
   letter-spacing: 0.02em;
-  background: rgba(24, 28, 22, 0.4);
+  background: rgba(24, 28, 22, 0.44);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
   padding: 9px 16px;
@@ -527,7 +511,12 @@ canvas { display: block; touch-action: none; }
   -webkit-backdrop-filter: blur(7px);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.4s ease, transform 0.4s ease;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  z-index: 7;
+  max-width: min(80vw, 520px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 

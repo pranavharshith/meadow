@@ -293,7 +293,11 @@ export const useStore = create((set, get) => ({
           'too crowded':   'too crowded here',
           'not enough gold': `need ${cost} gold`,
         }
-        get().flash(map[res.error] || 'could not place rock')
+        // If the server error isn't one we've mapped, surface the real
+        // message so the user (and we) can see what actually went wrong
+        // — usually "Could not find the function..." meaning schema.sql
+        // wasn't re-run, or a missing-column error.
+        get().flash(map[res.error] || `rock failed: ${res.error || 'unknown'}`)
         return
       }
       if (typeof res.gold === 'number') set({ gold: res.gold })
