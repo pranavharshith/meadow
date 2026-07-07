@@ -245,10 +245,33 @@ export default function TreesField() {
   useEffect(() => {
     const now = Date.now()
     treeRegistry.length = 0
-    for (const t of decorative) treeRegistry.push({ x: t.x, z: t.z, r: 0.8, mature: true })
+    // r          — trunk-ish physics radius (player can brush past the canopy)
+    // placementR — canopy extent, used by PlacementPreview so nothing new
+    //              gets planted underneath an existing tree's crown even
+    //              if the trunks aren't touching.
+    for (const t of decorative) {
+      // Decorative canopies scale with the tree's own `s` (1.4–2.6). We
+      // don't want to reserve the whole visual crown radius (2–5 units!)
+      // because casually planting near a big tree should feel possible.
+      // 0.6 + s*0.4 gives a snug placement radius that keeps trunks
+      // meaningfully apart without demanding a small forest of clearance.
+      treeRegistry.push({
+        x: t.x, z: t.z,
+        r: 0.8,
+        placementR: 0.6 + t.s * 0.4,
+        mature: true,
+      })
+    }
     for (const t of trees) {
       const grown = now - t.plantedAt >= GROW_SECONDS * 1000
-      treeRegistry.push({ x: t.x, z: t.z, r: 0.6, mature: grown })
+      treeRegistry.push({
+        x: t.x, z: t.z,
+        r: 0.6,
+        // Reserve the grown footprint even while it's a sapling — otherwise
+        // players could crowd a young tree and get overlap once it matures.
+        placementR: 1.3,
+        mature: grown,
+      })
     }
   }, [decorative, trees])
 

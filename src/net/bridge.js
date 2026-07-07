@@ -15,6 +15,7 @@ export const bridge = {
   // Server-gated mutations. Each returns { ok, gold?, error?, ...extras }.
   plant:        async (_tree)               => ({ ok: false, error: 'offline' }),
   water:        async (_treeId)             => ({ ok: false, error: 'offline' }),
+  cut:          async (_treeId)             => ({ ok: false, error: 'offline' }),
   discover:     async (_landmarkId)         => ({ ok: false, error: 'offline' }),
   claimDaily:   async ()                    => ({ ok: false, error: 'offline' }),
 

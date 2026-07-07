@@ -2,21 +2,28 @@ import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { supabase, ONLINE } from './supabase'
 import { bridge } from './bridge'
-import { regionOf, regionChannel, isDeepInRegion } from './region'
+import {
+  regionOf, regionChannel, regionChatChannel,
+  isDeepInRegion, shardFor,
+} from './region'
 import { remotePlayers, netStatus } from './state'
 import { P } from '../player-state'
 import { useStore } from '../store'
 import { isMuted, toggleMute as toggleMuteLocal } from './moderation'
+import { getCaptchaToken } from './captcha'
 
 const POS_HZ = 10
 
 // Orchestrates the online layer: anonymous identity, RPC-mediated state,
-// per-region presence + broadcast, streamed trees, and chat. Renders nothing.
+// per-region presence + broadcast (sharded), streamed trees, and chat.
+// Renders nothing.
 export default function Net() {
   const meId = useRef(null)
-  const channelRef = useRef(null)
+  const shardRef = useRef(0)
+  const posChannelRef = useRef(null)   // sharded: presence, pos, tree
+  const chatChannelRef = useRef(null)  // region-wide: chat + head count
+  const worldRef = useRef(null)        // global: world chat (server-emitted)
   const regionRef = useRef(null)
-  const worldRef = useRef(null)
   const acc = useRef(0)
   const identityTimer = useRef(null)
   const switchingRef = useRef(false)
@@ -93,6 +100,13 @@ export default function Net() {
       })
     }
 
+    // A remote peer cut one of their own trees. Remove it locally so the
+    // scene stays in sync without a full region reload.
+    const receiveCut = (payload) => {
+      if (!payload || !payload.id || payload.owner_id === meId.current) return
+      useStore.getState().removeTreeLocal(payload.id)
+    }
+
     async function loadRegionTrees(rx, rz) {
       const { data, error } = await supabase
         .from('trees')
@@ -115,49 +129,85 @@ export default function Net() {
     }
 
     async function joinRegion(rx, rz) {
-      if (channelRef.current) {
-        try { await supabase.removeChannel(channelRef.current) } catch {}
-        channelRef.current = null
+      // Tear down previous region channels
+      if (posChannelRef.current) {
+        try { await supabase.removeChannel(posChannelRef.current) } catch {}
+        posChannelRef.current = null
+      }
+      if (chatChannelRef.current) {
+        try { await supabase.removeChannel(chatChannelRef.current) } catch {}
+        chatChannelRef.current = null
       }
       remotePlayers.clear()
 
       const name = useStore.getState().name
       const color = useStore.getState().color
-      const ch = supabase.channel(regionChannel(rx, rz), {
-        config: { presence: { key: meId.current }, broadcast: { self: false } },
+      const shard = shardRef.current
+
+      // --- sharded pos/tree channel: presence-lite, position, tree events ---
+      const posCh = supabase.channel(regionChannel(rx, rz, shard), {
+        config: { broadcast: { self: false } },
       })
-      ch.on('broadcast', { event: 'pos' }, ({ payload }) => receivePos(payload))
-      ch.on('broadcast', { event: 'chat' }, ({ payload }) => receiveChat(payload, 'region'))
-      ch.on('broadcast', { event: 'tree' }, ({ payload }) => receiveTree(payload))
-      ch.on('presence', { event: 'sync' }, () => {
-        const st = ch.presenceState()
-        netStatus.count = Object.keys(st).length || 1
-        useStore.getState().setPlayerCount(netStatus.count)
-      })
-      ch.on('presence', { event: 'leave' }, ({ leftPresences }) => {
+      posCh.on('broadcast', { event: 'pos' }, ({ payload }) => receivePos(payload))
+      posCh.on('broadcast', { event: 'tree' }, ({ payload }) => receiveTree(payload))
+      posCh.on('broadcast', { event: 'cut' }, ({ payload }) => receiveCut(payload))
+      posCh.on('presence', { event: 'leave' }, ({ leftPresences }) => {
         for (const p of leftPresences || []) {
           const id = p.id || p.key
           if (id) remotePlayers.delete(id)
         }
       })
-      ch.subscribe(async (status) => {
+      posCh.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await ch.track({ id: meId.current, name, color })
+          await posCh.track({ id: meId.current })
         }
       })
-      channelRef.current = ch
+      posChannelRef.current = posCh
+
+      // --- region-wide chat + authoritative head count (un-sharded) ---
+      const chatCh = supabase.channel(regionChatChannel(rx, rz), {
+        config: { presence: { key: meId.current }, broadcast: { self: false } },
+      })
+      chatCh.on('broadcast', { event: 'chat' }, ({ payload }) => receiveChat(payload, 'region'))
+      chatCh.on('presence', { event: 'sync' }, () => {
+        const st = chatCh.presenceState()
+        netStatus.count = Object.keys(st).length || 1
+        useStore.getState().setPlayerCount(netStatus.count)
+      })
+      chatCh.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await chatCh.track({ id: meId.current, name, color })
+        }
+      })
+      chatChannelRef.current = chatCh
+
       regionRef.current = `${rx}:${rz}`
       netStatus.region = regionRef.current
       loadRegionTrees(rx, rz)
     }
     joinRegionRef.current = joinRegion
 
+    function subscribeWorld() {
+      if (worldRef.current) {
+        try { supabase.removeChannel(worldRef.current) } catch {}
+      }
+      // Server (send_world_chat RPC) emits 'chat' events into this topic via
+      // realtime.send(). Clients are receive-only here — no client emits.
+      const world = supabase.channel('world', { config: { broadcast: { self: false } } })
+      world.on('broadcast', { event: 'chat' }, ({ payload }) => receiveChat(payload, 'world'))
+      world.subscribe()
+      worldRef.current = world
+    }
+
     // ---------- init ----------
     async function init() {
       // anonymous identity (persisted by supabase-js in localStorage)
       let { data: sess } = await supabase.auth.getSession()
       if (!sess.session) {
-        const { data, error } = await supabase.auth.signInAnonymously()
+        // Optional captcha token — null when Turnstile isn't configured.
+        const captchaToken = await getCaptchaToken()
+        const opts = captchaToken ? { options: { captchaToken } } : undefined
+        const { data, error } = await supabase.auth.signInAnonymously(opts)
         if (error) {
           useStore.getState().setOnline(false)
           return
@@ -167,6 +217,7 @@ export default function Net() {
       const user = (await supabase.auth.getUser()).data.user
       if (!user || disposed) return
       meId.current = user.id
+      shardRef.current = shardFor(user.id)
 
       // Ensure a player row exists and hydrate from server truth
       const s0 = useStore.getState()
@@ -216,8 +267,10 @@ export default function Net() {
           p_scale: tree.scale,
         })
         if (error) return { ok: false, error: error.message }
-        // broadcast so nearby players see it immediately (only if joined)
-        const ch = channelRef.current
+        // broadcast so nearby players see it immediately (only if joined).
+        // Peers on other shards of the same region will miss the broadcast
+        // and pick it up on their next region-trees reload — acceptable.
+        const ch = posChannelRef.current
         if (ch && ch.state === 'joined') {
           ch.send({
             type: 'broadcast',
@@ -238,6 +291,21 @@ export default function Net() {
         return { ok: true, gold: data } // scalar integer
       }
 
+      bridge.cut = async (treeId) => {
+        const { data, error } = await supabase.rpc('cut_tree', { p_tree_id: treeId })
+        if (error) return { ok: false, error: error.message }
+        // Tell same-shard peers to drop this tree from their local state.
+        const ch = posChannelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
+            type: 'broadcast',
+            event: 'cut',
+            payload: { id: treeId, owner_id: meId.current },
+          })
+        }
+        return { ok: true, gold: data } // scalar integer
+      }
+
       bridge.discover = async (landmarkId) => {
         const { data, error } = await supabase.rpc('discover_landmark', {
           p_landmark_id: landmarkId,
@@ -253,17 +321,17 @@ export default function Net() {
       }
 
       bridge.sendChat = async (scope, text) => {
-        // Gate at the server (rate limit + optional gold cost)
-        let newGold
         if (scope === 'world') {
+          // Server RPC pays, rate-limits, AND emits the broadcast itself
+          // via realtime.send(). Client is receive-only for world chat now.
           const { data, error } = await supabase.rpc('send_world_chat', { p_text: text })
           if (error) return { ok: false, error: error.message }
-          newGold = data
-        } else {
-          const { error } = await supabase.rpc('check_region_chat', { p_text: text })
-          if (error) return { ok: false, error: error.message }
+          return { ok: true, gold: data }
         }
-        // Broadcast the payload
+        // Region chat: server rate-limits, client broadcasts on the
+        // region-wide chat channel so all shards receive it.
+        const { error } = await supabase.rpc('check_region_chat', { p_text: text })
+        if (error) return { ok: false, error: error.message }
         const s = useStore.getState()
         const payload = {
           id: meId.current,
@@ -272,18 +340,14 @@ export default function Net() {
           color: s.color,
           text,
         }
-        const target = scope === 'world' ? worldRef.current : channelRef.current
+        const target = chatChannelRef.current
         if (target && target.state === 'joined') {
           target.send({ type: 'broadcast', event: 'chat', payload })
         }
-        return { ok: true, gold: newGold }
+        return { ok: true }
       }
 
-      // world chat channel (always on)
-      const world = supabase.channel('world', { config: { broadcast: { self: false } } })
-      world.on('broadcast', { event: 'chat' }, ({ payload }) => receiveChat(payload, 'world'))
-      world.subscribe()
-      worldRef.current = world
+      subscribeWorld()
 
       useStore.getState().setOnline(true)
       netStatus.online = true
@@ -327,13 +391,7 @@ export default function Net() {
             switchingRef.current = false
           })
         }
-        if (worldRef.current) {
-          try { supabase.removeChannel(worldRef.current) } catch {}
-        }
-        const world = supabase.channel('world', { config: { broadcast: { self: false } } })
-        world.on('broadcast', { event: 'chat' }, ({ payload }) => receiveChat(payload, 'world'))
-        world.subscribe()
-        worldRef.current = world
+        subscribeWorld()
       }
     }, 3000)
 
@@ -343,13 +401,15 @@ export default function Net() {
       bridge.saveIdentity = async () => {}
       bridge.plant = async () => ({ ok: false, error: 'offline' })
       bridge.water = async () => ({ ok: false, error: 'offline' })
+      bridge.cut = async () => ({ ok: false, error: 'offline' })
       bridge.discover = async () => ({ ok: false, error: 'offline' })
       bridge.claimDaily = async () => ({ ok: false, error: 'offline' })
       bridge.sendChat = async () => ({ ok: false, error: 'offline' })
       clearTimeout(identityTimer.current)
       clearInterval(reconnectInterval)
       if (authListener && authListener.subscription) authListener.subscription.unsubscribe()
-      if (channelRef.current) supabase.removeChannel(channelRef.current)
+      if (posChannelRef.current) supabase.removeChannel(posChannelRef.current)
+      if (chatChannelRef.current) supabase.removeChannel(chatChannelRef.current)
       if (worldRef.current) supabase.removeChannel(worldRef.current)
       remotePlayers.clear()
     }
@@ -357,7 +417,7 @@ export default function Net() {
 
   // position broadcast + region switching
   useFrame((_, dt) => {
-    if (!netStatus.online || !channelRef.current) return
+    if (!netStatus.online || !posChannelRef.current) return
 
     const { rx, rz } = regionOf(P.pos.x, P.pos.z)
     const key = `${rx}:${rz}`
@@ -374,7 +434,7 @@ export default function Net() {
       // Only send once the channel finished joining; before that, `.send`
       // silently falls back to REST httpSend which triggers a deprecation
       // warning every tick.
-      const ch = channelRef.current
+      const ch = posChannelRef.current
       if (ch.state === 'joined') {
         ch.send({
           type: 'broadcast',

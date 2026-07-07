@@ -323,3 +323,121 @@ grant execute on function public.discover_landmark(text)                        
 grant execute on function public.claim_daily_bonus()                                      to authenticated;
 grant execute on function public.send_world_chat(text)                                    to authenticated;
 grant execute on function public.check_region_chat(text)                                  to authenticated;
+
+-- ============================================================================
+-- Hardening: server-authoritative cut, server-emitted world chat.
+-- Idempotent additions — safe to re-run.
+-- ============================================================================
+
+-- Cooldown column for cut_tree
+alter table public.players add column if not exists last_cut_at timestamptz;
+
+-- Cut a tree (or uproot a sapling). Verifies ownership, applies cooldown,
+-- credits gold based on age, deletes the tree, returns the new gold total.
+-- Rewards mirror the client-side constants:
+--   grown (>= 90s):    +8
+--   sapling (< 90s):   +2
+create or replace function public.cut_tree(p_tree_id uuid)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare
+  last_at   timestamptz;
+  planted   timestamptz;
+  reward    int;
+  new_gold  int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  select last_cut_at into last_at from public.players where id = auth.uid();
+  if last_at is not null and now() - last_at < interval '500 milliseconds' then
+    raise exception 'cut cooldown';
+  end if;
+
+  select planted_at into planted
+    from public.trees
+    where id = p_tree_id and owner_id = auth.uid();
+  if planted is null then raise exception 'not your tree'; end if;
+
+  if now() - planted >= interval '90 seconds' then
+    reward := 8;
+  else
+    reward := 2;
+  end if;
+
+  delete from public.trees where id = p_tree_id and owner_id = auth.uid();
+
+  update public.players
+    set gold = gold + reward,
+        last_cut_at = now(),
+        updated_at = now()
+    where id = auth.uid()
+    returning gold into new_gold;
+
+  return new_gold;
+end
+$$;
+
+grant execute on function public.cut_tree(uuid) to authenticated;
+
+-- Replace send_world_chat: same rate-limit + gold gate, but the actual chat
+-- payload is now emitted by the database via realtime.send() on the 'world'
+-- topic. Clients only subscribe; they no longer emit world-chat broadcasts,
+-- which closes the "pay for one text, broadcast another" gap.
+--
+-- Signature stays `text -> integer` so no drop needed.
+create or replace function public.send_world_chat(p_text text)
+returns integer
+language plpgsql security definer set search_path = public, extensions, realtime
+as $$
+declare
+  g        int;
+  last_at  timestamptz;
+  p        public.players;
+  mid      text;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if p_text is null then raise exception 'bad text'; end if;
+
+  -- Normalize + length gate
+  p_text := btrim(p_text);
+  if length(p_text) = 0 or length(p_text) > 160 then
+    raise exception 'bad text';
+  end if;
+
+  select * into p from public.players where id = auth.uid();
+  if p.last_chat_at is not null and now() - p.last_chat_at < interval '1500 milliseconds' then
+    raise exception 'chat cooldown';
+  end if;
+
+  update public.players
+    set gold = gold - 3,
+        last_chat_at = now(),
+        updated_at = now()
+    where id = auth.uid() and gold >= 3
+    returning gold into g;
+  if g is null then raise exception 'not enough gold'; end if;
+
+  mid := encode(gen_random_bytes(8), 'hex');
+
+  -- Emit the trusted payload. Clients subscribe to channel 'world' and
+  -- listen for event 'chat'. `private := false` keeps the topic public so
+  -- anon-authenticated clients receive it without extra RLS.
+  perform realtime.send(
+    jsonb_build_object(
+      'id',   auth.uid(),
+      'mid',  mid,
+      'name', p.name,
+      'color', p.color,
+      'text', p_text
+    ),
+    'chat',
+    'world',
+    false
+  );
+
+  return g;
+end
+$$;
+
+grant execute on function public.send_world_chat(text) to authenticated;

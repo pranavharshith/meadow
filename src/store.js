@@ -311,10 +311,32 @@ export const useStore = create((set, get) => ({
     const verb = isGrownTree ? 'cut down' : 'uprooted'
 
     // Play the fall animation, clear selection, credit optimistically
+    const goldBefore = state.gold
     set((s) => ({ cuttingId: tree.id, selection: null, gold: s.gold + reward }))
     state.flash(`${verb} a tree · +${reward} gold`)
 
+    // Kick the server RPC in parallel with the animation. If it rejects,
+    // revert gold and cancel the fall; otherwise reconcile to the truth.
+    let serverOk = true
+    if (bridge.online) {
+      bridge.cut(tree.id).then((res) => {
+        if (!res.ok) {
+          serverOk = false
+          set((s) => ({ gold: goldBefore, cuttingId: null }))
+          const map = {
+            'cut cooldown': 'wait a moment before cutting again',
+            'not your tree': 'that tree is not yours',
+            'not signed in': 'reconnecting — try again',
+          }
+          get().flash(map[res.error] || `could not cut: ${res.error || 'unknown'}`)
+          return
+        }
+        if (typeof res.gold === 'number') set({ gold: res.gold })
+      })
+    }
+
     setTimeout(() => {
+      if (!serverOk) return // server rejected; leave tree standing
       set((s) => ({
         trees: s.trees.filter((t) => t.id !== tree.id),
         cuttingId: null,

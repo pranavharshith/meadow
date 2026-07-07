@@ -22,8 +22,14 @@ import { PONDS, STREAM_POINTS, STREAM_WIDTH } from './Water'
 
 const PLACE_DIST = 1.8            // distance in front of the player
 const PLACE_BUFFER = 0.6          // extra clearance between neighbours
-const TREE_RADIUS = 0.9
-const ROCK_RADIUS = 1.0
+
+// Ghost-side radii: sized to match the actual visual extent of the object
+// being placed, not just its trunk. A broadleaf tree's canopy sits inside
+// a 1.5-unit horizontal envelope; rocks are ~1.0. These pair with the
+// `placementR` values published by TreesField/Rocks so the check operates
+// on real silhouettes rather than physics radii.
+const TREE_RADIUS = 1.5
+const ROCK_RADIUS = 1.1
 const SLOPE_LIMIT = 1.8           // max height delta across a 1-unit probe
 const WATER_MARGIN = 0.4          // extra padding around ponds/streams
 
@@ -177,10 +183,15 @@ export default function PlacementPreview() {
         reason = 'ground is too steep'
       }
     }
+    // Placement uses `placementR` (visual/canopy extent) if the registry
+    // entry provides it, otherwise falls back to `r` (physics radius). This
+    // keeps player movement unaffected while making the ghost-vs-real
+    // overlap check operate on the sizes players actually see.
     if (valid) {
       for (const t of treeRegistry) {
+        const other = t.placementR ?? t.r ?? 0.7
         const d = Math.hypot(t.x - px, t.z - pz)
-        if (d < myR + (t.r || 0.7) + PLACE_BUFFER) {
+        if (d < myR + other + PLACE_BUFFER) {
           valid = false
           reason = 'too close to another tree'
           break
@@ -189,8 +200,9 @@ export default function PlacementPreview() {
     }
     if (valid) {
       for (const r of rockRegistry) {
+        const other = r.placementR ?? r.r ?? 0.9
         const d = Math.hypot(r.x - px, r.z - pz)
-        if (d < myR + (r.r || 0.9) + PLACE_BUFFER) {
+        if (d < myR + other + PLACE_BUFFER) {
           valid = false
           reason = 'too close to a rock'
           break

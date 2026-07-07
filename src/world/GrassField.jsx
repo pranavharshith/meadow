@@ -20,6 +20,16 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
   useLayoutEffect(() => {
     const d = new THREE.Object3D()
 
+    // Per-chunk bounding sphere so InstancedMesh frustum culling actually
+    // works. The shared blade geometry has a tiny local bound; without this
+    // override three.js would either cull everything or nothing.
+    const centerX = cx * CHUNK + CHUNK / 2
+    const centerZ = cz * CHUNK + CHUNK / 2
+    // sqrt(2)*CHUNK/2 ≈ 71, plus blade height + terrain undulation headroom
+    const bound = new THREE.Sphere(new THREE.Vector3(centerX, 0, centerZ), 80)
+    grassRef.current.boundingSphere = bound
+    flowerRef.current.boundingSphere = bound.clone()
+
     const rngG = mulberry32(seedFor(cx, cz) ^ 0xa1)
     for (let i = 0; i < bladeCount; i++) {
       const x = cx * CHUNK + rngG() * CHUNK
@@ -62,24 +72,64 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
 
   return (
     <group>
-      <instancedMesh ref={grassRef} args={[bladeGeo, bladeMat, bladeCount]} frustumCulled={false} />
-      <instancedMesh ref={flowerRef} args={[flowerGeo, flowerMat, FLOWERS_PER_CHUNK]} frustumCulled={false} />
+      <instancedMesh ref={grassRef} args={[bladeGeo, bladeMat, bladeCount]} />
+      <instancedMesh ref={flowerRef} args={[flowerGeo, flowerMat, FLOWERS_PER_CHUNK]} />
     </group>
   )
 }
 
 export default function GrassField() {
   const [center, setCenter] = useState({ cx: 0, cz: 0 })
+  // Auto-scale tier: 0 = full, 1 = half, 2 = quarter. Only ever tightens
+  // relative to the user's chosen density; never overrides "off".
+  const [autoTier, setAutoTier] = useState(0)
   const grassDensity = useStore((s) => s.grassDensity)
 
-  useFrame(() => {
+  // Running frametime EMA for auto-scaling. Kept in refs so the frame loop
+  // doesn't cause re-renders.
+  const emaMs = useRef(16.6)
+  const badFor = useRef(0)  // seconds spent below the FPS floor
+  const goodFor = useRef(0) // seconds spent above the recovery ceiling
+
+  useFrame((_, dt) => {
     if (grassDensity === 'off') return
+
+    // Chunk streaming
     const cx = Math.floor(P.pos.x / CHUNK)
     const cz = Math.floor(P.pos.z / CHUNK)
     if (cx !== center.cx || cz !== center.cz) setCenter({ cx, cz })
+
+    // Frametime EMA (dt is in seconds, we track ms). Skip absurd spikes
+    // (tab switch, alert) so a single 500ms hitch doesn't trigger downshift.
+    const ms = Math.min(dt * 1000, 100)
+    emaMs.current = emaMs.current * 0.92 + ms * 0.08
+
+    // < ~45 FPS sustained → step down. > ~70 FPS sustained → step back up.
+    // Hysteresis via separate accumulators prevents oscillation on the edge.
+    if (emaMs.current > 22) {
+      badFor.current += dt
+      goodFor.current = 0
+      if (badFor.current > 2.5 && autoTier < 2) {
+        badFor.current = 0
+        setAutoTier(autoTier + 1)
+      }
+    } else if (emaMs.current < 14) {
+      goodFor.current += dt
+      badFor.current = 0
+      if (goodFor.current > 6 && autoTier > 0) {
+        goodFor.current = 0
+        setAutoTier(autoTier - 1)
+      }
+    } else {
+      badFor.current = Math.max(0, badFor.current - dt * 0.5)
+      goodFor.current = Math.max(0, goodFor.current - dt * 0.5)
+    }
   })
 
-  const bladeCount = grassDensity === 'half' ? BLADES_HALF : BLADES_FULL
+  // Final blade count = user setting × auto tier scale.
+  const userBase = grassDensity === 'half' ? BLADES_HALF : BLADES_FULL
+  const autoScale = autoTier === 0 ? 1 : autoTier === 1 ? 0.5 : 0.25
+  const bladeCount = Math.max(200, Math.floor(userBase * autoScale))
 
   const bladeGeo = useMemo(() => {
     const g = new THREE.PlaneGeometry(0.09, 0.7, 1, 4)
@@ -141,7 +191,7 @@ export default function GrassField() {
       const cz = center.cz + dz
       chunks.push(
         <GrassChunk
-          key={`${cx},${cz},${grassDensity}`}
+          key={`${cx},${cz},${grassDensity},${autoTier}`}
           cx={cx}
           cz={cz}
           bladeGeo={bladeGeo}

@@ -43,7 +43,14 @@ export default function PlacedRocks() {
     rockRegistry.length = 0
     for (const r of filtered) rockRegistry.push(r)
     for (const r of placedRocks) {
-      rockRegistry.push({ x: r.x, z: r.z, r: 0.9, placed: true })
+      // r          — physics radius (fixed so player can still walk around)
+      // placementR — actual visual extent so the ghost can't overlap it
+      rockRegistry.push({
+        x: r.x, z: r.z,
+        r: 0.9,
+        placementR: Math.max(r.sx, r.sz),
+        placed: true,
+      })
     }
   }, [placedRocks])
 

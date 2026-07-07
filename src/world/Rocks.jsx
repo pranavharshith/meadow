@@ -74,9 +74,22 @@ export default function Rocks() {
   // Sync rock registry for collision — only large rocks block
   useEffect(() => {
     rockRegistry.length = 0
+    // Two radii per entry:
+    //   r          — physics/collision radius (half the visual, ~roomy to
+    //                walk around; only tall-enough rocks block movement).
+    //   placementR — full visual radius, used by PlacementPreview to
+    //                actually prevent ghost/rock overlap. Every rock has
+    //                this so no size falls through the placement checker.
     for (const r of allRocks) {
+      const placementR = Math.max(r.sx, r.sz)
       if (r.sy >= 0.55) {
-        rockRegistry.push({ x: r.x, z: r.z, r: Math.max(r.sx, r.sz) * 0.5 + 0.3 })
+        rockRegistry.push({
+          x: r.x, z: r.z,
+          r: Math.max(r.sx, r.sz) * 0.5 + 0.3,
+          placementR,
+        })
+      } else {
+        rockRegistry.push({ x: r.x, z: r.z, placementR })
       }
     }
   }, [allRocks])
