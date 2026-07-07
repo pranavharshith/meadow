@@ -42,7 +42,6 @@ function LoadingFade() {
 
 export default function App() {
   const shadows = useStore((s) => s.shadows)
-  const effects = useStore((s) => s.effects)
   const particles = useStore((s) => s.particles)
 
   useEffect(() => {
@@ -52,7 +51,7 @@ export default function App() {
   return (
     <>
       <Canvas
-        shadows={shadows}
+        shadows
         dpr={[1, 1.75]}
         camera={{ position: [0, 4, 10], fov: 62, near: 0.1, far: 600 }}
         gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
@@ -87,7 +86,7 @@ export default function App() {
         <NavPath />
         <WaterEffect />
         <Net />
-        {effects && <Effects />}
+        <Effects />
       </Canvas>
 
       <Controls />

@@ -160,8 +160,8 @@ export default function Hud() {
             Plant
           </button>
           <Screenshot />
+          <Settings />
         </div>
-        <Settings />
       </div>
 
       <Chat />

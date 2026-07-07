@@ -605,6 +605,9 @@ canvas { display: block; touch-action: none; }
 
 
 /* ---- Settings Panel ---- */
+.settings-wrap {
+  position: relative;
+}
 .settings-gear {
   font: inherit;
   color: rgba(255,255,255,0.85);
@@ -623,6 +626,9 @@ canvas { display: block; touch-action: none; }
 .settings-gear:hover { background: rgba(40, 48, 38, 0.55); }
 
 .settings-panel {
+  position: absolute;
+  bottom: 48px;
+  right: 0;
   background: rgba(20, 26, 20, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 14px;
@@ -630,6 +636,11 @@ canvas { display: block; touch-action: none; }
   min-width: 200px;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  animation: settingsIn 0.18s ease-out;
+}
+@keyframes settingsIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .settings-head {
   display: flex;

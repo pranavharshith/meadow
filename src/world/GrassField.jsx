@@ -73,12 +73,11 @@ export default function GrassField() {
   const grassDensity = useStore((s) => s.grassDensity)
 
   useFrame(() => {
+    if (grassDensity === 'off') return
     const cx = Math.floor(P.pos.x / CHUNK)
     const cz = Math.floor(P.pos.z / CHUNK)
     if (cx !== center.cx || cz !== center.cz) setCenter({ cx, cz })
   })
-
-  if (grassDensity === 'off') return null
 
   const bladeCount = grassDensity === 'half' ? BLADES_HALF : BLADES_FULL
 
@@ -132,6 +131,8 @@ export default function GrassField() {
     () => new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.7, metalness: 0 }),
     []
   )
+
+  if (grassDensity === 'off') return null
 
   const chunks = []
   for (let dx = -1; dx <= 1; dx++) {
