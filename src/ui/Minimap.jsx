@@ -88,5 +88,15 @@ export default function Minimap() {
     return () => cancelAnimationFrame(raf)
   }, [])
 
-  return <canvas ref={ref} width={SIZE} height={SIZE} className="minimap no-look" />
+  const setMapOpen = useStore((s) => s.setMapOpen)
+
+  return (
+    <canvas
+      ref={ref}
+      width={SIZE}
+      height={SIZE}
+      className="minimap no-look"
+      onDoubleClick={() => setMapOpen(true)}
+    />
+  )
 }

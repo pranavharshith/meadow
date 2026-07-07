@@ -49,6 +49,8 @@ export const useStore = create((set, get) => ({
   discovered: saved.discovered ?? [],
   lastBonus: saved.lastBonus ?? '',
   toast: null, // transient message shown in the HUD
+  mapOpen: false,
+  navTarget: null, // { id, x, z, name } or null
 
   // networking-facing
   online: false,
@@ -64,6 +66,9 @@ export const useStore = create((set, get) => ({
     })),
   toggleMute: () => set((s) => ({ muted: !s.muted })),
   toggleFireflies: () => set((s) => ({ fireflies: !s.fireflies })),
+  setMapOpen: (v) => set({ mapOpen: v }),
+  setNavTarget: (target) => set({ navTarget: target }),
+  clearNav: () => set({ navTarget: null }),
   setName: (name) => {
     set({ name: (name || '').slice(0, 18) || 'wanderer' })
     bridge.saveProfile()

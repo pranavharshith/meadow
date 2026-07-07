@@ -4,6 +4,7 @@ import { place } from '../player-state'
 import { supabase, ONLINE } from '../net/supabase'
 import Minimap from './Minimap'
 import Chat from './Chat'
+import WorldMap from './WorldMap'
 
 const VIEW_LABEL = { third: 'Follow', first: 'First person', top: 'Map' }
 
@@ -94,6 +95,19 @@ function Toast() {
   return <div className={`toast${toast ? ' show' : ''}`}>{toast ? toast.msg : ''}</div>
 }
 
+function NavIndicator() {
+  const navTarget = useStore((s) => s.navTarget)
+  const clearNav = useStore((s) => s.clearNav)
+  if (!navTarget) return null
+  return (
+    <button className="nav-indicator no-look" onClick={clearNav} title="click to cancel navigation">
+      <span className="nav-arrow">›</span>
+      <span className="nav-name">{navTarget.name}</span>
+      <span className="nav-cancel">×</span>
+    </button>
+  )
+}
+
 export default function Hud() {
   const gold = useStore((s) => s.gold)
   const muted = useStore((s) => s.muted)
@@ -155,6 +169,8 @@ export default function Hud() {
       </div>
 
       <Chat />
+      <WorldMap />
+      <NavIndicator />
     </div>
   )
 }
