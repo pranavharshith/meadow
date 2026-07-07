@@ -207,34 +207,35 @@ canvas { display: block; touch-action: none; }
   pointer-events: auto;
 }
 
+/* Controls hint: pinned at top-center under the landmark label, well out of
+   the way of chat (bottom-left), buttons (bottom-right), and cut-pill
+   (bottom-center). Dismissible on first click. */
 .hint {
   position: fixed;
-  left: 18px;
-  right: 330px;
-  bottom: 26px;
-  width: fit-content;
-  max-width: calc(100vw - 360px);
-  margin: 0 auto;
-  transform: none;
+  top: 108px;
+  left: 50%;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   color: rgba(255, 255, 255, 0.9);
-  font-size: 13px;
+  font-size: 12.5px;
   font: inherit;
   letter-spacing: 0.02em;
-  background: rgba(24, 28, 22, 0.30);
+  background: rgba(24, 28, 22, 0.34);
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
-  padding: 10px 16px;
+  padding: 8px 16px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: calc(100vw - 40px);
   pointer-events: auto;
   cursor: pointer;
+  z-index: 4;
 }
 .hint span { flex: 0 0 auto; }
 .hint span + span::before {
@@ -250,8 +251,13 @@ canvas { display: block; touch-action: none; }
    the two never collide visually or spatially. */
 .cut-pill {
   position: fixed;
+  /* Center the pill in the safe strip between chat (left 20 + 340 = 360)
+     and buttons (right 20 + ~360 buttons zone). That midpoint is roughly
+     ((100vw - 340 - 360) / 2 + 340) — but simpler: horizontally center in
+     viewport and rely on chat/buttons never encroaching past their own
+     max-widths. Sits above the button row so it never overlaps. */
   left: 50%;
-  bottom: 88px;
+  bottom: 76px;
   transform: translate(-50%, 8px);
   display: flex;
   align-items: center;
@@ -273,10 +279,9 @@ canvas { display: block; touch-action: none; }
   pointer-events: auto;
   transform: translate(-50%, 0);
 }
-/* When the cut pill is showing, nudge the hint out of the way. Both are
-   bottom-centered, so we drop the hint down a touch so the pill stacks
-   cleanly above it. */
-.cut-pill.show ~ .hint { bottom: 20px; opacity: 0.7; }
+/* Hint lives at the top now, so no vertical fight with the cut pill.
+   We only fade the hint when the cut pill takes over the player's focus. */
+.cut-pill.show ~ .hint { opacity: 0.55; }
 .cut-pill-label {
   font-size: 12.5px;
   color: rgba(255, 230, 200, 0.9);
@@ -340,15 +345,20 @@ canvas { display: block; touch-action: none; }
   pointer-events: none;
 }
 
-/* action buttons, bottom-right */
+/* action buttons, bottom-right. flex-wrap so a long row doesn't push off
+   screen — instead it stacks to a second row above. */
 .buttons {
   position: fixed;
-  right: 24px;
-  bottom: 28px;
+  right: 20px;
+  bottom: 20px;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap-reverse;
+  max-width: calc(100vw - 360px);   /* keep chat zone (340px) clear */
   pointer-events: auto;
+  z-index: 6;
 }
 .btn {
   font: inherit;
@@ -374,30 +384,56 @@ canvas { display: block; touch-action: none; }
 .btn.plant:hover { background: linear-gradient(180deg, rgba(140, 192, 90, 0.95), rgba(100, 152, 62, 0.95)); }
 .btn.icon { text-transform: lowercase; }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
+  /* At narrow widths, keep hint at top but wrap onto two lines if needed */
   .hint {
-    left: 14px;
-    right: 14px;
-    bottom: 152px;
-    width: auto;
-    max-width: none;
+    left: 12px;
+    right: 12px;
+    transform: none;
+    max-width: calc(100vw - 24px);
     flex-wrap: wrap;
-    gap: 5px 7px;
+    gap: 4px 8px;
     font-size: 11px;
     white-space: normal;
     text-align: center;
     line-height: 1.35;
-    border-radius: 16px;
-    padding: 8px 10px;
+    border-radius: 14px;
+    padding: 7px 12px;
+    top: 96px;
   }
   .hint-wide { display: none; }
   .minimap { width: 116px; height: 116px; }
-  .buttons { flex-direction: column; align-items: flex-end; right: 18px; bottom: 22px; }
-  .cut-pill { bottom: 220px; }
+
+  /* Chat stays bottom-left but slims down; buttons stack vertically on the
+     right so a WASD hint at top and stacked buttons at right leave the
+     bottom strip for chat + cut-pill only. */
+  .chat { width: 260px; max-width: 60vw; left: 14px; bottom: 14px; }
+  .buttons {
+    flex-direction: column;
+    align-items: flex-end;
+    right: 14px;
+    bottom: 14px;
+    max-width: none;
+    gap: 6px;
+  }
+  .cut-pill { bottom: unset; top: 150px; }
+}
+
+/* On very narrow screens, chat collapses so the cut-pill and buttons don't
+   have to compete with a wide chat panel. */
+@media (max-width: 460px) {
+  .chat { width: 220px; max-width: 55vw; }
 }
 
 /* identity tag + panel */
-.who { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
+.who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;                /* let pills wrap on narrow widths */
+  max-width: calc(100vw - 220px); /* leave room for minimap + compass */
+  pointer-events: auto;
+}
 .tag {
   display: inline-flex;
   align-items: center;
@@ -413,6 +449,12 @@ canvas { display: block; touch-action: none; }
   cursor: pointer;
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
+  /* clip long names instead of blowing out the row */
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .tag:hover { background: rgba(40, 48, 38, 0.5); }
 .dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,0.35); }
@@ -539,13 +581,14 @@ canvas { display: block; touch-action: none; }
 .row input { flex: 1; }
 .note { color: rgba(255,255,255,0.66); font-size: 11px; }
 
-/* chat panel, bottom-left */
+/* chat panel, bottom-left. Reserves a 340px slab that .buttons and .cut-pill
+   avoid via their own max-widths / offsets, so they never overlap. */
 .chat {
   position: fixed;
-  left: 18px;
-  bottom: 18px;
-  width: 300px;
-  max-width: 72vw;
+  left: 20px;
+  bottom: 20px;
+  width: 320px;
+  max-width: min(72vw, 340px);
   pointer-events: auto;
   z-index: 12;
 }
