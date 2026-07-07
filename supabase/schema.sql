@@ -1,38 +1,44 @@
 -- ============================================================================
 -- a shared garden — Supabase schema
--- Run this once in the Supabase SQL editor (Dashboard > SQL > New query).
--- Then enable "Anonymous sign-ins" under Authentication > Providers.
--- Finally add the project URL + anon key to the frontend env:
---   VITE_SUPABASE_URL=...       VITE_SUPABASE_ANON_KEY=...
+-- Run this in the Supabase SQL editor (Dashboard > SQL > New query).
+-- Idempotent: safe to run multiple times as the game evolves.
+--
+-- Then enable "Anonymous sign-ins" under Authentication > Providers,
+-- and set VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY in the frontend .env.
+--
+-- Security model:
+--   * Direct INSERT/UPDATE/DELETE on `players` and `trees` is REVOKED from
+--     anon/authenticated. Clients read (SELECT) freely, but all mutations
+--     go through SECURITY DEFINER RPCs that enforce game rules: spacing,
+--     cooldowns, gold costs, daily-bonus once per day, etc.
+--   * Chat is ephemeral (Realtime broadcast) but gated by rate-limit RPCs
+--     so a modded client can't spam a channel.
 -- ============================================================================
 
--- --- players (one row per anonymous account) -------------------------------
+-- --- players ---------------------------------------------------------------
 create table if not exists public.players (
-  id          uuid primary key references auth.users (id) on delete cascade,
-  name        text        not null default 'wanderer',
-  color       text        not null default '#a9d98a',
-  gold        integer     not null default 0,
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  id              uuid primary key references auth.users (id) on delete cascade,
+  name            text        not null default 'wanderer',
+  color           text        not null default '#a9d98a',
+  gold            integer     not null default 0,
+  discovered      text[]      not null default '{}',
+  last_bonus_date date,
+  last_plant_at   timestamptz,
+  last_water_at   timestamptz,
+  last_chat_at    timestamptz,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
 );
+
+alter table public.players add column if not exists discovered      text[]      not null default '{}';
+alter table public.players add column if not exists last_bonus_date date;
+alter table public.players add column if not exists last_plant_at   timestamptz;
+alter table public.players add column if not exists last_water_at   timestamptz;
+alter table public.players add column if not exists last_chat_at    timestamptz;
 
 alter table public.players enable row level security;
 
--- anyone signed in may read profiles (needed to show names/colours);
--- you may only insert/update your OWN row.
-drop policy if exists "players readable" on public.players;
-create policy "players readable" on public.players
-  for select using (true);
-
-drop policy if exists "players insert self" on public.players;
-create policy "players insert self" on public.players
-  for insert with check (auth.uid() = id);
-
-drop policy if exists "players update self" on public.players;
-create policy "players update self" on public.players
-  for update using (auth.uid() = id) with check (auth.uid() = id);
-
--- --- trees (the shared, persistent world) ----------------------------------
+-- --- trees -----------------------------------------------------------------
 create table if not exists public.trees (
   id          uuid primary key,
   owner_id    uuid        not null references auth.users (id) on delete cascade,
@@ -41,33 +47,272 @@ create table if not exists public.trees (
   x           real        not null,
   z           real        not null,
   variant     smallint    not null default 0,
+  shape       smallint    not null default 0,
   scale       real        not null default 1,
   planted_at  timestamptz not null default now()
 );
-
+alter table public.trees add column if not exists shape smallint not null default 0;
 create index if not exists trees_region_idx on public.trees (region_x, region_z);
 
 alter table public.trees enable row level security;
 
--- everyone may read trees (the world is shared); you may only plant as
--- yourself, and only touch your own trees.
-drop policy if exists "trees readable" on public.trees;
-create policy "trees readable" on public.trees
-  for select using (true);
+-- --- policies: SELECT only. Mutations go through RPCs. ---------------------
+drop policy if exists "players readable"    on public.players;
+drop policy if exists "players insert self" on public.players;
+drop policy if exists "players update self" on public.players;
+create policy "players readable" on public.players for select using (true);
 
+drop policy if exists "trees readable"    on public.trees;
 drop policy if exists "trees insert self" on public.trees;
-create policy "trees insert self" on public.trees
-  for insert with check (auth.uid() = owner_id);
-
 drop policy if exists "trees update self" on public.trees;
-create policy "trees update self" on public.trees
-  for update using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
+create policy "trees readable" on public.trees for select using (true);
+
+-- Revoke direct writes at the table level too, so even if a policy is added
+-- later, clients still can't touch gold / forge trees directly.
+revoke insert, update, delete on public.players from anon, authenticated;
+revoke insert, update, delete on public.trees   from anon, authenticated;
 
 -- ============================================================================
--- Notes
--- * Positions and chat are ephemeral (Realtime broadcast/presence) and are NOT
---   stored here, keeping the database tiny and within the free tier.
--- * Gold is currently client-mirrored to players.gold under RLS. For a
---   competitive economy you'd move plant/water/world-chat into SECURITY DEFINER
---   RPCs; for this calm, non-competitive game client-side is acceptable for MVP.
+-- RPCs (SECURITY DEFINER, fixed search_path). These are the ONLY way a client
+-- can mutate the game state. Every one re-validates auth.uid() and inputs.
 -- ============================================================================
+
+-- Ensure a player row exists on first sign-in. Returns the row.
+create or replace function public.ensure_profile(p_name text, p_color text)
+returns public.players
+language plpgsql security definer set search_path = public
+as $$
+declare row public.players;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  insert into public.players (id, name, color)
+  values (
+    auth.uid(),
+    coalesce(nullif(left(p_name, 18), ''), 'wanderer'),
+    coalesce(nullif(left(p_color, 16), ''), '#a9d98a')
+  )
+  on conflict (id) do nothing;
+  select * into row from public.players where id = auth.uid();
+  return row;
+end
+$$;
+
+-- Change name / color only. Gold cannot be touched from here.
+create or replace function public.update_profile(p_name text, p_color text)
+returns public.players
+language plpgsql security definer set search_path = public
+as $$
+declare row public.players;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  update public.players
+    set name = coalesce(nullif(left(p_name, 18), ''), name),
+        color = coalesce(nullif(left(p_color, 16), ''), color),
+        updated_at = now()
+    where id = auth.uid();
+  select * into row from public.players where id = auth.uid();
+  return row;
+end
+$$;
+
+-- Plant a tree. Enforces cooldown + spacing. Awards +5 gold.
+-- Returns the updated player row (for gold reconciliation).
+create or replace function public.plant_tree(
+  p_id uuid, p_x real, p_z real,
+  p_variant smallint, p_shape smallint, p_scale real
+)
+returns public.players
+language plpgsql security definer set search_path = public
+as $$
+declare
+  row public.players;
+  rx int; rz int;
+  crowded int;
+  last_at timestamptz;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  select last_plant_at into last_at from public.players where id = auth.uid();
+  if last_at is not null and now() - last_at < interval '500 milliseconds' then
+    raise exception 'plant cooldown';
+  end if;
+
+  -- clamp cosmetic values so a modded client can't ship absurd trees
+  p_scale   := greatest(0.8::real, least(2.4::real, coalesce(p_scale,   1.4::real)));
+  p_variant := greatest(0::smallint, least(2::smallint, coalesce(p_variant, 0::smallint)));
+  p_shape   := greatest(0::smallint, least(3::smallint, coalesce(p_shape,   0::smallint)));
+
+  rx := floor(p_x / 120.0)::int;
+  rz := floor(p_z / 120.0)::int;
+
+  -- spacing: no tree within 2.0 units of the requested spot
+  select count(*) into crowded
+    from public.trees
+    where region_x = rx and region_z = rz
+      and (x - p_x) * (x - p_x) + (z - p_z) * (z - p_z) < 4.0;
+  if crowded > 0 then raise exception 'too crowded'; end if;
+
+  insert into public.trees (id, owner_id, region_x, region_z, x, z, variant, shape, scale, planted_at)
+    values (p_id, auth.uid(), rx, rz, p_x, p_z, p_variant, p_shape, p_scale, now());
+
+  update public.players
+    set gold = gold + 5,
+        last_plant_at = now(),
+        updated_at = now()
+    where id = auth.uid()
+    returning * into row;
+  return row;
+end
+$$;
+
+-- Water a tree. Only works on trees younger than the 90s growth window.
+-- Enforces per-player cooldown. Awards +1 gold, boosts growth by 18s.
+create or replace function public.water_tree(p_tree_id uuid)
+returns table(gold integer, planted_at timestamptz)
+language plpgsql security definer set search_path = public
+as $$
+declare
+  last_at timestamptz;
+  new_pl  timestamptz;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  select last_water_at into last_at from public.players where id = auth.uid();
+  if last_at is not null and now() - last_at < interval '4 seconds' then
+    raise exception 'water cooldown';
+  end if;
+
+  update public.trees
+    set planted_at = planted_at - interval '18 seconds'
+    where id = p_tree_id
+      and now() - planted_at < interval '90 seconds'
+    returning trees.planted_at into new_pl;
+
+  if new_pl is null then raise exception 'not waterable'; end if;
+
+  update public.players
+    set gold = gold + 1,
+        last_water_at = now(),
+        updated_at = now()
+    where id = auth.uid();
+
+  return query
+    select p.gold, new_pl from public.players p where p.id = auth.uid();
+end
+$$;
+
+-- First-time landmark discovery. Awards +20 gold; idempotent per landmark.
+-- Returns current gold either way.
+create or replace function public.discover_landmark(p_landmark_id text)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare g int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if p_landmark_id is null or length(p_landmark_id) = 0 or length(p_landmark_id) > 64 then
+    raise exception 'bad landmark id';
+  end if;
+
+  perform 1 from public.players
+    where id = auth.uid() and p_landmark_id = any(discovered);
+  if found then
+    select gold into g from public.players where id = auth.uid();
+    return g;
+  end if;
+
+  update public.players
+    set discovered = array_append(discovered, p_landmark_id),
+        gold = gold + 20,
+        updated_at = now()
+    where id = auth.uid()
+    returning gold into g;
+  return g;
+end
+$$;
+
+-- Once per UTC day. Awards +10 gold. Returns current gold.
+create or replace function public.claim_daily_bonus()
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare g int; today date := (now() at time zone 'utc')::date;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  update public.players
+    set gold = gold + 10,
+        last_bonus_date = today,
+        updated_at = now()
+    where id = auth.uid()
+      and (last_bonus_date is null or last_bonus_date < today)
+    returning gold into g;
+
+  if g is null then
+    select gold into g from public.players where id = auth.uid();
+  end if;
+  return g;
+end
+$$;
+
+-- Gate for world chat: rate-limited, costs 3 gold. Returns new gold total.
+-- The actual message is still broadcast client-side over Realtime; this RPC
+-- is the trusted gate that debits gold and rate-limits spam.
+create or replace function public.send_world_chat(p_text text)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare g int; last_at timestamptz;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if p_text is null or length(p_text) = 0 or length(p_text) > 160 then
+    raise exception 'bad text';
+  end if;
+
+  select last_chat_at into last_at from public.players where id = auth.uid();
+  if last_at is not null and now() - last_at < interval '1500 milliseconds' then
+    raise exception 'chat cooldown';
+  end if;
+
+  update public.players
+    set gold = gold - 3,
+        last_chat_at = now(),
+        updated_at = now()
+    where id = auth.uid() and gold >= 3
+    returning gold into g;
+  if g is null then raise exception 'not enough gold'; end if;
+  return g;
+end
+$$;
+
+-- Gate for region chat: rate-limited only (free). No return value needed.
+create or replace function public.check_region_chat(p_text text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare last_at timestamptz;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if p_text is null or length(p_text) = 0 or length(p_text) > 160 then
+    raise exception 'bad text';
+  end if;
+
+  select last_chat_at into last_at from public.players where id = auth.uid();
+  if last_at is not null and now() - last_at < interval '800 milliseconds' then
+    raise exception 'chat cooldown';
+  end if;
+
+  update public.players set last_chat_at = now() where id = auth.uid();
+end
+$$;
+
+-- Grant execute to signed-in users (anon isn't authenticated here since we use
+-- anonymous sign-ins, which produces an authenticated JWT).
+grant execute on function public.ensure_profile(text, text)                              to authenticated;
+grant execute on function public.update_profile(text, text)                               to authenticated;
+grant execute on function public.plant_tree(uuid, real, real, smallint, smallint, real)   to authenticated;
+grant execute on function public.water_tree(uuid)                                         to authenticated;
+grant execute on function public.discover_landmark(text)                                  to authenticated;
+grant execute on function public.claim_daily_bonus()                                      to authenticated;
+grant execute on function public.send_world_chat(text)                                    to authenticated;
+grant execute on function public.check_region_chat(text)                                  to authenticated;

@@ -44,9 +44,14 @@ export default function App() {
   const shadows = useStore((s) => s.shadows)
   const particles = useStore((s) => s.particles)
 
+  // Claim the daily bonus once we know whether we're online (server-truthed)
+  // or offline (localStorage-tracked). Firing after `online` flips avoids a
+  // race where the offline path awards +10 then the server also awards +10.
+  const online = useStore((s) => s.online)
   useEffect(() => {
-    useStore.getState().claimDailyBonus()
-  }, [])
+    const t = setTimeout(() => useStore.getState().claimDailyBonus(), 800)
+    return () => clearTimeout(t)
+  }, [online])
 
   return (
     <>

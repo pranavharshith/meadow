@@ -2,11 +2,12 @@ import { create } from 'zustand'
 import { P } from './player-state'
 import { LANDMARKS } from './world/places'
 import { bridge } from './net/bridge'
+import { maskProfanity, clientChatCooldown } from './net/moderation'
 
 const LS_KEY = 'meadow-save-v1'
 const GROW_SECONDS = 90
-const WATER_COOLDOWN = 4000 // ms between watering
-const WATER_BOOST = 18000 // ms of growth granted per watering
+const WATER_COOLDOWN = 4000 // ms between watering (client-side pre-check)
+const WATER_BOOST = 18000 // ms of growth granted per watering (mirrors server)
 const WORLD_CHAT_COST = 3
 const CHAT_MAX = 60
 
@@ -38,33 +39,36 @@ let lastWaterAt = 0
 export const PALETTE = PASTELS
 
 export const useStore = create((set, get) => ({
-  // 'third' (follow) | 'first' | 'top' (map)
+  // camera + a/v
   viewMode: saved.viewMode ?? 'third',
   muted: saved.muted ?? false,
   fireflies: saved.fireflies ?? true,
-  // Quality settings
   shadows: saved.shadows ?? true,
-  grassDensity: saved.grassDensity ?? 'full', // 'full' | 'half' | 'off'
+  grassDensity: saved.grassDensity ?? 'full',
   effects: saved.effects ?? true,
-  particles: saved.particles ?? true, // butterflies, petals, birds
+  particles: saved.particles ?? true,
   settingsOpen: false,
+
+  // progression (server-owned when online; localStorage fallback offline)
   gold: saved.gold ?? 0,
   color: saved.color ?? randomColor(),
   name: saved.name ?? 'wanderer',
   trees: saved.trees ?? [],
   discovered: saved.discovered ?? [],
-  lastBonus: saved.lastBonus ?? '',
-  toast: null, // transient message shown in the HUD
-  mapOpen: false,
-  navTarget: null, // { id, x, z, name } or null
-  waterEvent: null, // { x, y, z, at } — triggers water particle effect
+  lastBonus: saved.lastBonus ?? '', // only used offline; server tracks per-day online
 
-  // networking-facing
+  // transient UI
+  toast: null,
+  mapOpen: false,
+  navTarget: null,
+  waterEvent: null,
+
+  // networking status
   online: false,
-  connectionStatus: 'offline', // 'connected' | 'reconnecting' | 'offline'
+  connectionStatus: 'offline',
   playerCount: 1,
-  chat: [], // { id, scope, name, color, text, at }
-  chatScope: 'region', // 'region' | 'world'
+  chat: [],
+  chatScope: 'region',
 
   setView: (v) => set({ viewMode: v }),
   cycleView: () =>
@@ -81,13 +85,15 @@ export const useStore = create((set, get) => ({
   setMapOpen: (v) => set({ mapOpen: v }),
   setNavTarget: (target) => set({ navTarget: target }),
   clearNav: () => set({ navTarget: null }),
+
   setName: (name) => {
-    set({ name: (name || '').slice(0, 18) || 'wanderer' })
-    bridge.saveProfile()
+    const cleaned = (name || '').slice(0, 18) || 'wanderer'
+    set({ name: cleaned })
+    bridge.saveIdentity(cleaned, get().color)
   },
   setColor: (color) => {
     set({ color })
-    bridge.saveProfile()
+    bridge.saveIdentity(get().name, color)
   },
   setChatScope: (chatScope) => set({ chatScope }),
 
@@ -102,37 +108,48 @@ export const useStore = create((set, get) => ({
   setOnline: (online) => set({ online, connectionStatus: online ? 'connected' : 'offline' }),
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
   setPlayerCount: (playerCount) => set({ playerCount }),
-  hydrateProfile: ({ gold, name, color }) =>
+  // Server is the source of truth for gold + discovered. Overwrites local.
+  hydrateProfile: ({ gold, name, color, discovered }) =>
     set((s) => ({
       gold: gold ?? s.gold,
       name: name ?? s.name,
       color: color ?? s.color,
+      discovered: discovered ?? s.discovered,
     })),
+  setGold: (gold) => set({ gold }),
   setTrees: (trees) => set({ trees }),
   addTree: (t) =>
     set((s) => (s.trees.some((x) => x.id === t.id) ? {} : { trees: [...s.trees, t] })),
   addChatMessage: (m) =>
     set((s) => ({ chat: [...s.chat, m].slice(-CHAT_MAX) })),
 
-  plantTree: () => {
-    const trees = get().trees
+  // ---------------------------------------------------------------------
+  // MUTATIONS
+  //
+  // When online: apply optimistically (fast HUD feedback), then call the
+  // server RPC. If the server accepts, reconcile gold to the authoritative
+  // value it returned. If it rejects, revert and toast an error.
+  // When offline: just apply locally (same behaviour as before).
+  // ---------------------------------------------------------------------
+
+  plantTree: async () => {
+    const state = get()
+    const trees = state.trees
     const baseAngle = P.avatarYaw
     const dist = 1.8
     const MIN_SPACING = 2.5
 
-    // Try up to 8 angles around the player to find a clear spot
+    // Find a clear spot around the player
     let px, pz, found = false
     for (let attempt = 0; attempt < 8; attempt++) {
       const angle = baseAngle + attempt * (Math.PI / 4)
       px = P.pos.x + Math.sin(angle) * dist
       pz = P.pos.z + Math.cos(angle) * dist
-      const tooClose = trees.some(
-        (t) => Math.hypot(t.x - px, t.z - pz) < MIN_SPACING
-      )
+      const tooClose = trees.some((t) => Math.hypot(t.x - px, t.z - pz) < MIN_SPACING)
       if (!tooClose) { found = true; break }
     }
     if (!found) {
-      get().flash('too crowded here — move somewhere else')
+      state.flash('too crowded here — move somewhere else')
       return
     }
 
@@ -146,101 +163,170 @@ export const useStore = create((set, get) => ({
       shape: (Math.random() * 4) | 0,
       owner: true,
     }
+
+    const goldBefore = state.gold
+    // Optimistic: add tree + credit gold locally
     set((s) => ({ trees: [...s.trees, t], gold: s.gold + 5 }))
-    get().flash('planted a sapling · +5 gold')
-    bridge.plant(t)
-    bridge.saveProfile()
+    state.flash('planted a sapling · +5 gold')
+
+    if (bridge.online) {
+      const res = await bridge.plant(t)
+      if (!res.ok) {
+        // Revert
+        set((s) => ({
+          trees: s.trees.filter((x) => x.id !== t.id),
+          gold: goldBefore,
+        }))
+        get().flash(res.error === 'too crowded' ? 'too crowded here' : 'could not plant')
+        return
+      }
+      // Reconcile gold with server truth
+      if (typeof res.gold === 'number') set({ gold: res.gold })
+    }
   },
 
-  // Water the nearest young sapling near the player to help it grow faster.
-  waterNearest: () => {
+  waterNearest: async () => {
     const now = Date.now()
     if (now - lastWaterAt < WATER_COOLDOWN) return
-    const trees = get().trees
+    const state = get()
+    const trees = state.trees
     let best = null
     let bestD = 9
     for (const t of trees) {
       const age = now - t.plantedAt
-      if (age >= GROW_SECONDS * 1000) continue // already grown
+      if (age >= GROW_SECONDS * 1000) continue
       const d = (t.x - P.pos.x) ** 2 + (t.z - P.pos.z) ** 2
-      if (d < bestD) {
-        bestD = d
-        best = t
-      }
+      if (d < bestD) { bestD = d; best = t }
     }
     if (!best) {
-      get().flash('no young sapling nearby to water')
+      state.flash('no young sapling nearby to water')
       return
     }
     lastWaterAt = now
+
+    const goldBefore = state.gold
+    const plantedBefore = best.plantedAt
+
+    // Optimistic
     set((s) => ({
-      trees: s.trees.map((t) =>
-        t.id === best.id ? { ...t, plantedAt: t.plantedAt - WATER_BOOST } : t
-      ),
+      trees: s.trees.map((t) => (t.id === best.id ? { ...t, plantedAt: t.plantedAt - WATER_BOOST } : t)),
       gold: s.gold + 1,
       waterEvent: { x: best.x, z: best.z, at: now },
     }))
-    get().flash('watered a sapling · +1 gold')
-    bridge.saveProfile()
-  },
+    state.flash('watered a sapling · +1 gold')
 
-  // Send a chat message. World chat costs gold (spam control).
-  sendChat: (text) => {
-    const clean = (text || '').trim().slice(0, 160)
-    if (!clean) return
-    const scope = get().chatScope
-    if (scope === 'world') {
-      if (get().gold < WORLD_CHAT_COST) {
-        get().flash(`world chat costs ${WORLD_CHAT_COST} gold`)
+    if (bridge.online) {
+      const res = await bridge.water(best.id)
+      if (!res.ok) {
+        set((s) => ({
+          trees: s.trees.map((t) => (t.id === best.id ? { ...t, plantedAt: plantedBefore } : t)),
+          gold: goldBefore,
+        }))
+        get().flash(res.error === 'water cooldown' ? 'wait a moment before watering again' : 'could not water')
         return
       }
-      set((s) => ({ gold: s.gold - WORLD_CHAT_COST }))
-      bridge.saveProfile()
+      if (typeof res.gold === 'number') set({ gold: res.gold })
     }
+  },
+
+  sendChat: async (text) => {
+    let clean = (text || '').trim().slice(0, 160)
+    if (!clean) return
+    clean = maskProfanity(clean)
+    const state = get()
+    const scope = state.chatScope
+
+    // Client-side pre-cooldown for instant feedback (server enforces the real one)
+    if (!clientChatCooldown(scope)) {
+      state.flash('slow down — one message at a time')
+      return
+    }
+
+    // World chat is gold-gated; check locally for a nicer error, server enforces
+    if (scope === 'world' && state.gold < WORLD_CHAT_COST) {
+      state.flash(`world chat costs ${WORLD_CHAT_COST} gold`)
+      return
+    }
+
+    const goldBefore = state.gold
+    if (scope === 'world') set((s) => ({ gold: s.gold - WORLD_CHAT_COST }))
+
     const msg = {
       id: genId(),
       scope,
-      name: get().name,
-      color: get().color,
+      name: state.name,
+      color: state.color,
       text: clean,
       at: Date.now(),
       self: true,
     }
-    get().addChatMessage(msg)
-    const accepted = bridge.sendChat(scope, clean)
-    if (!accepted && !get().online) {
-      // offline: nothing else to do, message already shown locally
+    state.addChatMessage(msg)
+
+    if (bridge.online) {
+      const res = await bridge.sendChat(scope, clean)
+      if (!res.ok) {
+        // Revert gold on world-chat failure
+        if (scope === 'world') set({ gold: goldBefore })
+        const errMap = {
+          'chat cooldown': 'slow down — one message at a time',
+          'not enough gold': `world chat costs ${WORLD_CHAT_COST} gold`,
+          'bad text': 'message rejected',
+        }
+        get().flash(errMap[res.error] || 'could not send')
+        return
+      }
+      if (typeof res.gold === 'number') set({ gold: res.gold })
     }
   },
 
-  discoverLandmark: (id) => {
+  discoverLandmark: async (id) => {
     if (get().discovered.includes(id)) return
     const lm = LANDMARKS.find((l) => l.id === id)
+    const goldBefore = get().gold
+
+    // Optimistic
     set((s) => ({ discovered: [...s.discovered, id], gold: s.gold + 20 }))
     get().flash(`discovered ${lm ? lm.name : 'a place'} · +20 gold`)
-    bridge.saveProfile()
+
+    if (bridge.online) {
+      const res = await bridge.discover(id)
+      if (!res.ok) {
+        set((s) => ({
+          discovered: s.discovered.filter((x) => x !== id),
+          gold: goldBefore,
+        }))
+        return
+      }
+      if (typeof res.gold === 'number') set({ gold: res.gold })
+    }
   },
 
-  claimDailyBonus: () => {
+  claimDailyBonus: async () => {
+    // Online: server decides. Offline: use localStorage-tracked date.
+    if (bridge.online) {
+      const res = await bridge.claimDaily()
+      if (res && res.ok && typeof res.gold === 'number') {
+        const prev = get().gold
+        set({ gold: res.gold })
+        if (res.gold > prev) get().flash('welcome back · +10 gold')
+      }
+      return
+    }
     const today = todayStr()
     if (get().lastBonus === today) return
     const first = get().lastBonus === ''
     set((s) => ({ lastBonus: today, gold: s.gold + 10 }))
     get().flash(first ? 'welcome to the meadow · +10 gold' : 'welcome back · +10 gold')
-    bridge.saveProfile()
   },
 }))
 
-// Persist to localStorage. Online, trees live on the server, so we only cache
-// identity + progress; offline we cache everything so the world survives.
+// Persist to localStorage. Online, trees + gold live on the server, so we
+// only cache identity + preferences; offline we cache everything.
 useStore.subscribe((s) => {
   try {
     const base = {
-      gold: s.gold,
       color: s.color,
       name: s.name,
-      discovered: s.discovered,
-      lastBonus: s.lastBonus,
       viewMode: s.viewMode,
       fireflies: s.fireflies,
       muted: s.muted,
@@ -249,7 +335,12 @@ useStore.subscribe((s) => {
       effects: s.effects,
       particles: s.particles,
     }
-    if (!s.online) base.trees = s.trees
+    if (!s.online) {
+      base.gold = s.gold
+      base.trees = s.trees
+      base.discovered = s.discovered
+      base.lastBonus = s.lastBonus
+    }
     localStorage.setItem(LS_KEY, JSON.stringify(base))
   } catch {
     /* ignore quota / private mode */

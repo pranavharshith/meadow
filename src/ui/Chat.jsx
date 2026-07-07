@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { isMuted, toggleMute } from '../net/moderation'
 
 // Chat panel — bottom-left. Opens on Enter or clicking the chat button.
-// Inside: tabs for Region (free, nearby players) and World (costs gold, everyone).
+// Tabs: Region (free, nearby) and World (costs 3 gold, everyone).
+// Each remote message has a small "mute" affordance that hides that user's
+// messages + name bubbles for the rest of this browser (stored in localStorage).
 export default function Chat() {
   const chat = useStore((s) => s.chat)
   const scope = useStore((s) => s.chatScope)
@@ -11,6 +14,7 @@ export default function Chat() {
   const online = useStore((s) => s.online)
   const [text, setText] = useState('')
   const [open, setOpen] = useState(false)
+  const [muteBump, setMuteBump] = useState(0) // force re-render after mute toggles
   const inputRef = useRef()
   const listRef = useRef()
 
@@ -39,7 +43,18 @@ export default function Chat() {
     setText('')
   }
 
-  const shown = chat.filter((m) => m.scope === scope).slice(-40)
+  // Filter muted, then take the tail. muteBump forces re-eval when mutes change.
+  const shown = chat
+    .filter((m) => m.scope === scope && !(m.userId && isMuted(m.userId)))
+    .slice(-40)
+  // touch muteBump so React re-renders when it changes
+  void muteBump
+
+  const handleMuteClick = (userId) => {
+    if (!userId) return
+    toggleMute(userId)
+    setMuteBump((n) => n + 1)
+  }
 
   if (!open) {
     return (
@@ -83,6 +98,16 @@ export default function Chat() {
               {m.name}
             </span>
             <span className="chat-text">{m.text}</span>
+            {m.userId && !m.self && (
+              <button
+                className="chat-mute"
+                onClick={() => handleMuteClick(m.userId)}
+                title={`mute ${m.name}`}
+                aria-label={`mute ${m.name}`}
+              >
+                ⊘
+              </button>
+            )}
           </div>
         ))}
       </div>
