@@ -4,9 +4,9 @@ import { useFrame } from '@react-three/fiber'
 import { P, treeRegistry, rockRegistry, placement } from '../player-state'
 import { useStore } from '../store'
 import { ROCK_GEOS } from './rock-assets'
-import { terrainHeight } from './noise'
+import { terrainHeight, PONDS } from './noise'
 import { LANDMARKS } from './places'
-import { PONDS, STREAM_POINTS, STREAM_WIDTH } from './Water'
+import { STREAM_POINTS, STREAM_WIDTH } from './Water'
 import { plazaFloorHeight, PLAZA_OUTER_RADIUS } from './SpawnPlaza'
 
 // Placement preview:

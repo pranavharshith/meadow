@@ -28,12 +28,30 @@ export const TREE_ITEMS = [
   },
   {
     id: 'willow',
-    name: 'Willow',
+    name: 'Weeping Willow',
     shape: 3,
-    cost: 10,
+    cost: 75,
     emoji: '🌿',
-    desc: 'Graceful drooping boughs',
+    desc: 'Large Banyan-style drooping boughs',
     color: '#6a9a70',
+  },
+  {
+    id: 'cherry_blossom',
+    name: 'Cherry Blossom',
+    shape: 4,
+    cost: 50,
+    emoji: '🌸',
+    desc: 'Sheds beautiful pink petals',
+    color: '#ffa3cc',
+  },
+  {
+    id: 'mushroom',
+    name: 'Bioluminescent Mushroom',
+    shape: 5,
+    cost: 100,
+    emoji: '🍄',
+    desc: 'Glows softly in the dark',
+    color: '#8af0ff',
   },
 ]
 

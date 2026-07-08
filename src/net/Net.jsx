@@ -172,6 +172,7 @@ export default function Net() {
         variant: t.variant,
         shape: t.shape || 0,
         scale: t.scale,
+        dye: t.dye || null,
         plantedAt: t.planted_at ? new Date(t.planted_at).getTime() : Date.now(),
         owner: t.owner_id === meId.current,
       }))

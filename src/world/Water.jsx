@@ -2,18 +2,11 @@ import * as THREE from 'three'
 import { useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
+// We import the same PONDS array used by noise.js for flattening
+import { PONDS } from './noise'
 
 // Water bodies — ponds and a stream that break up the uniform grass world.
 // Semi-transparent with gentle vertex animation for soft ripples.
-
-export const PONDS = [
-  { x: -74, z: 40, r: 12 },     // Crystal Pond
-  { x: -300, z: 280, r: 8 },    // Silver Brook area
-  { x: 180, z: -140, r: 6 },    // Broken Bridge
-  { x: -60, z: 240, r: 10 },    // Willow Bend
-  { x: 90, z: -220, r: 5 },     // Flower Terrace
-  { x: -160, z: 210, r: 7 },    // Starfall Clearing
-]
 
 // Stream points forming a winding path from Silver Brook to Crystal Pond
 export const STREAM_POINTS = [
@@ -60,31 +53,49 @@ function buildStreamGeo() {
   const indices = []
   const uvs = []
 
-  for (let i = 0; i < STREAM_POINTS.length; i++) {
-    const p = STREAM_POINTS[i]
-    const y = terrainHeight(p.x, p.z) - 0.08
+  // Create a smooth curve from the stream points
+  const points = STREAM_POINTS.map(p => new THREE.Vector3(p.x, 0, p.z))
+  const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5)
+  
+  // Sample the curve at high resolution so the stream perfectly hugs the terrain
+  const SEGMENTS = 150
+  const curvePoints = curve.getSpacedPoints(SEGMENTS)
 
+  for (let i = 0; i < curvePoints.length; i++) {
+    const p = curvePoints[i]
+    
+    // Calculate 2D normal for stream width
     let dx, dz
-    if (i < STREAM_POINTS.length - 1) {
-      dx = STREAM_POINTS[i + 1].x - p.x
-      dz = STREAM_POINTS[i + 1].z - p.z
+    if (i < curvePoints.length - 1) {
+      dx = curvePoints[i + 1].x - p.x
+      dz = curvePoints[i + 1].z - p.z
     } else {
-      dx = p.x - STREAM_POINTS[i - 1].x
-      dz = p.z - STREAM_POINTS[i - 1].z
+      dx = p.x - curvePoints[i - 1].x
+      dz = p.z - curvePoints[i - 1].z
     }
     const len = Math.hypot(dx, dz)
     const nx = -dz / len
     const nz = dx / len
     const hw = STREAM_WIDTH * 0.5
 
-    verts.push(p.x + nx * hw, y, p.z + nz * hw)
-    verts.push(p.x - nx * hw, y, p.z - nz * hw)
+    const x1 = p.x + nx * hw
+    const z1 = p.z + nz * hw
+    const x2 = p.x - nx * hw
+    const z2 = p.z - nz * hw
 
-    const u = i / (STREAM_POINTS.length - 1)
+    // Sample terrain EXACTLY at the left/right vertices to prevent clipping
+    // Float it slightly above the grass so it's clearly visible
+    const y1 = terrainHeight(x1, z1) + 0.04
+    const y2 = terrainHeight(x2, z2) + 0.04
+
+    verts.push(x1, y1, z1)
+    verts.push(x2, y2, z2)
+
+    const u = i / (curvePoints.length - 1)
     uvs.push(0, u)
     uvs.push(1, u)
 
-    if (i < STREAM_POINTS.length - 1) {
+    if (i < curvePoints.length - 1) {
       const base = i * 2
       indices.push(base, base + 1, base + 2)
       indices.push(base + 1, base + 3, base + 2)
@@ -114,7 +125,8 @@ export default function Water() {
       {PONDS.map((p, i) => (
         <mesh
           key={i}
-          position={[p.x, terrainHeight(p.x, p.z) - 0.12, p.z]}
+          // The terrain crater is deeply lowered, so this sits perfectly inside
+          position={[p.x, terrainHeight(p.x, p.z) + 0.35, p.z]}
           rotation={[-Math.PI / 2, 0, 0]}
           material={mat}
           receiveShadow

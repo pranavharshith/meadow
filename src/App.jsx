@@ -47,7 +47,9 @@ function LoadingFade() {
 
 export default function App() {
   const shadows = useStore((s) => s.shadows)
+  const showNav = useStore((s) => s.showNav)
   const particles = useStore((s) => s.particles)
+  const viewMode = useStore((s) => s.viewMode)
 
   // Daily bonus is handled in Net.jsx where the definitive online/offline
   // state is known. Nothing to do here.
@@ -71,8 +73,9 @@ export default function App() {
           if (!st.placementMode) st.clearSelection()
         }}
       >
-        {/* warm haze that hides the horizon so the world feels endless */}
-        <fog attach="fog" args={['#e7d8b8', 90, 320]} />
+        {/* warm haze that hides the horizon so the world feels endless.
+            Pushed out during map view so it doesn't cloud up the camera looking straight down. */}
+        <fog attach="fog" args={['#e7d8b8', viewMode === 'top' ? 250 : 90, viewMode === 'top' ? 600 : 320]} />
 
         <WindClock />
 

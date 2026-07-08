@@ -8,6 +8,8 @@ import {
   pineTrunkGeo, pineLeafGeo, pineTrunkMat, pineLeafMats,
   bushyTrunkGeo, bushyLeafGeo, bushyLeafMats,
   willowTrunkGeo, willowTrunkMat, willowLeafGeo, willowLeafMats,
+  cherryTrunkGeo, cherryLeafGeo, cherryLeafMats,
+  mushroomStemGeo, mushroomCapGeo, mushroomStemMat, mushroomCapMat,
   saplingTrunkGeo, saplingLeafGeo, saplingLeafMat,
   sproutGeo, sproutLeafGeo, sproutLeafMat,
   makeLeafMat,
@@ -65,17 +67,47 @@ function BushyTree({ variant, dyeMat }) {
   )
 }
 
-// Shape 3: Willow
+// Shape 3: Weeping Willow
 function WillowTree({ variant, dyeMat }) {
   const m1 = dyeMat || willowLeafMats[variant % 3]
   const m2 = dyeMat || willowLeafMats[(variant + 1) % 3]
   const m3 = dyeMat || willowLeafMats[(variant + 2) % 3]
   return (
     <>
-      <mesh geometry={willowTrunkGeo} material={willowTrunkMat} position={[0, 1.7, 0]} castShadow receiveShadow />
-      <mesh geometry={willowLeafGeo} material={m1} position={[0, 3.8, 0]} scale={[1.6, 1.8, 1.6]} castShadow />
-      <mesh geometry={willowLeafGeo} material={m2} position={[0.5, 3.2, 0.4]} scale={0.8} castShadow />
-      <mesh geometry={willowLeafGeo} material={m3} position={[-0.4, 3.0, -0.3]} scale={0.7} castShadow />
+      <mesh geometry={willowTrunkGeo} material={willowTrunkMat} position={[0, 1.9, 0]} castShadow receiveShadow />
+      {/* Central tall canopy */}
+      <mesh geometry={willowLeafGeo} material={m1} position={[0, 4.0, 0]} scale={[1.2, 1.2, 1.2]} castShadow />
+      {/* Drooping side branches */}
+      <mesh geometry={willowLeafGeo} material={m2} position={[0.7, 2.9, 0.4]} scale={[0.9, 1.3, 0.9]} rotation={[0, 0, -0.3]} castShadow />
+      <mesh geometry={willowLeafGeo} material={m3} position={[-0.6, 3.1, -0.5]} scale={[0.8, 1.2, 0.8]} rotation={[0.2, 0, 0.3]} castShadow />
+      <mesh geometry={willowLeafGeo} material={m1} position={[0.2, 2.7, -0.8]} scale={[0.85, 1.25, 0.85]} rotation={[-0.3, 0, 0.1]} castShadow />
+      <mesh geometry={willowLeafGeo} material={m2} position={[-0.4, 2.6, 0.7]} scale={[0.75, 1.15, 0.75]} rotation={[0.2, 0, -0.2]} castShadow />
+    </>
+  )
+}
+
+// Shape 4: Cherry Blossom
+function CherryBlossomTree({ variant, dyeMat }) {
+  const m1 = dyeMat || cherryLeafMats[variant % 3]
+  const m2 = dyeMat || cherryLeafMats[(variant + 1) % 3]
+  const m3 = dyeMat || cherryLeafMats[(variant + 2) % 3]
+  return (
+    <>
+      <mesh geometry={cherryTrunkGeo} material={trunkMat} position={[0, 1.3, 0]} castShadow receiveShadow />
+      <mesh geometry={cherryLeafGeo} material={m1} position={[0, 3.2, 0]} scale={[1.4, 1.2, 1.4]} castShadow />
+      <mesh geometry={cherryLeafGeo} material={m2} position={[0.6, 2.6, 0.4]} scale={0.9} castShadow />
+      <mesh geometry={cherryLeafGeo} material={m3} position={[-0.5, 2.7, -0.3]} scale={0.85} castShadow />
+    </>
+  )
+}
+
+// Shape 5: Bioluminescent Mushroom
+function MushroomTree() {
+  return (
+    <>
+      <mesh geometry={mushroomStemGeo} material={mushroomStemMat} position={[0, 0.75, 0]} castShadow receiveShadow />
+      <mesh geometry={mushroomCapGeo} material={mushroomCapMat} position={[0, 1.5, 0]} castShadow />
+      <pointLight color="#4db8ff" intensity={3} distance={10} position={[0, 1.0, 0]} />
     </>
   )
 }
@@ -86,6 +118,8 @@ function TreeParts({ variant, shape = 0, dyeMat }) {
     case 1: return <PineTree variant={variant} dyeMat={dyeMat} />
     case 2: return <BushyTree variant={variant} dyeMat={dyeMat} />
     case 3: return <WillowTree variant={variant} dyeMat={dyeMat} />
+    case 4: return <CherryBlossomTree variant={variant} dyeMat={dyeMat} />
+    case 5: return <MushroomTree />
     default: return <BroadleafTree variant={variant} dyeMat={dyeMat} />
   }
 }
@@ -277,7 +311,7 @@ export default function TreesField() {
             s: 1.4 + rng() * 1.2,
             rot: rng() * Math.PI * 2,
             variant: (rng() * 3) | 0,
-            shape: (rng() * 4) | 0, // 0=broadleaf, 1=pine, 2=bushy, 3=willow
+            shape: (rng() * 3) | 0, // 0=broadleaf, 1=pine, 2=bushy
           })
         }
       }

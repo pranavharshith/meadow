@@ -58,7 +58,20 @@ function rawTerrainHeight(x, z) {
 // Cache the terrain height at the very center for the Spawn Plaza base
 const CENTER_Y = rawTerrainHeight(0, 0)
 
-// Gentle rolling hills with a flattened crater around the origin for Spawn Plaza
+// Ponds coordinates for flattening the terrain
+export const PONDS = [
+  { x: -74, z: 40, r: 12 },     // Crystal Pond
+  { x: -300, z: 280, r: 8 },    // Silver Brook area
+  { x: 180, z: -140, r: 6 },    // Broken Bridge
+  { x: -60, z: 240, r: 10 },    // Willow Bend
+  { x: 90, z: -220, r: 5 },     // Flower Terrace
+  { x: -160, z: 210, r: 7 },    // Starfall Clearing
+]
+
+// Cache the pond heights so they are perfectly flat across their surface
+const POND_HEIGHTS = PONDS.map(p => rawTerrainHeight(p.x, p.z))
+
+// Gentle rolling hills with a flattened crater around the origin for Spawn Plaza, and flattened ponds.
 export function terrainHeight(x, z) {
   const raw = rawTerrainHeight(x, z)
   
@@ -74,6 +87,19 @@ export function terrainHeight(x, z) {
     const t = (r - CRATER_R) / BLEND_W
     const s = t * t * (3 - 2 * t) // smoothstep
     return CENTER_Y + (raw - CENTER_Y) * s
+  }
+
+  // Flatten ponds so water geometry doesn't clip, carving a slight crater
+  for (let i = 0; i < PONDS.length; i++) {
+    const p = PONDS[i]
+    const pr = Math.hypot(x - p.x, z - p.z)
+    if (pr <= p.r) {
+      return POND_HEIGHTS[i] - 0.45
+    } else if (pr < p.r + 6.0) { // 6 units blend width
+      const t = (pr - p.r) / 6.0
+      const s = t * t * (3 - 2 * t)
+      return (POND_HEIGHTS[i] - 0.45) + (raw - (POND_HEIGHTS[i] - 0.45)) * s
+    }
   }
   
   return raw

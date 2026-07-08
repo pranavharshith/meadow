@@ -18,12 +18,34 @@ export const pineTrunkMat = new THREE.MeshStandardMaterial({ color: '#5a3d20', r
 export const bushyTrunkGeo = new THREE.CylinderGeometry(0.18, 0.3, 1.8, 6)
 export const bushyLeafGeo = new THREE.SphereGeometry(1.1, 8, 6)
 
-// --- Shape 3: Willow — tall trunk, elongated drooping canopy ---
-export const willowTrunkGeo = new THREE.CylinderGeometry(0.12, 0.24, 3.4, 6)
+// --- Shape 3: Willow / Banyan — tall trunk, multiple drooping canopy clusters ---
+export const willowTrunkGeo = new THREE.CylinderGeometry(0.18, 0.35, 3.8, 7)
 export const willowTrunkMat = new THREE.MeshStandardMaterial({ color: '#7a6a50', roughness: 0.9 })
-export const willowLeafGeo = new THREE.SphereGeometry(1, 8, 6)
-// Stretch it vertically for drooping look
-willowLeafGeo.scale(0.8, 1.4, 0.8)
+export const willowLeafGeo = new THREE.SphereGeometry(1.2, 9, 7)
+// Stretch it vertically for a drooping hanging look
+willowLeafGeo.scale(0.85, 1.5, 0.85)
+
+// --- Shape 4: Cherry Blossom ---
+export const cherryTrunkGeo = new THREE.CylinderGeometry(0.12, 0.24, 2.6, 6)
+export const cherryLeafGeo = new THREE.IcosahedronGeometry(1.2, 0)
+// Base color fallback if no dye is applied
+export const cherryLeafMats = [
+  makeLeafMat('#ffb7d5'),
+  makeLeafMat('#ffa3cc'),
+  makeLeafMat('#ffcce0'),
+]
+
+// --- Shape 5: Bioluminescent Mushroom ---
+export const mushroomStemGeo = new THREE.CylinderGeometry(0.1, 0.25, 1.5, 7)
+export const mushroomCapGeo = new THREE.SphereGeometry(1.2, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.5)
+export const mushroomStemMat = new THREE.MeshStandardMaterial({ color: '#cce6ff', roughness: 0.7 })
+// Emissive material that glows in the dark
+export const mushroomCapMat = new THREE.MeshStandardMaterial({
+  color: '#4db8ff',
+  emissive: '#0088ff',
+  emissiveIntensity: 0.6,
+  roughness: 0.4,
+})
 
 // --- Growth stage geos (shared across all shapes) ---
 export const saplingTrunkGeo = new THREE.CylinderGeometry(0.04, 0.07, 1.2, 5)
