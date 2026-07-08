@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PALETTE, useStore } from '../store'
 import { ONLINE, supabase } from '../net/supabase'
 
@@ -9,8 +9,30 @@ export default function Identity({ open, onClose }) {
   const online = useStore((s) => s.online)
   const setName = useStore((s) => s.setName)
   const setColor = useStore((s) => s.setColor)
+  const flash = useStore((s) => s.flash)
+  const [inputName, setInputName] = useState(name)
   const [email, setEmail] = useState('')
   const [emailNote, setEmailNote] = useState('')
+
+  // Sync local input from store whenever the panel opens
+  useEffect(() => {
+    if (open) setInputName(name)
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const commitName = () => {
+    const cleaned = inputName.trim().slice(0, 18) || 'wanderer'
+    if (cleaned.length < 2) {
+      flash('name must be at least 2 characters')
+      setInputName(name)
+      return
+    }
+    setName(cleaned)
+  }
+
+  const handleDone = () => {
+    commitName()
+    onClose()
+  }
 
   const saveEmail = async () => {
     if (!ONLINE || !supabase || !email) return
@@ -23,7 +45,6 @@ export default function Identity({ open, onClose }) {
       setEmailNote('check your email to confirm')
       return
     }
-    // Surface the real reason so setup problems are debuggable.
     const msg = (error.message || '').toLowerCase()
     if (msg.includes('rate')) setEmailNote('too many requests — wait a minute')
     else if (msg.includes('already') || msg.includes('registered'))
@@ -36,7 +57,7 @@ export default function Identity({ open, onClose }) {
   return (
     <div className={`identity no-look${open ? ' open' : ''}`}>
       <label>Your name</label>
-      <input value={name} maxLength={18} onChange={(e) => setName(e.target.value)} placeholder="wanderer" />
+      <input value={inputName} maxLength={18} onChange={(e) => setInputName(e.target.value)} onBlur={commitName} placeholder="wanderer" />
       <label>Colour</label>
       <div className="swatches">
         {PALETTE.map((c) => (
@@ -74,7 +95,7 @@ export default function Identity({ open, onClose }) {
           📍 Set Here · 40g
         </button>
       </div>
-      <button className="btn small" onClick={onClose}>
+      <button className="btn small" onClick={handleDone}>
         done
       </button>
     </div>

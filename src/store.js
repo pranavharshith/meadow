@@ -143,7 +143,6 @@ export const useStore = create((set, get) => ({
   setName: (name) => {
     const state = get()
     const cleaned = (name || '').slice(0, 18) || 'wanderer'
-    if (cleaned.length < 2) { state.flash('name must be at least 2 characters'); return }
     if (cleaned === state.name) return
     set({ name: cleaned })
     bridge.saveIdentity(cleaned, state.color)
