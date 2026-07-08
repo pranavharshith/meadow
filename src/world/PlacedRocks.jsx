@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { useMemo, useState, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
+import { plazaFloorHeight } from './SpawnPlaza'
 import { P, rockRegistry } from '../player-state'
 import { useStore } from '../store'
 import { makeMossyMaterial } from './mossy-material'
@@ -60,7 +61,9 @@ export default function PlacedRocks() {
       {placedRocks.map((r) => {
         const owned = !!r.owner
         const isSelected = owned && selection && selection.kind === 'rock' && selection.id === r.id
-        const baseY = terrainHeight(r.x, r.z)
+        // Use plaza floor height inside the Meadow Gate so placed rocks
+        // sit on the raised stone surface, not the raw terrain below (fix #5)
+        const baseY = plazaFloorHeight(r.x, r.z) ?? terrainHeight(r.x, r.z)
         const onOver = owned
           ? () => { document.body.style.cursor = 'pointer' }
           : undefined

@@ -519,6 +519,8 @@ canvas { display: block; touch-action: none; }
 .identity.open { display: flex; }
 .identity label { color: rgba(255,255,255,0.7); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 .identity input {
+  box-sizing: border-box;
+  width: 100%;
   font: inherit;
   color: #fff;
   background: rgba(255,255,255,0.08);
@@ -529,6 +531,8 @@ canvas { display: block; touch-action: none; }
 }
 .identity input:focus { border-color: rgba(139, 179, 82, 0.8); }
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.identity .row { display: flex; gap: 8px; width: 100%; }
+.identity .row input { width: 100%; }
 .swatch {
   width: 26px; height: 26px; border-radius: 50%;
   border: 2px solid transparent; cursor: pointer; padding: 0;
@@ -1414,6 +1418,82 @@ canvas { display: block; touch-action: none; }
   border-color: rgba(255,180,130,0.5);
   color: #fff;
   box-shadow: 0 4px 18px rgba(220,110,70,0.28);
+}
+
+/* Welcome Screen */
+.welcome-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 15, 10, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.welcome-panel {
+  background: rgba(20, 26, 20, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 32px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+.welcome-panel h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+}
+.welcome-panel p {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: rgba(255,255,255,0.7);
+  text-align: center;
+  line-height: 1.4;
+}
+.welcome-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.welcome-form label {
+  color: rgba(255,255,255,0.7); 
+  font-size: 11px; 
+  letter-spacing: 0.06em; 
+  text-transform: uppercase;
+  margin-bottom: -4px;
+}
+.welcome-form input {
+  font: inherit;
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  padding: 12px 14px;
+  outline: none;
+  font-size: 16px;
+  box-sizing: border-box;
+  width: 100%;
+}
+.welcome-form input:focus {
+  border-color: rgba(139, 179, 82, 0.8);
+}
+.welcome-error {
+  color: #ff8a8a;
+  font-size: 12px;
+  text-align: center;
+}
+.welcome-btn {
+  margin-top: 8px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
 }
 .btn.cut.disabled {
   opacity: 0.45;

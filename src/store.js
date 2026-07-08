@@ -3,6 +3,8 @@ import { P, placement } from './player-state'
 import { LANDMARKS } from './world/places'
 import { bridge } from './net/bridge'
 import { maskProfanity, clientChatCooldown } from './net/moderation'
+import { terrainHeight } from './world/noise'
+import { plazaFloorHeight } from './world/SpawnPlaza'
 
 const LS_KEY = 'meadow-save-v1'
 const GROW_SECONDS = 90
@@ -49,6 +51,10 @@ function todayStr() {
 const saved = loadSave()
 let lastWaterAt = 0
 
+// FIX #9 — guard in-flight discoveries so a server rejection mid-async
+// cannot re-trigger discoverLandmark and spam the flash / gold update.
+const _pendingDiscover = new Set()
+
 export const PALETTE = PASTELS
 
 export const useStore = create((set, get) => ({
@@ -68,7 +74,7 @@ export const useStore = create((set, get) => ({
   // progression (server-owned when online; localStorage fallback offline)
   gold: saved.gold ?? 0,
   color: saved.color ?? randomColor(),
-  name: saved.name ?? 'wanderer',
+  name: saved.name ?? '',
   trees: saved.trees ?? [],
   discovered: saved.discovered ?? [],
   lastBonus: saved.lastBonus ?? '', // only used offline; server tracks per-day online
@@ -142,7 +148,7 @@ export const useStore = create((set, get) => ({
 
   setName: (name) => {
     const state = get()
-    const cleaned = (name || '').slice(0, 18) || 'wanderer'
+    const cleaned = (name || '').trim().slice(0, 18)
     if (cleaned === state.name) return
     set({ name: cleaned })
     bridge.saveIdentity(cleaned, state.color)
@@ -595,24 +601,31 @@ export const useStore = create((set, get) => ({
 
   discoverLandmark: async (id) => {
     if (get().discovered.includes(id)) return
+    // FIX #9 — skip if a request for this landmark is already in flight
+    if (_pendingDiscover.has(id)) return
+
+    _pendingDiscover.add(id)
     const lm = LANDMARKS.find((l) => l.id === id)
     const goldBefore = get().gold
 
-    // Optimistic
+    // Optimistic update
     set((s) => ({ discovered: [...s.discovered, id], gold: s.gold + 20 }))
     get().flash(`discovered ${lm ? lm.name : 'a place'} · +20 gold`)
 
     if (bridge.online) {
       const res = await bridge.discover(id)
       if (!res.ok) {
+        // Roll back on server rejection
         set((s) => ({
           discovered: s.discovered.filter((x) => x !== id),
           gold: goldBefore,
         }))
-        return
+      } else if (typeof res.gold === 'number') {
+        set({ gold: res.gold })
       }
-      if (typeof res.gold === 'number') set({ gold: res.gold })
     }
+
+    _pendingDiscover.delete(id)
   },
 
   teleportTo: async (landmarkId) => {
@@ -640,6 +653,8 @@ export const useStore = create((set, get) => ({
     }
     P.pos.x = lm.x
     P.pos.z = lm.z
+    // FIX #1 — set Y immediately so the player doesn't snap/fall for one frame
+    P.pos.y = plazaFloorHeight(lm.x, lm.z) ?? terrainHeight(lm.x, lm.z)
     set({ navTarget: null })
     state.flash(`arrived at ${lm.name}`)
   },

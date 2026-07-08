@@ -39,8 +39,8 @@ export function valueNoise(x, z) {
   return lerp(lerp(v00, v10, u), lerp(v01, v11, u), v)
 }
 
-// Gentle rolling hills. Amplitude ~ +/- 7.5 units, large soft features.
-export function terrainHeight(x, z) {
+// Raw noise evaluation
+function rawTerrainHeight(x, z) {
   let amp = 1
   let freq = 0.012
   let sum = 0
@@ -53,6 +53,30 @@ export function terrainHeight(x, z) {
   }
   h /= sum
   return (h - 0.5) * 15
+}
+
+// Cache the terrain height at the very center for the Spawn Plaza base
+const CENTER_Y = rawTerrainHeight(0, 0)
+
+// Gentle rolling hills with a flattened crater around the origin for Spawn Plaza
+export function terrainHeight(x, z) {
+  const raw = rawTerrainHeight(x, z)
+  
+  // Meadow Gate plaza slab has a radius of 14.5. 
+  // We flatten the terrain to CRATER_R, then smoothly blend to normal hills.
+  const CRATER_R = 15.0
+  const BLEND_W = 10.0
+  
+  const r = Math.hypot(x, z)
+  if (r <= CRATER_R) {
+    return CENTER_Y
+  } else if (r < CRATER_R + BLEND_W) {
+    const t = (r - CRATER_R) / BLEND_W
+    const s = t * t * (3 - 2 * t) // smoothstep
+    return CENTER_Y + (raw - CENTER_Y) * s
+  }
+  
+  return raw
 }
 
 // Approximate terrain slope (0 = flat, grows with steepness). Uses finite

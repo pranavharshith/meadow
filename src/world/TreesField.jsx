@@ -15,6 +15,7 @@ import {
 import { treeRegistry, P } from '../player-state'
 import { useStore } from '../store'
 import { Select } from '@react-three/postprocessing'
+import { plazaFloorHeight } from './SpawnPlaza'
 
 const GROW_SECONDS = 90
 const CUT_DURATION = 0.85 // seconds the cut animation runs
@@ -211,7 +212,9 @@ function PlantedTrees({ trees }) {
         }
 
         return (
-          <group key={t.id} position={[t.x, terrainHeight(t.x, t.z), t.z]}>
+          // Use plaza floor height inside the Meadow Gate so planted trees
+          // sit on the raised stone steps, not the raw terrain below (fix #6)
+          <group key={t.id} position={[t.x, plazaFloorHeight(t.x, t.z) ?? terrainHeight(t.x, t.z), t.z]}>
             <group
               ref={(el) => (refs.current[i] = el)}
               onPointerOver={onOver}

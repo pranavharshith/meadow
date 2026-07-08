@@ -2,8 +2,10 @@ import * as THREE from 'three'
 import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
+import { plazaFloorHeight } from './SpawnPlaza'
 import { P, look, keys, treeRegistry, rockRegistry } from '../player-state'
 import { useStore } from '../store'
+import AvatarMesh from './AvatarMesh'
 
 const UP = new THREE.Vector3(0, 1, 0)
 const WALK = 4.2
@@ -49,24 +51,13 @@ function pushOut(x, z) {
 
 export default function Player() {
   const groupRef = useRef()
-  const bobRef = useRef()
-  const armLRef = useRef()
-  const armRRef = useRef()
   const color = useStore((s) => s.color)
   const view = useStore((s) => s.viewMode)
 
   const fwd = useMemo(() => new THREE.Vector3(), [])
   const right = useMemo(() => new THREE.Vector3(), [])
   const move = useMemo(() => new THREE.Vector3(), [])
-
-  const legLRef = useRef()
-  const legRRef = useRef()
-
-  const bodyMat = useMemo(() => new THREE.MeshStandardMaterial({ color, roughness: 0.7 }), [color])
-  const headMat = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: new THREE.Color(color).lerp(new THREE.Color('#fff'), 0.18), roughness: 0.6 }),
-    [color]
-  )
+  const velocity = useMemo(() => new THREE.Vector3(), [])
 
   useFrame(({ clock }, dt) => {
     const step = Math.min(dt, 0.05)
@@ -95,107 +86,56 @@ export default function Player() {
     }
 
     move.set(0, 0, 0).addScaledVector(fwd, iy).addScaledVector(right, ix)
-    P.moving = move.lengthSq() > 0.0004
+    
+    const targetSpeed = run ? RUN : WALK
+    const damping = run ? 8 : 10
+    const accel = targetSpeed * damping
+
+    // Apply acceleration
+    if (move.lengthSq() > 0.01) {
+      move.normalize()
+      velocity.addScaledVector(move, accel * step)
+    }
+
+    // Apply exact friction (damping)
+    velocity.multiplyScalar(Math.exp(-damping * step))
+
+    P.moving = velocity.lengthSq() > 0.01
 
     if (P.moving) {
-      move.normalize()
-      const speed = (run ? RUN : WALK) * step
-      let nx = P.pos.x + move.x * speed
-      let nz = P.pos.z + move.z * speed
+      let nx = P.pos.x + velocity.x * step
+      let nz = P.pos.z + velocity.z * step
       ;[nx, nz] = pushOut(nx, nz)
       P.pos.x = nx
       P.pos.z = nz
-      P.avatarYaw = Math.atan2(move.x, move.z)
+      P.avatarYaw = Math.atan2(velocity.x, velocity.z)
     }
     // When waving, face the camera direction (toward other players you're looking at)
     if (waving) {
       P.avatarYaw = look.yaw
     }
-    P.pos.y = terrainHeight(P.pos.x, P.pos.z)
+    // Ground the player on whichever surface is highest at their XZ:
+    // inside the Meadow Gate plaza the raised step geometry sits above raw
+    // terrain, so we must use the plaza floor height there instead of the
+    // terrain noise (which would put the player underground).
+    const plazaY = plazaFloorHeight(P.pos.x, P.pos.z)
+    P.pos.y = plazaY !== null ? plazaY : terrainHeight(P.pos.x, P.pos.z)
 
     const g = groupRef.current
     g.position.set(P.pos.x, P.pos.y, P.pos.z)
     g.rotation.y = dampAngle(g.rotation.y, P.avatarYaw, 10, step)
     g.visible = view !== 'first'
-
-    const t = clock.elapsedTime
-    const bg = bobRef.current
-    if (sitting) {
-      // settle down: sink and lean back a touch
-      bg.position.y = THREE.MathUtils.lerp(bg.position.y, -0.34, 1 - Math.exp(-8 * step))
-      bg.rotation.z = THREE.MathUtils.lerp(bg.rotation.z, 0, 1 - Math.exp(-8 * step))
-      bg.rotation.x = THREE.MathUtils.lerp(bg.rotation.x, -0.12, 1 - Math.exp(-8 * step))
-    } else {
-      // gentle walk bob
-      bg.position.y = P.moving ? Math.abs(Math.sin(t * 9)) * 0.06 : THREE.MathUtils.lerp(bg.position.y, 0, 1 - Math.exp(-8 * step))
-      bg.rotation.z = P.moving ? Math.sin(t * 9) * 0.03 : 0
-      bg.rotation.x = THREE.MathUtils.lerp(bg.rotation.x, 0, 1 - Math.exp(-8 * step))
-    }
-
-    // arms: wave toward camera direction with both arms, otherwise rest / swing
-    if (armRRef.current && armLRef.current) {
-      if (waving) {
-        // Right arm: big enthusiastic wave; left arm: slight supportive raise
-        armRRef.current.rotation.z = -2.4 + Math.sin(t * 14) * 0.4
-        armLRef.current.rotation.z = 0.6 + Math.sin(t * 14 + 1.5) * 0.15
-      } else if (P.moving) {
-        armRRef.current.rotation.z = Math.sin(t * 9) * 0.35
-        armLRef.current.rotation.z = -Math.sin(t * 9) * 0.35
-      } else {
-        armRRef.current.rotation.z = THREE.MathUtils.lerp(armRRef.current.rotation.z, 0.12, 1 - Math.exp(-8 * step))
-        armLRef.current.rotation.z = THREE.MathUtils.lerp(armLRef.current.rotation.z, -0.12, 1 - Math.exp(-8 * step))
-      }
-    }
-
-    // legs: swing forward/back opposite to each other while walking
-    if (legLRef.current && legRRef.current) {
-      if (sitting) {
-        // legs bend forward when sitting
-        legLRef.current.rotation.x = THREE.MathUtils.lerp(legLRef.current.rotation.x, -1.2, 1 - Math.exp(-8 * step))
-        legRRef.current.rotation.x = THREE.MathUtils.lerp(legRRef.current.rotation.x, -1.2, 1 - Math.exp(-8 * step))
-      } else if (P.moving) {
-        const legSpeed = run ? 12 : 9
-        legLRef.current.rotation.x = Math.sin(t * legSpeed) * 0.45
-        legRRef.current.rotation.x = -Math.sin(t * legSpeed) * 0.45
-      } else {
-        legLRef.current.rotation.x = THREE.MathUtils.lerp(legLRef.current.rotation.x, 0, 1 - Math.exp(-8 * step))
-        legRRef.current.rotation.x = THREE.MathUtils.lerp(legRRef.current.rotation.x, 0, 1 - Math.exp(-8 * step))
-      }
-    }
   })
 
   return (
     <group ref={groupRef}>
-      <group ref={bobRef}>
-        <mesh position={[0, 0.62, 0]} material={bodyMat} castShadow>
-          <capsuleGeometry args={[0.26, 0.5, 4, 12]} />
-        </mesh>
-        <mesh position={[0, 1.18, 0]} material={headMat} castShadow>
-          <sphereGeometry args={[0.22, 16, 16]} />
-        </mesh>
-        {/* arms hinge at the shoulder */}
-        <group ref={armRRef} position={[0.28, 0.92, 0]}>
-          <mesh position={[0, -0.2, 0]} material={bodyMat} castShadow>
-            <capsuleGeometry args={[0.075, 0.34, 4, 8]} />
-          </mesh>
-        </group>
-        <group ref={armLRef} position={[-0.28, 0.92, 0]}>
-          <mesh position={[0, -0.2, 0]} material={bodyMat} castShadow>
-            <capsuleGeometry args={[0.075, 0.34, 4, 8]} />
-          </mesh>
-        </group>
-        {/* legs hinge at the hip */}
-        <group ref={legLRef} position={[0.12, 0.22, 0]}>
-          <mesh position={[0, -0.22, 0]} material={bodyMat} castShadow>
-            <capsuleGeometry args={[0.09, 0.32, 4, 8]} />
-          </mesh>
-        </group>
-        <group ref={legRRef} position={[-0.12, 0.22, 0]}>
-          <mesh position={[0, -0.22, 0]} material={bodyMat} castShadow>
-            <capsuleGeometry args={[0.09, 0.32, 4, 8]} />
-          </mesh>
-        </group>
-      </group>
+      <AvatarMesh 
+        color={color} 
+        moving={P.moving} 
+        sitting={P.emote === 'sit'} 
+        waving={P.emote === 'wave'} 
+        run={useStore.getState().joystickEnabled ? Math.hypot(move.x, move.z) > 0.8 : false} 
+      />
     </group>
   )
 }

@@ -7,6 +7,7 @@ import { CHUNK, seedFor } from './chunk'
 import { windTime, windStrength } from '../wind'
 import { P } from '../player-state'
 import { useStore } from '../store'
+import { PLAZA_OUTER_RADIUS } from './SpawnPlaza'
 
 const BLADES_FULL = 3400
 const BLADES_HALF = 1700
@@ -32,12 +33,28 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
 
     const rngG = mulberry32(seedFor(cx, cz) ^ 0xa1)
     for (let i = 0; i < bladeCount; i++) {
-      const x = cx * CHUNK + rngG() * CHUNK
-      const z = cz * CHUNK + rngG() * CHUNK
+      const x    = cx * CHUNK + rngG() * CHUNK
+      const z    = cz * CHUNK + rngG() * CHUNK
+      // Pre-consume all RNG values before branching so the seeded sequence
+      // stays stable — this ensures surrounding chunk patterns are unchanged.
       const lush = clusterField(x, z)
+      const rotY = rngG() * Math.PI
+      const rotZ = (rngG() - 0.5) * 0.25
+      const scX  = 0.8 + rngG() * 0.4
+      const scY  = 0.7 + rngG() * 0.9 + lush * 0.8
+
+      // Suppress blades inside the Meadow Gate plaza stone floor (fix #9)
+      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS) {
+        d.position.set(0, -9999, 0)
+        d.scale.setScalar(0.0001)
+        d.updateMatrix()
+        grassRef.current.setMatrixAt(i, d.matrix)
+        continue
+      }
+
       d.position.set(x, terrainHeight(x, z), z)
-      d.rotation.set(0, rngG() * Math.PI, (rngG() - 0.5) * 0.25)
-      d.scale.set(0.8 + rngG() * 0.4, 0.7 + rngG() * 0.9 + lush * 0.8, 1)
+      d.rotation.set(0, rotY, rotZ)
+      d.scale.set(scX, scY, 1)
       d.updateMatrix()
       grassRef.current.setMatrixAt(i, d.matrix)
     }
@@ -47,21 +64,29 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
     const rngF = mulberry32(seedFor(cx, cz) ^ 0xf1)
     const col = new THREE.Color()
     for (let i = 0; i < FLOWERS_PER_CHUNK; i++) {
-      const x = cx * CHUNK + rngF() * CHUNK
-      const z = cz * CHUNK + rngF() * CHUNK
-      if (rngF() > 0.25 + clusterField(x, z) * 0.8) {
+      const x       = cx * CHUNK + rngF() * CHUNK
+      const z       = cz * CHUNK + rngF() * CHUNK
+      // Pre-consume RNG before any branch so sequence is always stable
+      const sparse  = rngF() > 0.25 + clusterField(x, z) * 0.8
+      const rotY    = rngF() * Math.PI
+      const sc      = 0.7 + rngF() * 0.8
+      const colIdx  = (rngF() * FLOWER_PALETTE.length) | 0
+
+      // Suppress flowers inside the Meadow Gate plaza stone floor (fix #9)
+      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS || sparse) {
         d.position.set(0, -9999, 0)
         d.scale.setScalar(0.0001)
         d.updateMatrix()
         flowerRef.current.setMatrixAt(i, d.matrix)
         continue
       }
+
       d.position.set(x, terrainHeight(x, z), z)
-      d.rotation.set(0, rngF() * Math.PI, 0)
-      d.scale.setScalar(0.7 + rngF() * 0.8)
+      d.rotation.set(0, rotY, 0)
+      d.scale.setScalar(sc)
       d.updateMatrix()
       flowerRef.current.setMatrixAt(i, d.matrix)
-      col.set(FLOWER_PALETTE[(rngF() * FLOWER_PALETTE.length) | 0])
+      col.set(FLOWER_PALETTE[colIdx])
       flowerRef.current.setColorAt(i, col)
     }
     flowerRef.current.instanceMatrix.needsUpdate = true

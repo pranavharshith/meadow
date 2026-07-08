@@ -26,6 +26,7 @@ import Controls from './Controls'
 import Ambience from './Ambience'
 import Net from './net/Net'
 import Hud from './ui/Hud'
+import WelcomeScreen from './ui/WelcomeScreen'
 import NavPath from './world/NavPath'
 import WaterEffect from './world/WaterEffect'
 import Water from './world/Water'
@@ -110,6 +111,7 @@ export default function App() {
       <Controls />
       <Ambience />
       <Hud />
+      <WelcomeScreen />
       <LoadingFade />
     </>
   )

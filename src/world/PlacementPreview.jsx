@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import { terrainHeight } from './noise'
 import { LANDMARKS } from './places'
 import { PONDS, STREAM_POINTS, STREAM_WIDTH } from './Water'
+import { plazaFloorHeight, PLAZA_OUTER_RADIUS } from './SpawnPlaza'
 
 // Placement preview:
 //   Renders a translucent green/red ghost of the tree or rock being placed,
@@ -166,7 +167,11 @@ export default function PlacementPreview() {
 
     const px = P.pos.x + Math.sin(P.avatarYaw) * PLACE_DIST
     const pz = P.pos.z + Math.cos(P.avatarYaw) * PLACE_DIST
-    const py = terrainHeight(px, pz)
+    // Use plaza floor height inside the Meadow Gate so the ghost appears on
+    // top of the raised stone steps, not sunken into the raw terrain (fix #4)
+    const plazaY = plazaFloorHeight(px, pz)
+    const py = plazaY !== null ? plazaY : terrainHeight(px, pz)
+    const insidePlaza = plazaY !== null
 
     groupRef.current.position.set(px, py, pz)
     groupRef.current.rotation.y = mode === 'rock' ? P.avatarYaw : 0
@@ -256,15 +261,20 @@ export default function PlacementPreview() {
       reason = 'cannot place on water'
     }
     if (valid && mode !== 'plot') {
-      const h0 = terrainHeight(px + 1, pz)
-      const h1 = terrainHeight(px - 1, pz)
-      const h2 = terrainHeight(px, pz + 1)
-      const h3 = terrainHeight(px, pz - 1)
-      const maxH = Math.max(h0, h1, h2, h3, py)
-      const minH = Math.min(h0, h1, h2, h3, py)
-      if (maxH - minH > SLOPE_LIMIT) {
-        valid = false
-        reason = 'ground is too steep'
+      // Skip the slope check inside the Meadow Gate plaza — the steps are
+      // geometrically flat but raw terrainHeight() returns curved bowl values,
+      // which would falsely reject valid placements on the flat stone (fix #7).
+      if (!insidePlaza) {
+        const h0 = terrainHeight(px + 1, pz)
+        const h1 = terrainHeight(px - 1, pz)
+        const h2 = terrainHeight(px, pz + 1)
+        const h3 = terrainHeight(px, pz - 1)
+        const maxH = Math.max(h0, h1, h2, h3, py)
+        const minH = Math.min(h0, h1, h2, h3, py)
+        if (maxH - minH > SLOPE_LIMIT) {
+          valid = false
+          reason = 'ground is too steep'
+        }
       }
     }
     // For plots, skip tree/rock proximity checks (plot is territorial, not physical)
