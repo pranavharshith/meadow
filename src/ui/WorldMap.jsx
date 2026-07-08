@@ -103,8 +103,8 @@ export default function WorldMap() {
       }
 
       // player arrow
-      const fx = Math.sin(look.yaw)
-      const fz = Math.cos(look.yaw)
+      const fx = Math.sin(P.avatarYaw)
+      const fz = Math.cos(P.avatarYaw)
       const rx = -fz
       const rz = fx
       const cx = MAP_SIZE / 2
@@ -136,8 +136,10 @@ export default function WorldMap() {
 
   const handleCanvasClick = (e) => {
     const rect = canvasRef.current.getBoundingClientRect()
-    const cx = e.clientX - rect.left
-    const cy = e.clientY - rect.top
+    // Calculate CSS scaling ratio (logical size / physical size)
+    const scale = MAP_SIZE / rect.width
+    const cx = (e.clientX - rect.left) * scale
+    const cy = (e.clientY - rect.top) * scale
 
     // check if click is near a landmark
     for (const l of LANDMARKS) {

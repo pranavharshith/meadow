@@ -59,9 +59,9 @@ export default function Minimap() {
         ctx.restore()
       }
 
-      // player arrow (facing = look yaw)
-      const fx = Math.sin(look.yaw)
-      const fz = Math.cos(look.yaw)
+      // player arrow (facing = P.avatarYaw)
+      const fx = Math.sin(P.avatarYaw)
+      const fz = Math.cos(P.avatarYaw)
       const rx = -fz
       const rz = fx
       const cxp = SIZE / 2

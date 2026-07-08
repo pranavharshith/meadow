@@ -25,6 +25,7 @@ function RemoteAvatar({ id }) {
     
     // Calculate if they are moving (before applying interpolation)
     rp.moving = Math.hypot(rp.tx - rp.x, rp.tz - rp.z) > 0.05
+    rp.running = rp.moving // use run animation if moving for remote players for simplicity
 
     rp.x += (rp.tx - rp.x) * k
     rp.z += (rp.tz - rp.z) * k
@@ -53,13 +54,7 @@ function RemoteAvatar({ id }) {
   return (
     <group ref={groupRef}>
       {rp && (
-        <AvatarMesh 
-          color={rp.color} 
-          moving={rp.moving} 
-          sitting={rp.emote === 'sit'}
-          waving={rp.emote === 'wave'}
-          run={rp.moving} // use run animation if moving for remote players for simplicity
-        />
+        <AvatarMesh color={rp.color} state={rp} />
       )}
       <Html position={[0, 1.7, 0]} center distanceFactor={12} zIndexRange={[5, 0]} occlude={false}>
         <div className="nameplate">{name}</div>

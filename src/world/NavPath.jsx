@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import { useStore } from '../store'
 import { P } from '../player-state'
 import { terrainHeight } from './noise'
+import { plazaFloorHeight } from './SpawnPlaza'
 
 const PATH_SEGMENTS = 48
 const ARROW_SIZE = 1.2
@@ -62,7 +63,8 @@ export default function NavPath() {
 
     for (let i = 0; i <= PATH_SEGMENTS; i++) {
       const p = pts[i]
-      const y = terrainHeight(p.x, p.z) + PATH_Y_OFFSET
+      const plazaY = plazaFloorHeight(p.x, p.z)
+      const y = (plazaY !== null ? plazaY : terrainHeight(p.x, p.z)) + PATH_Y_OFFSET
       positions[i * 3] = p.x
       positions[i * 3 + 1] = y
       positions[i * 3 + 2] = p.z
@@ -75,12 +77,13 @@ export default function NavPath() {
     const arrowT = Math.min(8 / dist, 0.15)
     const arrowPt = curve.getPointAt(arrowT)
     const arrowTangent = curve.getTangentAt(arrowT)
-    const ay = terrainHeight(arrowPt.x, arrowPt.z) + PATH_Y_OFFSET + 0.1
+    const plazaAy = plazaFloorHeight(arrowPt.x, arrowPt.z)
+    const ay = (plazaAy !== null ? plazaAy : terrainHeight(arrowPt.x, arrowPt.z)) + PATH_Y_OFFSET + 0.1
 
     arrowRef.current.position.set(arrowPt.x, ay, arrowPt.z)
-    // Rotate arrow to face along the path tangent
-    const angle = Math.atan2(arrowTangent.x, arrowTangent.z)
-    arrowRef.current.rotation.set(-Math.PI / 2, 0, -angle)
+    // Rotate arrow to face exactly along the path tangent using lookAt
+    const target = new THREE.Vector3(arrowPt.x + arrowTangent.x, ay + arrowTangent.y, arrowPt.z + arrowTangent.z)
+    arrowRef.current.lookAt(target)
   })
 
   if (!navTarget) return null
@@ -107,15 +110,18 @@ export default function NavPath() {
       </line>
 
       {/* Single directional arrow (cone pointing forward) */}
-      <mesh ref={arrowRef}>
-        <coneGeometry args={[ARROW_SIZE * 0.5, ARROW_SIZE, 3]} />
-        <meshBasicMaterial
-          color="#5bb8ff"
-          transparent
-          opacity={0.85}
-          depthWrite={false}
-        />
-      </mesh>
+      <group ref={arrowRef}>
+        {/* rotate cone so its tip (+Y) points forward (+Z) for lookAt to work properly */}
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[ARROW_SIZE * 0.5, ARROW_SIZE, 3]} />
+          <meshBasicMaterial
+            color="#5bb8ff"
+            transparent
+            opacity={0.85}
+            depthWrite={false}
+          />
+        </mesh>
+      </group>
     </group>
   )
 }

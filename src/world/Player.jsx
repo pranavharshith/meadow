@@ -101,6 +101,7 @@ export default function Player() {
     velocity.multiplyScalar(Math.exp(-damping * step))
 
     P.moving = velocity.lengthSq() > 0.01
+    P.running = run || (useStore.getState().joystickEnabled && Math.hypot(move.x, move.z) > 0.8)
 
     if (P.moving) {
       let nx = P.pos.x + velocity.x * step
@@ -129,13 +130,7 @@ export default function Player() {
 
   return (
     <group ref={groupRef}>
-      <AvatarMesh 
-        color={color} 
-        moving={P.moving} 
-        sitting={P.emote === 'sit'} 
-        waving={P.emote === 'wave'} 
-        run={useStore.getState().joystickEnabled ? Math.hypot(move.x, move.z) > 0.8 : false} 
-      />
+      <AvatarMesh color={color} state={P} />
     </group>
   )
 }

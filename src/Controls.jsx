@@ -66,8 +66,12 @@ export default function Controls() {
       const dy = e.clientY - ly
       lx = e.clientX
       ly = e.clientY
-      look.yaw -= dx * LOOK_SENS
-      look.pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, look.pitch + dy * LOOK_SENS))
+      
+      // Prevent dragging from secretly spinning the camera while in Map view
+      if (useStore.getState().viewMode !== 'top') {
+        look.yaw -= dx * LOOK_SENS
+        look.pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, look.pitch + dy * LOOK_SENS))
+      }
     }
     const onUp = () => {
       dragging = false

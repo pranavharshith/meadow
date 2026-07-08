@@ -2,13 +2,17 @@ import * as THREE from 'three'
 import { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 
-const bodyGeo = new THREE.CapsuleGeometry(0.26, 0.35, 4, 16)
 const headGeo = new THREE.SphereGeometry(0.25, 16, 16)
-const limbGeo = new THREE.CapsuleGeometry(0.085, 0.32, 4, 12)
-const eyeGeo = new THREE.CapsuleGeometry(0.04, 0.08, 4, 8)
-eyeGeo.rotateZ(Math.PI / 2)
+const bodyGeo = new THREE.CylinderGeometry(0.24, 0.14, 0.65, 16)
+const pelvisGeo = new THREE.SphereGeometry(0.18, 16, 16)
+const jointGeo = new THREE.SphereGeometry(0.1, 16, 16)
+const limbGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.38, 12)
+// Shift limb origin to the top so it hinges correctly from the joint without a nested group translation
+limbGeo.translate(0, -0.19, 0)
+const eyeGeo = new THREE.SphereGeometry(0.04, 12, 12)
+const pupilGeo = new THREE.SphereGeometry(0.015, 8, 8)
 
-export default function AvatarMesh({ color, moving, sitting, waving, run }) {
+export default function AvatarMesh({ color, state }) {
   const bobRef = useRef()
   const armLRef = useRef()
   const armRRef = useRef()
@@ -17,28 +21,34 @@ export default function AvatarMesh({ color, moving, sitting, waving, run }) {
   const bodyRef = useRef()
 
   const bodyMat = useMemo(() => new THREE.MeshStandardMaterial({ color, roughness: 0.7 }), [color])
-  const headMat = useMemo(() => new THREE.MeshStandardMaterial({ color: new THREE.Color(color).lerp(new THREE.Color('#fff'), 0.2), roughness: 0.6 }), [color])
-  const eyeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.3 }), [])
+  const jointMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#333333', roughness: 0.8 }), [])
+  const eyeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0.3 }), [])
+  const pupilMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.1 }), [])
 
   useFrame(({ clock }, dt) => {
     const t = clock.elapsedTime
     const step = Math.min(dt, 0.1)
     const k = 1 - Math.exp(-8 * step)
 
+    const moving = state.moving
+    const sitting = state.emote === 'sit'
+    const waving = state.emote === 'wave'
+    const run = state.running
+
     if (sitting) {
-      // Settle down
-      bobRef.current.position.y = THREE.MathUtils.lerp(bobRef.current.position.y, -0.34, k)
-      bodyRef.current.rotation.x = THREE.MathUtils.lerp(bodyRef.current.rotation.x, -0.15, k)
+      // Settle down to kneel
+      bobRef.current.position.y = THREE.MathUtils.lerp(bobRef.current.position.y, -0.25, k)
+      bodyRef.current.rotation.x = THREE.MathUtils.lerp(bodyRef.current.rotation.x, -0.1, k)
       
-      // Legs bend forward to sit
-      legLRef.current.rotation.x = THREE.MathUtils.lerp(legLRef.current.rotation.x, -1.4, k)
-      legRRef.current.rotation.x = THREE.MathUtils.lerp(legRRef.current.rotation.x, -1.4, k)
+      // Legs fold backwards to kneel
+      legLRef.current.rotation.x = THREE.MathUtils.lerp(legLRef.current.rotation.x, 1.5, k)
+      legRRef.current.rotation.x = THREE.MathUtils.lerp(legRRef.current.rotation.x, 1.5, k)
       
       // Arms rest
-      armLRef.current.rotation.x = THREE.MathUtils.lerp(armLRef.current.rotation.x, 0.2, k)
-      armRRef.current.rotation.x = THREE.MathUtils.lerp(armRRef.current.rotation.x, 0.2, k)
-      armLRef.current.rotation.z = THREE.MathUtils.lerp(armLRef.current.rotation.z, -0.1, k)
-      armRRef.current.rotation.z = THREE.MathUtils.lerp(armRRef.current.rotation.z, 0.1, k)
+      armLRef.current.rotation.x = THREE.MathUtils.lerp(armLRef.current.rotation.x, 0.1, k)
+      armRRef.current.rotation.x = THREE.MathUtils.lerp(armRRef.current.rotation.x, 0.1, k)
+      armLRef.current.rotation.z = THREE.MathUtils.lerp(armLRef.current.rotation.z, -0.15, k)
+      armRRef.current.rotation.z = THREE.MathUtils.lerp(armRRef.current.rotation.z, 0.15, k)
       
     } else {
       // Stand up
@@ -92,45 +102,63 @@ export default function AvatarMesh({ color, moving, sitting, waving, run }) {
     <group ref={bobRef}>
       {/* Body container (tilts when walking) */}
       <group ref={bodyRef}>
-        <mesh position={[0, 0.55, 0]} material={bodyMat} castShadow>
+        <mesh position={[0, 0.7, 0]} material={bodyMat} castShadow>
           <primitive object={bodyGeo} />
         </mesh>
         
         {/* Head */}
-        <group position={[0, 1.05, 0]}>
-          <mesh material={headMat} castShadow>
+        <group position={[0, 1.15, 0]}>
+          <mesh material={bodyMat} castShadow>
             <primitive object={headGeo} />
           </mesh>
-          {/* Eyes (visor) */}
-          <mesh position={[0, 0.02, 0.23]} material={eyeMat}>
+          {/* Eyes */}
+          <mesh position={[0.1, 0.05, 0.21]} material={eyeMat}>
             <primitive object={eyeGeo} />
+            <mesh position={[0, 0, 0.03]} material={pupilMat}>
+              <primitive object={pupilGeo} />
+            </mesh>
+          </mesh>
+          <mesh position={[-0.1, 0.05, 0.21]} material={eyeMat}>
+            <primitive object={eyeGeo} />
+            <mesh position={[0, 0, 0.03]} material={pupilMat}>
+              <primitive object={pupilGeo} />
+            </mesh>
           </mesh>
         </group>
         
-        {/* Arms (hinge at shoulder) */}
-        <group ref={armRRef} position={[0.32, 0.82, 0]}>
-          <mesh position={[0, -0.18, 0]} material={bodyMat} castShadow>
+        {/* Arms (hinge at shoulder joint) */}
+        <mesh position={[0.3, 0.9, 0]} material={jointMat} castShadow>
+          <primitive object={jointGeo} />
+          <mesh ref={armRRef} material={bodyMat} castShadow>
             <primitive object={limbGeo} />
           </mesh>
-        </group>
-        <group ref={armLRef} position={[-0.32, 0.82, 0]}>
-          <mesh position={[0, -0.18, 0]} material={bodyMat} castShadow>
+        </mesh>
+        <mesh position={[-0.3, 0.9, 0]} material={jointMat} castShadow>
+          <primitive object={jointGeo} />
+          <mesh ref={armLRef} material={bodyMat} castShadow>
             <primitive object={limbGeo} />
           </mesh>
-        </group>
+        </mesh>
       </group>
       
-      {/* Legs (hinge at hip, independent of body tilt) */}
-      <group ref={legRRef} position={[0.14, 0.35, 0]}>
-        <mesh position={[0, -0.18, 0]} material={bodyMat} castShadow>
+      {/* Pelvis */}
+      <mesh position={[0, 0.35, 0]} material={jointMat} castShadow>
+        <primitive object={pelvisGeo} />
+      </mesh>
+
+      {/* Legs (hinge at hip joint) */}
+      <mesh position={[0.14, 0.35, 0]} material={jointMat} castShadow>
+        <primitive object={jointGeo} />
+        <mesh ref={legRRef} material={bodyMat} castShadow>
           <primitive object={limbGeo} />
         </mesh>
-      </group>
-      <group ref={legLRef} position={[-0.14, 0.35, 0]}>
-        <mesh position={[0, -0.18, 0]} material={bodyMat} castShadow>
+      </mesh>
+      <mesh position={[-0.14, 0.35, 0]} material={jointMat} castShadow>
+        <primitive object={jointGeo} />
+        <mesh ref={legLRef} material={bodyMat} castShadow>
           <primitive object={limbGeo} />
         </mesh>
-      </group>
+      </mesh>
     </group>
   )
 }

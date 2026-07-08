@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { useMemo, useRef, useEffect } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
+import { plazaFloorHeight } from './SpawnPlaza'
 import { P, look } from '../player-state'
 import { useStore } from '../store'
 
@@ -52,7 +53,7 @@ export default function CameraRig() {
       pos.copy(head)
       target.set(
         head.x + Math.sin(look.yaw) * Math.cos(look.pitch),
-        head.y + Math.sin(look.pitch),
+        head.y - Math.sin(look.pitch), // Fixed inverted pitch!
         head.z + Math.cos(look.yaw) * Math.cos(look.pitch)
       )
     } else if (view === 'top') {
@@ -67,13 +68,19 @@ export default function CameraRig() {
         P.pos.z - Math.cos(look.yaw) * cp * dist
       )
       target.copy(head)
-      // keep camera from dipping under the ground
-      const g = terrainHeight(pos.x, pos.z) + 0.6
-      if (pos.y < g) pos.y = g
     }
 
     curPos.lerp(pos, k)
     curTarget.lerp(target, k)
+    
+    // Post-lerp collision check: prevent camera from dipping under terrain or plaza structures
+    // (We do this on curPos to prevent clipping during fast movement or view transitions)
+    const plazaY = plazaFloorHeight(curPos.x, curPos.z)
+    const floorY = plazaY !== null ? plazaY : terrainHeight(curPos.x, curPos.z)
+    if (curPos.y < floorY + 0.6 && view !== 'top') {
+      curPos.y = floorY + 0.6
+    }
+
     camera.position.copy(curPos)
     camera.lookAt(curTarget)
   })

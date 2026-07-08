@@ -70,6 +70,8 @@ export default function Hud() {
           <span>drag look</span>
           <span><b>WASD</b> walk</span>
           <span><b>V</b> view</span>
+          <span><b>C</b> sit</span>
+          <span><b>F</b> wave</span>
           <span><b>E</b> plant/place</span>
           <span className="hint-wide"><b>R</b> water</span>
           <span className="hint-wide">click item then <b>X</b> cut</span>
