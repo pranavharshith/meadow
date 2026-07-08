@@ -4,37 +4,8 @@ import { useFrame } from '@react-three/fiber'
 import { terrainHeight, mulberry32, clusterField } from './noise'
 import { CHUNK, seedFor } from './chunk'
 import { P, rockRegistry } from '../player-state'
-import { makeMossyMaterial } from './mossy-material'
+import { ROCK_GEOS, ROCK_MATS } from './rock-assets'
 import { useStore } from '../store'
-
-// Three distinct rock shapes for visual variety:
-// 0 = flat boulder (compressed sphere), 1 = tall standing stone, 2 = clustered pebble group
-
-// Shape 0: flat boulder
-const boulderGeo = (() => {
-  const g = new THREE.DodecahedronGeometry(1, 0)
-  g.scale(1, 0.5, 1)
-  return g
-})()
-
-// Shape 1: tall standing stone (stretched)
-const standingGeo = (() => {
-  const g = new THREE.DodecahedronGeometry(1, 0)
-  g.scale(0.6, 1.4, 0.6)
-  return g
-})()
-
-// Shape 2: original round rock
-const roundGeo = new THREE.DodecahedronGeometry(1, 0)
-
-const ROCK_GEOS = [boulderGeo, standingGeo, roundGeo]
-
-// Three material variants for colour diversity
-const rockMats = [
-  makeMossyMaterial({ base: '#8d8b83', moss: 'vec3(0.38, 0.52, 0.28)' }),
-  makeMossyMaterial({ base: '#7a7870', moss: 'vec3(0.32, 0.48, 0.24)' }),
-  makeMossyMaterial({ base: '#9a9488', moss: 'vec3(0.42, 0.55, 0.30)' }),
-]
 
 export default function Rocks() {
   const [center, setCenter] = useState({ cx: 0, cz: 0 })
@@ -113,12 +84,12 @@ export default function Rocks() {
       {allRocks.map((r, i) => (
         <mesh
           key={i}
-          geometry={ROCK_GEOS[r.shape]}
-          material={rockMats[r.matIdx]}
+          geometry={ROCK_GEOS[r.shape ?? 2]}
+          material={ROCK_MATS[r.matIdx ?? 0]}
           // Sit the rock ON the terrain instead of embedding its centre.
           // Geometry radius is 1, so after scaling by sy the mesh spans ±sy
           // vertically around its origin. `sy - sink` places the mesh centre
-          // above terrain such that only the small `sink` amount is buried,
+          // above ground, and the `- sink` slightly buries the bottom edge,
           // giving a natural embedded look without the "half-underground" bug.
           position={[r.x, r.y + r.sy - r.sink, r.z]}
           rotation={[0, r.rot, 0]}

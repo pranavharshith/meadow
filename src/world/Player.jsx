@@ -67,15 +67,18 @@ export default function Player() {
     const sitting = P.emote === 'sit'
     const waving = P.emote === 'wave'
 
+    const st = useStore.getState()
+    const blockMove = st.shopOpen || st.mapOpen
+
     let ix = 0
     let iy = 0
-    if (!sitting) {
+    if (!sitting && !blockMove) {
       if (keys['KeyW'] || keys['ArrowUp']    || keys['JoyUp'])    iy += 1
       if (keys['KeyS'] || keys['ArrowDown']  || keys['JoyDown'])  iy -= 1
       if (keys['KeyD'] || keys['ArrowRight'] || keys['JoyRight']) ix += 1
       if (keys['KeyA'] || keys['ArrowLeft']  || keys['JoyLeft'])  ix -= 1
     }
-    const run = keys['ShiftLeft'] || keys['ShiftRight']
+    const run = !blockMove && (keys['ShiftLeft'] || keys['ShiftRight'])
 
     if (view === 'top') {
       fwd.set(0, 0, -1)

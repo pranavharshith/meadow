@@ -1,19 +1,10 @@
 import { useStore } from '../store'
+import { TREE_ITEMS, ROCK_ITEMS, DYE_ITEMS } from '../catalog'
 
-const DYE_SWATCHES = [
-  { id: 'autumn',    name: 'Autumn Orange',  color: '#d46a2a', cost: 50 },
-  { id: 'sunset',    name: 'Sunset Red',     color: '#c44030', cost: 50 },
-  { id: 'golden',    name: 'Golden Yellow',  color: '#e8b830', cost: 50 },
-  { id: 'sky',       name: 'Sky Blue',       color: '#5098d0', cost: 100 },
-  { id: 'lavender',  name: 'Lavender Purple',color: '#b080d0', cost: 100 },
-  { id: 'blush',     name: 'Blush Pink',     color: '#e878a0', cost: 100 },
-  { id: 'teal',      name: 'Forest Teal',    color: '#308a78', cost: 150 },
-  { id: 'moonlight', name: 'Moonlight White',color: '#c8d8d0', cost: 150 },
-]
-
-export default function CutAction({ selection, onCut }) {
+export default function ActionPill({ selection, onCut }) {
   const clearSelection = useStore((s) => s.clearSelection)
   const trees = useStore((s) => s.trees)
+  const placedRocks = useStore((s) => s.placedRocks)
   const gold = useStore((s) => s.gold)
   const dyeingTreeId = useStore((s) => s.dyeingTreeId)
   const cancelDyeing = useStore((s) => s.cancelDyeing)
@@ -27,9 +18,21 @@ export default function CutAction({ selection, onCut }) {
     : null
   const canDye = selTree && (Date.now() - selTree.plantedAt) / 1000 >= 90
 
-  const label = selection
-    ? `${selection.kind === 'rock' ? 'rock' : 'tree'} selected`
-    : ''
+  let label = ''
+  if (selection) {
+    if (selection.kind === 'tree' && selTree) {
+      const catalogItem = TREE_ITEMS.find((i) => i.shape === (selTree.shape || 0))
+      label = catalogItem ? `${catalogItem.emoji} ${catalogItem.name} selected` : 'tree selected'
+    } else if (selection.kind === 'rock') {
+      const rock = placedRocks.find((r) => r.id === selection.id)
+      if (rock) {
+        const catalogItem = ROCK_ITEMS.find((i) => i.rockShape === (rock.rockShape ?? 2))
+        label = catalogItem ? `${catalogItem.emoji} ${catalogItem.name} selected` : 'rock selected'
+      } else {
+        label = 'rock selected'
+      }
+    }
+  }
 
   // ── Dye palette mode ──────────────────────────────────────────────────
   if (dyeingTreeId) {
@@ -37,7 +40,7 @@ export default function CutAction({ selection, onCut }) {
       <div className="cut-pill show">
         <span className="cut-pill-label">choose a colour</span>
         <div className="dye-swatches">
-          {DYE_SWATCHES.map((sw) => {
+          {DYE_ITEMS.map((sw) => {
             const cantAfford = gold < sw.cost
             return (
               <button
@@ -85,8 +88,8 @@ export default function CutAction({ selection, onCut }) {
           Dye
         </button>
       )}
-      <button className="cut-pill-action" onClick={onCut} title="Cut selected (X)">
-        Cut
+      <button className="cut-pill-action" onClick={onCut} title={`${selection?.kind === 'rock' ? 'Break' : 'Cut'} selected (X)`}>
+        {selection?.kind === 'rock' ? 'Break' : 'Cut'}
         <span className="cut-pill-key">X</span>
       </button>
     </div>

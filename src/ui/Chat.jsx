@@ -18,6 +18,8 @@ export default function Chat() {
   const [text, setText] = useState('')
   const [open, setOpen] = useState(false)
   const [muteBump, setMuteBump] = useState(0) // force re-render after mute toggles
+  const [unreadCount, setUnreadCount] = useState(0)
+  const lastReadCount = useRef(0)
   const inputRef = useRef()
   const listRef = useRef()
 
@@ -26,9 +28,13 @@ export default function Chat() {
       if (e.code === 'Enter' && document.activeElement !== inputRef.current) {
         setOpen(true)
         setTimeout(() => inputRef.current && inputRef.current.focus(), 0)
-      } else if (e.code === 'Escape' && document.activeElement === inputRef.current) {
-        inputRef.current.blur()
-        setOpen(false)
+      } else if ((e.code === 'Enter' || e.code === 'Escape') && document.activeElement === inputRef.current) {
+        // If Enter is pressed while typing, submit handles the message, but we also blur/close.
+        // If Escape is pressed, we just blur/close.
+        if (e.code === 'Escape') {
+          inputRef.current.blur()
+          setOpen(false)
+        }
       }
     }
     window.addEventListener('keydown', onKey)
@@ -36,14 +42,33 @@ export default function Chat() {
   }, [])
 
   useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
+    if (open) {
+      setUnreadCount(0)
+      lastReadCount.current = chat.length
+    } else {
+      const newMsgs = chat.length - lastReadCount.current
+      if (newMsgs > 0) setUnreadCount(newMsgs)
+    }
+
+    if (listRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = listRef.current
+      // Only auto-scroll if the user is already near the bottom (within 60px)
+      // This prevents ripping the screen down if they are reading old messages.
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 60
+      if (isAtBottom || !open) {
+        listRef.current.scrollTop = listRef.current.scrollHeight
+      }
+    }
   }, [chat, open])
 
   const submit = (e) => {
     e.preventDefault()
-    if (!text.trim()) return
-    sendChat(text)
-    setText('')
+    if (text.trim()) {
+      sendChat(text)
+      setText('')
+    }
+    inputRef.current.blur()
+    setOpen(false)
   }
 
   // Filter muted, then take the tail. muteBump forces re-eval when mutes change.
@@ -64,6 +89,9 @@ export default function Chat() {
       <div className="chat no-look">
         <button className="chat-toggle-btn" onClick={() => setOpen(true)}>
           chat
+          {unreadCount > 0 && (
+            <span className="chat-unread">{unreadCount > 99 ? '99+' : unreadCount}</span>
+          )}
         </button>
       </div>
     )

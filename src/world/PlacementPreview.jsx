@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { P, treeRegistry, rockRegistry, placement } from '../player-state'
 import { useStore } from '../store'
+import { ROCK_GEOS } from './rock-assets'
 import { terrainHeight } from './noise'
 import { LANDMARKS } from './places'
 import { PONDS, STREAM_POINTS, STREAM_WIDTH } from './Water'
@@ -66,14 +67,7 @@ function isOverWater(x, z) {
 const COLOR_OK = new THREE.Color('#7ee38a')
 const COLOR_BAD = new THREE.Color('#ff6a60')
 
-// Rock geometries mirroring the shapes used elsewhere (see Rocks.jsx).
-// Cached once so switching subject doesn't allocate.
-const ROCK_GHOST_GEOS = (() => {
-  const boulder = new THREE.DodecahedronGeometry(1, 0); boulder.scale(1, 0.5, 1)
-  const standing = new THREE.DodecahedronGeometry(1, 0); standing.scale(0.6, 1.4, 0.6)
-  const round = new THREE.DodecahedronGeometry(1, 0)
-  return { 0: boulder, 1: standing, 2: round }
-})()
+// Rock geometries now imported from rock-assets.js
 
 // Ghost visuals per shape. We deliberately use simplified silhouettes rather
 // than the real assets — the ghost only needs to communicate footprint +
@@ -128,7 +122,7 @@ function TreeGhost({ shape, material }) {
 }
 
 function RockGhost({ rockShape, material }) {
-  const geo = ROCK_GHOST_GEOS[rockShape] || ROCK_GHOST_GEOS[2]
+  const geo = ROCK_GEOS[rockShape ?? 2]
   return (
     <mesh geometry={geo} position={[0, 0.7, 0]} scale={[1.0, 0.7, 1.0]} material={material} />
   )

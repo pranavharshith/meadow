@@ -96,15 +96,14 @@ export const useStore = create((set, get) => ({
   mapOpen: false,
   navTarget: null,
   waterEvent: null,
-  cuttingId: null, // id of tree currently being cut (for animation)
-
+  
   // Interactive selection in the world: which user-planted tree / placed rock
   // is currently picked (for cutting or future actions). Null when nothing
   // is selected. `kind` is 'tree' or 'rock'.
-  selection: null,
-
-  // Dyeing: when set, the selected tree's leaves show a colour preview.
-  dyeingTreeId: null,  // tree id being dyed, or null
+  selection: null, // { kind: 'tree' | 'rock', id: string }
+  cuttingId: null, // tree id currently playing cut animation
+  breakingId: null, // rock id currently playing break animation
+  dyeingTreeId: null, // tree id being dyed, or null
   previewColor: null,  // hex string during swatch hover, or null
 
   // Placement mode. While set, a ghost of the object being placed follows
@@ -408,24 +407,35 @@ export const useStore = create((set, get) => ({
       if (!rock) { set({ selection: null }); return }
       const goldBefore = state.gold
       set((s) => ({
-        placedRocks: s.placedRocks.filter((r) => r.id !== rock.id),
+        breakingId: rock.id,
         gold: s.gold + ROCK_REMOVE_REWARD,
         selection: null,
       }))
       state.flash(`removed a rock · +${ROCK_REMOVE_REWARD} gold`)
 
+      const breakStart = performance.now()
+      const doRemoveRock = () => {
+        set((s) => ({
+          placedRocks: s.placedRocks.filter((r) => r.id !== rock.id),
+          breakingId: null,
+        }))
+      }
+
       if (bridge.online) {
         bridge.removeRock(rock.id).then((res) => {
           if (!res.ok) {
-            // Revert: add rock back and revert gold
+            // Revert: cancel animation and revert gold
             set((s) => ({
-              placedRocks: [...s.placedRocks, rock],
               gold: goldBefore,
-              selection: null,
+              breakingId: null,
             }))
             get().flash(res.error === 'not your rock' ? 'that rock is not yours' : 'could not remove rock')
-          } else if (typeof res.gold === 'number') {
-            set({ gold: res.gold })
+          } else {
+            if (typeof res.gold === 'number') set({ gold: res.gold })
+            const elapsed = performance.now() - breakStart
+            const remaining = Math.max(0, 500 - elapsed)
+            if (remaining > 0) setTimeout(doRemoveRock, remaining)
+            else doRemoveRock()
           }
         })
       }
@@ -600,6 +610,7 @@ export const useStore = create((set, get) => ({
   },
 
   discoverLandmark: async (id) => {
+    if (!bridge.online) return // Cannot discover offline / before profile loads
     if (get().discovered.includes(id)) return
     // FIX #9 — skip if a request for this landmark is already in flight
     if (_pendingDiscover.has(id)) return

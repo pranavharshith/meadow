@@ -24,8 +24,15 @@ export default function Controls() {
     const onKeyDown = (e) => {
       if (e.repeat) return
       if (isTyping()) return
-      keys[e.code] = true
       const st = useStore.getState()
+      // Ignore gameplay hotkeys and WASD if UI overlay is open, but allow toggles
+      if (st.shopOpen || st.mapOpen) {
+        if (e.code !== 'Escape' && e.code !== 'KeyG' && e.code !== 'KeyM' && e.code !== 'KeyV') {
+          return
+        }
+      }
+
+      keys[e.code] = true
       if (e.code === 'KeyE') st.plantTree() // enters placement, or confirms if already in it
       else if (e.code === 'KeyR') st.waterNearest()
       else if (e.code === 'KeyX') st.cutSelection()

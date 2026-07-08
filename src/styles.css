@@ -650,6 +650,7 @@ canvas { display: block; touch-action: none; }
 
 /* closed state: single small button */
 .chat-toggle-btn {
+  position: relative;
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -664,6 +665,21 @@ canvas { display: block; touch-action: none; }
   transition: background 0.15s ease;
 }
 .chat-toggle-btn:hover { background: rgba(40, 48, 38, 0.5); }
+
+.chat-unread {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #e63946;
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: 10px;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
 
 /* open state: panel with tabs */
 .chat-head {

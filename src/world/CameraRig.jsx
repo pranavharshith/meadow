@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, useLayoutEffect } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
 import { plazaFloorHeight } from './SpawnPlaza'
@@ -19,8 +19,20 @@ export default function CameraRig() {
   const { camera } = useThree()
   const view = useStore((s) => s.viewMode)
 
-  const curPos = useMemo(() => new THREE.Vector3(0, 4, 10), [])
-  const curTarget = useMemo(() => new THREE.Vector3(), [])
+  const curPos = useMemo(() => {
+    const cp = Math.cos(look.pitch)
+    const dist = THIRD_DIST * look.zoom
+    const plazaY = plazaFloorHeight(P.pos.x, P.pos.z)
+    const groundY = plazaY !== null ? plazaY : terrainHeight(P.pos.x, P.pos.z)
+    // Actually set P.pos.y correctly here too, so the target aligns perfectly
+    P.pos.y = groundY
+    return new THREE.Vector3(
+      P.pos.x - Math.sin(look.yaw) * cp * dist,
+      groundY + 1.3 + Math.sin(look.pitch) * dist,
+      P.pos.z - Math.cos(look.yaw) * cp * dist
+    )
+  }, [])
+  const curTarget = useMemo(() => new THREE.Vector3(P.pos.x, P.pos.y + 1.3, P.pos.z), [])
   const pos = useMemo(() => new THREE.Vector3(), [])
   const target = useMemo(() => new THREE.Vector3(), [])
   const head = useMemo(() => new THREE.Vector3(), [])
@@ -28,6 +40,14 @@ export default function CameraRig() {
   // Track view switch timing for smooth transition
   const switchTimer = useRef(0)
   const prevView = useRef(view)
+
+  useLayoutEffect(() => {
+    // Snap camera to the initial position *before* the first frame renders,
+    // otherwise React Three Fiber renders frame 1 at the default (0, 0, 5)
+    // before useFrame takes over, causing a one-frame visual glitch.
+    camera.position.copy(curPos)
+    camera.lookAt(curTarget)
+  }, [camera, curPos, curTarget])
 
   useEffect(() => {
     if (view !== prevView.current) {

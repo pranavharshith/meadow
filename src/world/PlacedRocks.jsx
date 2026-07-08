@@ -1,35 +1,62 @@
 import * as THREE from 'three'
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
 import { plazaFloorHeight } from './SpawnPlaza'
 import { P, rockRegistry } from '../player-state'
 import { useStore } from '../store'
-import { makeMossyMaterial } from './mossy-material'
 import { Select } from '@react-three/postprocessing'
+import { ROCK_GEOS, ROCK_MATS } from './rock-assets'
 
 // Reuse the same geometry definitions as in Rocks.jsx
-const boulderGeo = (() => {
-  const g = new THREE.DodecahedronGeometry(1, 0)
-  g.scale(1, 0.5, 1)
-  return g
-})()
+// (Geometry and materials now imported from rock-assets.js)
 
-const standingGeo = (() => {
-  const g = new THREE.DodecahedronGeometry(1, 0)
-  g.scale(0.6, 1.4, 0.6)
-  return g
-})()
+function PlacedRock({ r, owned, isSelected, baseY, onClick, onOver, onOut }) {
+  const breakingId = useStore((s) => s.breakingId)
+  const meshRef = useRef()
+  const breakStart = useRef(0)
 
-const roundGeo = new THREE.DodecahedronGeometry(1, 0)
+  useFrame(() => {
+    if (!meshRef.current) return
+    if (breakingId === r.id) {
+      if (!breakStart.current) breakStart.current = performance.now()
+      const elapsed = (performance.now() - breakStart.current) / 1000
+      const p = Math.min(elapsed / 0.5, 1) // 500ms duration matching store.js
+      const fade = 1 - p
 
-const PLACED_GEOS = [boulderGeo, standingGeo, roundGeo]
+      // Shake vigorously and shrink to dust
+      meshRef.current.scale.set(r.sx * fade, r.sy * fade, r.sz * fade)
+      meshRef.current.position.x = (Math.random() - 0.5) * 0.3 * fade
+      meshRef.current.position.z = (Math.random() - 0.5) * 0.3 * fade
+    } else {
+      if (breakStart.current) {
+        breakStart.current = 0
+        meshRef.current.scale.set(r.sx, r.sy, r.sz)
+        meshRef.current.position.set(0, r.sy - 0.05, 0)
+      }
+    }
+  })
 
-const PLACED_MATS = [
-  makeMossyMaterial({ base: '#8d8b83' }),
-  makeMossyMaterial({ base: '#7a7870' }),
-  makeMossyMaterial({ base: '#9a9488' }),
-]
+  return (
+    <group position={[r.x, baseY, r.z]}>
+      <Select enabled={isSelected}>
+        <mesh
+          ref={meshRef}
+          geometry={ROCK_GEOS[r.rockShape ?? 2]}
+          material={ROCK_MATS[r.matIdx ?? 0]}
+          position={[0, r.sy - 0.05, 0]}
+          rotation={[0, r.rot, 0]}
+          scale={[r.sx, r.sy, r.sz]}
+          castShadow
+          receiveShadow
+          onPointerOver={onOver}
+          onPointerOut={onOut}
+          onClick={onClick}
+        />
+      </Select>
+    </group>
+  )
+}
 
 export default function PlacedRocks() {
   const placedRocks = useStore((s) => s.placedRocks)
@@ -80,22 +107,16 @@ export default function PlacedRocks() {
           else setSelection({ kind: 'rock', id: r.id })
         }
         return (
-          <group key={r.id} position={[r.x, baseY, r.z]}>
-            <Select enabled={isSelected}>
-              <mesh
-                geometry={PLACED_GEOS[r.rockShape ?? 2]}
-                material={PLACED_MATS[r.matIdx ?? 0]}
-                position={[0, r.sy - 0.05, 0]}
-                rotation={[0, r.rot, 0]}
-                scale={[r.sx, r.sy, r.sz]}
-                castShadow
-                receiveShadow
-                onPointerOver={onOver}
-                onPointerOut={onOut}
-                onClick={onClick}
-              />
-            </Select>
-          </group>
+          <PlacedRock
+            key={r.id}
+            r={r}
+            owned={owned}
+            isSelected={isSelected}
+            baseY={baseY}
+            onClick={onClick}
+            onOver={onOver}
+            onOut={onOut}
+          />
         )
       })}
     </group>

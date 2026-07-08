@@ -6,14 +6,15 @@ import WorldMap from './WorldMap'
 import Settings from './Settings'
 import Screenshot from './Screenshot'
 import Compass from './Compass'
-import Shop, { TREE_ITEMS, ROCK_ITEMS } from './Shop'
+import Shop from './Shop'
+import { TREE_ITEMS, ROCK_ITEMS, PLOT_ITEM } from '../catalog'
 import TouchJoystick from './TouchJoystick'
 import PlaceLabel from './PlaceLabel'
 import Status from './Status'
 import Identity from './Identity'
 import Toast from './Toast'
 import PlacementBanner from './PlacementBanner'
-import CutAction from './CutAction'
+import ActionPill from './ActionPill'
 import NavIndicator from './NavIndicator'
 
 const VIEW_LABEL = { third: 'Follow', first: 'First person', top: 'Map' }
@@ -63,7 +64,7 @@ export default function Hud() {
       <PlaceLabel />
       <Toast />
       <PlacementBanner />
-      <CutAction selection={selection} onCut={cutSelection} />
+      <ActionPill selection={selection} onCut={cutSelection} />
 
       {!seen && (
         <button className="hint no-look" onClick={() => setSeen(true)} title="Dismiss hint">
@@ -74,7 +75,7 @@ export default function Hud() {
           <span><b>F</b> wave</span>
           <span><b>E</b> plant/place</span>
           <span className="hint-wide"><b>R</b> water</span>
-          <span className="hint-wide">click item then <b>X</b> cut</span>
+          <span className="hint-wide">click item then <b>X</b> cut/break</span>
           <span className="hint-wide"><b>G</b> shop</span>
           <span className="hint-wide"><b>Enter</b> chat</span>
         </button>

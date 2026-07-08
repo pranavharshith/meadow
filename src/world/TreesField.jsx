@@ -154,10 +154,19 @@ function PlantedTrees({ trees }) {
         if (!cutStart.current[t.id]) cutStart.current[t.id] = performance.now()
         const elapsed = (performance.now() - cutStart.current[t.id]) / 1000
         const p = Math.min(elapsed / CUT_DURATION, 1)
-        // Shrink scale toward 0 with a little tilt
+        
+        // Timber fall animation: accelerates like gravity (quadratic)
+        const fall = p * p 
+        g.rotation.z = fall * (Math.PI / 2 + 0.2) // Falls over 90+ degrees
+        
+        // Shrink/sink rapidly only in the last 20%
         const baseScale = t.scale || 1
-        g.scale.setScalar(baseScale * (1 - p))
-        g.rotation.z = p * 1.1 // tip over
+        if (p > 0.8) {
+          const shrink = (p - 0.8) * 5 // 0 to 1 over the last 20%
+          g.scale.setScalar(baseScale * (1 - shrink))
+        } else {
+          g.scale.setScalar(baseScale)
+        }
         continue
       } else {
         // Reset cut state if this tree was previously being cut
