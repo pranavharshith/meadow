@@ -86,7 +86,9 @@ export default function App() {
             <GrassField />
             <Rocks />
             <PlacedRocks />
-            <PlotList />
+            <Suspense fallback={null}>
+              <PlotList />
+            </Suspense>
             <TreesField />
             <PlacementPreview />
             <Water />

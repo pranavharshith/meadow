@@ -662,10 +662,17 @@ export const useStore = create((set, get) => ({
     } else {
       set((s) => ({ gold: s.gold - TELEPORT_COST }))
     }
-    P.pos.x = lm.x
-    P.pos.z = lm.z
+    if (lm.id === 'spawn-plaza') {
+      const angle = Math.random() * Math.PI * 2
+      const r = 4 + Math.random() * 6
+      P.pos.x = lm.x + Math.cos(angle) * r
+      P.pos.z = lm.z + Math.sin(angle) * r
+    } else {
+      P.pos.x = lm.x + 2
+      P.pos.z = lm.z + 2
+    }
     // FIX #1 — set Y immediately so the player doesn't snap/fall for one frame
-    P.pos.y = plazaFloorHeight(lm.x, lm.z) ?? terrainHeight(lm.x, lm.z)
+    P.pos.y = plazaFloorHeight(P.pos.x, P.pos.z) ?? terrainHeight(P.pos.x, P.pos.z)
     set({ navTarget: null })
     state.flash(`arrived at ${lm.name}`)
   },

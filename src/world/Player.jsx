@@ -18,8 +18,17 @@ function dampAngle(current, target, lambda, dt) {
   return current + diff * (1 - Math.exp(-lambda * dt))
 }
 
-// Resolve soft collision against nearby tree trunks and rocks.
+// Resolve soft collision against nearby tree trunks, rocks, and the spawn obelisk.
 function pushOut(x, z) {
+  // Spawn Plaza center obelisk (at 0,0, base radius ~0.72 -> padding to 1.1)
+  const d2_obelisk = x * x + z * z
+  if (d2_obelisk < 1.21 && d2_obelisk > 1e-6) {
+    const d = Math.sqrt(d2_obelisk)
+    const push = 1.1 - d
+    x += (x / d) * push
+    z += (z / d) * push
+  }
+
   for (let i = 0; i < treeRegistry.length; i++) {
     const t = treeRegistry[i]
     const dx = x - t.x

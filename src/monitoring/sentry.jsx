@@ -14,18 +14,44 @@ export function initMonitoring() {
   })
 }
 
+import React, { Component } from 'react'
+
+class LocalErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('Fatal React Error Caught:', error, errorInfo)
+  }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback
+    }
+    return this.props.children
+  }
+}
+
 export function AppErrorBoundary({ children }) {
-  if (!dsn) return children
+  const fallbackUI = (
+    <div className="fatal-error">
+      <div className="fatal-error-title">The meadow hit a snag.</div>
+      <p style={{ marginTop: '10px', fontSize: '14px', color: '#ffaaaa' }}>
+        Check the browser console for details and relay the error to the AI!
+      </p>
+      <button style={{ marginTop: '20px' }} onClick={() => window.location.reload()}>Reload</button>
+    </div>
+  )
+
+  if (!dsn) {
+    return <LocalErrorBoundary fallback={fallbackUI}>{children}</LocalErrorBoundary>
+  }
 
   return (
-    <Sentry.ErrorBoundary
-      fallback={
-        <div className="fatal-error">
-          <div className="fatal-error-title">The meadow hit a snag.</div>
-          <button onClick={() => window.location.reload()}>Reload</button>
-        </div>
-      }
-    >
+    <Sentry.ErrorBoundary fallback={fallbackUI}>
       {children}
     </Sentry.ErrorBoundary>
   )
