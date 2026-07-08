@@ -330,6 +330,67 @@ canvas { display: block; touch-action: none; }
   border: 1px solid rgba(255,255,255,0.2);
 }
 
+/* Dye palette — replaces cut-pill content when dyeingTreeId is set */
+.dye-swatches {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.dye-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.25);
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+  flex-shrink: 0;
+}
+.dye-swatch:hover {
+  transform: scale(1.18);
+  border-color: #fff;
+  box-shadow: 0 0 18px rgba(255,255,255,0.35);
+}
+.dye-swatch.cant-afford {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.dye-swatch.cant-afford:hover {
+  transform: none;
+  border-color: rgba(255,255,255,0.25);
+  box-shadow: none;
+}
+.dye-swatch-cost {
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.95);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.7), 0 0 6px rgba(0,0,0,0.5);
+  line-height: 1;
+  padding-bottom: 2px;
+  pointer-events: none;
+}
+/* Dye button variant in cut-pill */
+.cut-pill-action--dye {
+  background: linear-gradient(135deg, rgba(160,130,220,0.92), rgba(120,90,190,0.92));
+  border-color: rgba(200,170,255,0.45);
+  box-shadow: 0 3px 12px rgba(140,100,200,0.35);
+}
+.cut-pill-action--dye:hover {
+  background: linear-gradient(135deg, rgba(175,145,235,1), rgba(135,105,205,1));
+}
+/* Dye swatch in shop card */
+.dye-swatch-card {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.15);
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
 .controls {
   position: fixed;
   inset: 0;
@@ -663,7 +724,8 @@ canvas { display: block; touch-action: none; }
 }
 .chat-empty { color: rgba(255,255,255,0.55); font-size: 12px; font-style: italic; }
 .chat-msg { font-size: 13px; color: rgba(255,255,255,0.92); line-height: 1.35; position: relative; }
-.chat-msg:hover .chat-mute { opacity: 0.7; }
+.chat-msg:hover .chat-mute,
+.chat-msg:hover .chat-nav { opacity: 0.7; }
 .chat-name { font-weight: 700; margin-right: 6px; }
 .chat-mute {
   background: none; border: none; color: rgba(255,255,255,0.6);
@@ -671,6 +733,12 @@ canvas { display: block; touch-action: none; }
   opacity: 0; transition: opacity 0.15s;
 }
 .chat-mute:hover { color: #ff8b8b; opacity: 1 !important; }
+.chat-nav {
+  background: none; border: none; color: rgba(255,255,255,0.6);
+  cursor: pointer; font-size: 12px; padding: 0 4px; margin-left: 4px;
+  opacity: 0; transition: opacity 0.15s;
+}
+.chat-nav:hover { color: #5bb8ff; opacity: 1 !important; }
 .chat-input { display: flex; }
 .chat-input input {
   flex: 1;

@@ -149,6 +149,13 @@ export default function Net() {
       useStore.getState().removePlotLocal(payload.id)
     }
 
+    const receiveDye = (payload) => {
+      if (!payload || !payload.id || payload.owner_id === meId.current) return
+      useStore.getState().set((s) => ({
+        trees: s.trees.map((t) => t.id === payload.id ? { ...t, dye: payload.color } : t),
+      }))
+    }
+
     async function loadRegionTrees(rx, rz) {
       const { data, error } = await supabase
         .from('trees')
@@ -239,6 +246,7 @@ export default function Net() {
       posCh.on('broadcast', { event: 'removerock' }, ({ payload }) => receiveRemoveRock(payload))
       posCh.on('broadcast', { event: 'plot' }, ({ payload }) => receivePlot(payload))
       posCh.on('broadcast', { event: 'removeplot' }, ({ payload }) => receiveRemovePlot(payload))
+      posCh.on('broadcast', { event: 'dye' }, ({ payload }) => receiveDye(payload))
       posCh.on('presence', { event: 'leave' }, ({ leftPresences }) => {
         for (const p of leftPresences || []) {
           const id = p.id || p.key
@@ -501,6 +509,24 @@ export default function Net() {
         return { ok: true, gold: data }
       }
 
+      bridge.dye = async (treeId, color, cost) => {
+        const { data, error } = await supabase.rpc('dye_tree', {
+          p_tree_id: treeId,
+          p_color: color,
+          p_cost: cost,
+        })
+        if (error) return { ok: false, error: error.message }
+        const ch = posChannelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
+            type: 'broadcast',
+            event: 'dye',
+            payload: { id: treeId, color, owner_id: meId.current },
+          })
+        }
+        return { ok: true, gold: data }
+      }
+
       bridge.sendChat = async (scope, text) => {
         if (scope === 'world') {
           // Server RPC pays, rate-limits, sanitizes, AND emits the broadcast
@@ -594,6 +620,7 @@ export default function Net() {
       bridge.teleport = async () => ({ ok: false, error: 'offline' })
       bridge.setSpawn = async () => ({ ok: false, error: 'offline' })
       bridge.buyPlot = async () => ({ ok: false, error: 'offline' })
+      bridge.dye = async () => ({ ok: false, error: 'offline' })
       clearTimeout(identityTimer.current)
       clearInterval(reconnectInterval)
       if (authListener && authListener.subscription) authListener.subscription.unsubscribe()

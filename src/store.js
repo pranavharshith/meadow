@@ -97,6 +97,10 @@ export const useStore = create((set, get) => ({
   // is selected. `kind` is 'tree' or 'rock'.
   selection: null,
 
+  // Dyeing: when set, the selected tree's leaves show a colour preview.
+  dyeingTreeId: null,  // tree id being dyed, or null
+  previewColor: null,  // hex string during swatch hover, or null
+
   // Placement mode. While set, a ghost of the object being placed follows
   // the player and validity is checked every frame. Actual placement only
   // happens on confirmPlacement() when the ghost is green.
@@ -131,6 +135,9 @@ export const useStore = create((set, get) => ({
   setSelectedItem: (item) => set({ selectedItem: item }),
   setSelection: (sel) => set({ selection: sel }),
   clearSelection: () => set({ selection: null }),
+  setDyeingTreeId: (id) => set({ dyeingTreeId: id, previewColor: null }),
+  setPreviewColor: (color) => set({ previewColor: color }),
+  cancelDyeing: () => set({ dyeingTreeId: null, previewColor: null }),
   setJoystickEnabled: (v) => set({ joystickEnabled: v }),
 
   setName: (name) => {
@@ -389,7 +396,7 @@ export const useStore = create((set, get) => ({
     }
 
     if (sel.kind === 'rock') {
-      const rock = state.placedRocks.find((r) => r.id === sel.id)
+      const rock = state.placedRocks.find((r) => r.id === sel.id && r.owner)
       if (!rock) { set({ selection: null }); return }
       const goldBefore = state.gold
       set((s) => ({
@@ -552,9 +559,6 @@ export const useStore = create((set, get) => ({
       return
     }
 
-    const goldBefore = state.gold
-    if (scope === 'world') set((s) => ({ gold: s.gold - WORLD_CHAT_COST }))
-
     const msg = {
       id: genId(),
       scope,
@@ -569,8 +573,6 @@ export const useStore = create((set, get) => ({
     if (bridge.online) {
       const res = await bridge.sendChat(scope, clean)
       if (!res.ok) {
-        // Revert gold on world-chat failure
-        if (scope === 'world') set({ gold: goldBefore })
         const errMap = {
           'chat cooldown': 'slow down — one message at a time',
           'not enough gold': `world chat costs ${WORLD_CHAT_COST} gold`,
@@ -679,6 +681,40 @@ export const useStore = create((set, get) => ({
     const first = get().lastBonus === ''
     set((s) => ({ lastBonus: today, gold: s.gold + 10 }))
     get().flash(first ? 'welcome to the meadow · +10 gold' : 'welcome back · +10 gold')
+  },
+
+  // ── Tree dye ─────────────────────────────────────────────────────────
+  dyeTree: async (treeId, color, cost) => {
+    const state = get()
+    const tree = state.trees.find((t) => t.id === treeId && t.owner)
+    if (!tree) { state.flash('that tree is no longer here'); return }
+    const age = (Date.now() - tree.plantedAt) / 1000
+    if (age < 90) { state.flash('let this tree grow first'); return }
+    if (state.gold < cost) { state.flash(`need ${cost} gold to dye this tree`); return }
+
+    const goldBefore = state.gold
+    set((s) => ({
+      trees: s.trees.map((t) => t.id === treeId ? { ...t, dye: color } : t),
+      gold: s.gold - cost,
+      dyeingTreeId: null,
+      previewColor: null,
+    }))
+    state.flash(`dyed a tree · -${cost} gold`)
+
+    if (bridge.online) {
+      const res = await bridge.dye(treeId, color, cost)
+      if (!res.ok) {
+        set((s) => ({
+          trees: s.trees.map((t) => t.id === treeId ? { ...t, dye: tree.dye ?? null } : t),
+          gold: goldBefore,
+        }))
+        get().flash(res.error === 'tree too young' ? 'let this tree grow first' :
+                     res.error === 'not your tree'  ? 'that tree is not yours' :
+                     res.error || 'could not dye tree')
+        return
+      }
+      if (typeof res.gold === 'number') set({ gold: res.gold })
+    }
   },
 }))
 

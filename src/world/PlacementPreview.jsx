@@ -201,16 +201,61 @@ export default function PlacementPreview() {
         valid = false
         reason = `need 250 gold`
       }
+      // Water: check the entire 10-unit radius circle, not just the center
+      if (valid) {
+        for (const p of PONDS) {
+          if (Math.hypot(p.x - px, p.z - pz) < p.r + WATER_MARGIN + PLOT_RADIUS) {
+            valid = false
+            reason = 'plot would overlap water'
+            break
+          }
+        }
+        if (valid) {
+          const halfW = STREAM_WIDTH * 0.5 + WATER_MARGIN + PLOT_RADIUS
+          for (let i = 0; i < STREAM_POINTS.length - 1; i++) {
+            const a = STREAM_POINTS[i]
+            const b = STREAM_POINTS[i + 1]
+            const dx = b.x - a.x
+            const dz = b.z - a.z
+            const len2 = dx * dx + dz * dz
+            if (len2 <= 1e-6) continue
+            let t = ((px - a.x) * dx + (pz - a.z) * dz) / len2
+            t = t < 0 ? 0 : t > 1 ? 1 : t
+            const cx = a.x + dx * t
+            const cz = a.z + dz * t
+            if (Math.hypot(px - cx, pz - cz) < halfW) {
+              valid = false
+              reason = 'plot would overlap water'
+              break
+            }
+          }
+        }
+      }
+      // Slope: sample around the full plot circle so the fence sits flat
+      if (valid) {
+        const SAMPLES = 8
+        let maxH = py
+        let minH = py
+        for (let i = 0; i < SAMPLES; i++) {
+          const a = (Math.PI * 2 * i) / SAMPLES
+          const sx = px + Math.cos(a) * PLOT_RADIUS
+          const sz = pz + Math.sin(a) * PLOT_RADIUS
+          const h = terrainHeight(sx, sz)
+          if (h > maxH) maxH = h
+          if (h < minH) minH = h
+        }
+        if (maxH - minH > SLOPE_LIMIT * 2) {
+          valid = false
+          reason = 'ground is too steep for a plot'
+        }
+      }
     }
 
-    if (valid && isOverWater(px, pz)) {
+    if (valid && mode !== 'plot' && isOverWater(px, pz)) {
       valid = false
       reason = 'cannot place on water'
     }
-    if (valid) {
-      // Slope: sample terrain at four cardinal offsets; reject if the
-      // height varies too much across a 1-unit probe. Cheap approximation
-      // for "this ground is too steep."
+    if (valid && mode !== 'plot') {
       const h0 = terrainHeight(px + 1, pz)
       const h1 = terrainHeight(px - 1, pz)
       const h2 = terrainHeight(px, pz + 1)

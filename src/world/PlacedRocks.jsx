@@ -34,6 +34,7 @@ export default function PlacedRocks() {
   const placedRocks = useStore((s) => s.placedRocks)
   const selection = useStore((s) => s.selection)
   const setSelection = useStore((s) => s.setSelection)
+  const flash = useStore((s) => s.flash)
 
   // Sync placed rocks into rockRegistry for collision.
   // Uses _source: 'placed' tag so Rocks.jsx's effect doesn't clobber
@@ -57,31 +58,38 @@ export default function PlacedRocks() {
   return (
     <group>
       {placedRocks.map((r) => {
-        const isSelected = selection && selection.kind === 'rock' && selection.id === r.id
+        const owned = !!r.owner
+        const isSelected = owned && selection && selection.kind === 'rock' && selection.id === r.id
         const baseY = terrainHeight(r.x, r.z)
+        const onOver = owned
+          ? () => { document.body.style.cursor = 'pointer' }
+          : undefined
+        const onOut = owned
+          ? () => { document.body.style.cursor = '' }
+          : undefined
+        const onClick = (e) => {
+          e.stopPropagation()
+          if (!owned) {
+            flash('this rock was placed by someone else')
+            return
+          }
+          if (isSelected) setSelection(null)
+          else setSelection({ kind: 'rock', id: r.id })
+        }
         return (
           <group key={r.id} position={[r.x, baseY, r.z]}>
             <Select enabled={isSelected}>
               <mesh
                 geometry={PLACED_GEOS[r.rockShape ?? 2]}
                 material={PLACED_MATS[r.matIdx ?? 0]}
-                // Rock geometry is a unit dodecahedron (radius 1). After
-                // scaling by [sx, sy, sz] it spans ±sy vertically around its
-                // center, so `sy - 0.05` sits the rock ON the ground with a
-                // tiny embed. No hover bump — feedback is cursor + outline.
                 position={[0, r.sy - 0.05, 0]}
                 rotation={[0, r.rot, 0]}
                 scale={[r.sx, r.sy, r.sz]}
                 castShadow
                 receiveShadow
-                onPointerOver={() => { document.body.style.cursor = 'pointer' }}
-                onPointerOut={() => { document.body.style.cursor = '' }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  // Toggle: clicking the selected rock again deselects it.
-                  if (isSelected) setSelection(null)
-                  else setSelection({ kind: 'rock', id: r.id })
-                }}
+                onPointerOver={onOver}
+                onPointerOut={onOut}
+                onClick={onClick}
               />
             </Select>
           </group>

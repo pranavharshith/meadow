@@ -155,6 +155,13 @@ export default function WorldMap() {
         return
       }
     }
+    // Alt-click on empty space: drop a waypoint at that world coordinate
+    if (e.altKey) {
+      const worldX = P.pos.x + (cx - MAP_SIZE / 2) / SCALE
+      const worldZ = P.pos.z + (cy - MAP_SIZE / 2) / SCALE
+      setNavTarget({ x: worldX, z: worldZ })
+      setMapOpen(false)
+    }
   }
 
   return (

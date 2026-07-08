@@ -27,6 +27,9 @@ export const bridge = {
   teleport:    async (_landmarkId)         => ({ ok: false, error: 'offline' }),
   setSpawn:    async (_x, _z)             => ({ ok: false, error: 'offline' }),
 
+  // Tree dye (gold sink, colours your tree's leaves permanently)
+  dye:         async (_treeId, _color, _cost) => ({ ok: false, error: 'offline' }),
+
   // Plot mutation (server-persisted, one per player, permanent)
   buyPlot:     async (_plot)              => ({ ok: false, error: 'offline' }),
 

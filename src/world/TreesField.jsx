@@ -10,6 +10,7 @@ import {
   willowTrunkGeo, willowLeafGeo, willowLeafMats,
   saplingTrunkGeo, saplingLeafGeo, saplingLeafMat,
   sproutGeo, sproutLeafGeo, sproutLeafMat,
+  makeLeafMat,
 } from './tree-assets'
 import { treeRegistry, P } from '../player-state'
 import { useStore } from '../store'
@@ -23,58 +24,68 @@ function easeOut(t) {
 }
 
 // Shape 0: Classic broadleaf
-function BroadleafTree({ variant }) {
+function BroadleafTree({ variant, dyeMat }) {
+  const m1 = dyeMat || leafMats[variant % 3]
+  const m2 = dyeMat || leafMats[(variant + 1) % 3]
+  const m3 = dyeMat || leafMats[(variant + 2) % 3]
   return (
     <>
       <mesh geometry={trunkGeo} material={trunkMat} position={[0, 1.4, 0]} castShadow receiveShadow />
-      <mesh geometry={leafGeo} material={leafMats[variant % 3]} position={[0, 3.4, 0]} scale={[1.5, 1.4, 1.5]} castShadow />
-      <mesh geometry={leafGeo} material={leafMats[(variant + 1) % 3]} position={[0.6, 2.8, 0.3]} scale={0.95} castShadow />
-      <mesh geometry={leafGeo} material={leafMats[(variant + 2) % 3]} position={[-0.55, 2.7, -0.3]} scale={0.85} castShadow />
+      <mesh geometry={leafGeo} material={m1} position={[0, 3.4, 0]} scale={[1.5, 1.4, 1.5]} castShadow />
+      <mesh geometry={leafGeo} material={m2} position={[0.6, 2.8, 0.3]} scale={0.95} castShadow />
+      <mesh geometry={leafGeo} material={m3} position={[-0.55, 2.7, -0.3]} scale={0.85} castShadow />
     </>
   )
 }
 
 // Shape 1: Pine / Conifer
-function PineTree({ variant }) {
+function PineTree({ variant, dyeMat }) {
+  const m1 = dyeMat || pineLeafMats[variant % 3]
+  const m2 = dyeMat || pineLeafMats[(variant + 1) % 3]
   return (
     <>
       <mesh geometry={pineTrunkGeo} material={pineTrunkMat} position={[0, 1.6, 0]} castShadow receiveShadow />
-      <mesh geometry={pineLeafGeo} material={pineLeafMats[variant % 3]} position={[0, 3.6, 0]} castShadow />
-      <mesh geometry={pineLeafGeo} material={pineLeafMats[(variant + 1) % 3]} position={[0, 2.8, 0]} scale={[1.2, 0.7, 1.2]} castShadow />
+      <mesh geometry={pineLeafGeo} material={m1} position={[0, 3.6, 0]} castShadow />
+      <mesh geometry={pineLeafGeo} material={m2} position={[0, 2.8, 0]} scale={[1.2, 0.7, 1.2]} castShadow />
     </>
   )
 }
 
 // Shape 2: Round bushy
-function BushyTree({ variant }) {
+function BushyTree({ variant, dyeMat }) {
+  const m1 = dyeMat || bushyLeafMats[variant % 3]
+  const m2 = dyeMat || bushyLeafMats[(variant + 1) % 3]
   return (
     <>
       <mesh geometry={bushyTrunkGeo} material={trunkMat} position={[0, 0.9, 0]} castShadow receiveShadow />
-      <mesh geometry={bushyLeafGeo} material={bushyLeafMats[variant % 3]} position={[0, 2.5, 0]} scale={[1.3, 1.1, 1.3]} castShadow />
-      <mesh geometry={bushyLeafGeo} material={bushyLeafMats[(variant + 1) % 3]} position={[0.4, 2.2, 0.3]} scale={0.7} castShadow />
+      <mesh geometry={bushyLeafGeo} material={m1} position={[0, 2.5, 0]} scale={[1.3, 1.1, 1.3]} castShadow />
+      <mesh geometry={bushyLeafGeo} material={m2} position={[0.4, 2.2, 0.3]} scale={0.7} castShadow />
     </>
   )
 }
 
 // Shape 3: Willow
-function WillowTree({ variant }) {
+function WillowTree({ variant, dyeMat }) {
+  const m1 = dyeMat || willowLeafMats[variant % 3]
+  const m2 = dyeMat || willowLeafMats[(variant + 1) % 3]
+  const m3 = dyeMat || willowLeafMats[(variant + 2) % 3]
   return (
     <>
-      <mesh geometry={willowTrunkGeo} material={trunkMat} position={[0, 1.7, 0]} castShadow receiveShadow />
-      <mesh geometry={willowLeafGeo} material={willowLeafMats[variant % 3]} position={[0, 3.8, 0]} scale={[1.6, 1.8, 1.6]} castShadow />
-      <mesh geometry={willowLeafGeo} material={willowLeafMats[(variant + 1) % 3]} position={[0.5, 3.2, 0.4]} scale={0.8} castShadow />
-      <mesh geometry={willowLeafGeo} material={willowLeafMats[(variant + 2) % 3]} position={[-0.4, 3.0, -0.3]} scale={0.7} castShadow />
+      <mesh geometry={willowTrunkGeo} material={willowTrunkMat} position={[0, 1.7, 0]} castShadow receiveShadow />
+      <mesh geometry={willowLeafGeo} material={m1} position={[0, 3.8, 0]} scale={[1.6, 1.8, 1.6]} castShadow />
+      <mesh geometry={willowLeafGeo} material={m2} position={[0.5, 3.2, 0.4]} scale={0.8} castShadow />
+      <mesh geometry={willowLeafGeo} material={m3} position={[-0.4, 3.0, -0.3]} scale={0.7} castShadow />
     </>
   )
 }
 
 // Picks the right tree shape component based on shape index
-function TreeParts({ variant, shape = 0 }) {
+function TreeParts({ variant, shape = 0, dyeMat }) {
   switch (shape) {
-    case 1: return <PineTree variant={variant} />
-    case 2: return <BushyTree variant={variant} />
-    case 3: return <WillowTree variant={variant} />
-    default: return <BroadleafTree variant={variant} />
+    case 1: return <PineTree variant={variant} dyeMat={dyeMat} />
+    case 2: return <BushyTree variant={variant} dyeMat={dyeMat} />
+    case 3: return <WillowTree variant={variant} dyeMat={dyeMat} />
+    default: return <BroadleafTree variant={variant} dyeMat={dyeMat} />
   }
 }
 
@@ -108,7 +119,26 @@ function PlantedTrees({ trees }) {
   const selection = useStore((s) => s.selection)
   const setSelection = useStore((s) => s.setSelection)
   const flash = useStore((s) => s.flash)
+  const dyeingTreeId = useStore((s) => s.dyeingTreeId)
+  const previewColor = useStore((s) => s.previewColor)
   const cutStart = useRef({})
+
+  // Compute effective leaf colour per tree: preview overrides permanent dye
+  const dyeColors = useMemo(() => {
+    const map = {}
+    for (const t of trees) {
+      const c = (dyeingTreeId === t.id && previewColor) ? previewColor : (t.dye || null)
+      if (c) map[t.id] = c
+    }
+    return map
+  }, [trees, dyeingTreeId, previewColor])
+  const dyeMats = useMemo(() => {
+    const map = {}
+    for (const [id, color] of Object.entries(dyeColors)) {
+      map[id] = makeLeafMat(color)
+    }
+    return map
+  }, [dyeColors])
 
   useFrame(() => {
     const now = Date.now()
@@ -157,6 +187,7 @@ function PlantedTrees({ trees }) {
         const shape = t.shape || 0
         const owned = !!t.owner
         const isSelected = owned && selection && selection.kind === 'tree' && selection.id === t.id
+        const dyeMat = dyeMats[t.id] || null
 
         // Every planted tree is clickable, but only trees the player owns
         // can be selected/removed. Clicks on others toast a short reason —
@@ -195,7 +226,7 @@ function PlantedTrees({ trees }) {
                 ) : age < SAPLING_END ? (
                   <Sapling variant={t.variant} />
                 ) : (
-                  <TreeParts variant={t.variant} shape={shape} />
+                  <TreeParts variant={t.variant} shape={shape} dyeMat={dyeMat} />
                 )}
               </Select>
             </group>

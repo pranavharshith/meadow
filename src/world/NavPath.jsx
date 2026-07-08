@@ -52,7 +52,7 @@ export default function NavPath() {
     // Arrival check
     if (dist < ARRIVE_DIST) {
       clearNav()
-      flash(`arrived at ${navTarget.name}`)
+      flash(`arrived at ${navTarget.name || 'waypoint'}`)
       return
     }
 

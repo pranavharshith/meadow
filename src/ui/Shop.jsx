@@ -42,6 +42,17 @@ export const TREE_ITEMS = [
   },
 ]
 
+export const DYE_ITEMS = [
+  { id: 'autumn',    name: 'Autumn Orange',  color: '#d46a2a', cost: 50,  emoji: '🍂', desc: 'Warm fall hues' },
+  { id: 'sunset',    name: 'Sunset Red',     color: '#c44030', cost: 50,  emoji: '🌅', desc: 'Deep evening glow' },
+  { id: 'golden',    name: 'Golden Yellow',  color: '#e8b830', cost: 50,  emoji: '🌻', desc: 'Bright sunflower' },
+  { id: 'sky',       name: 'Sky Blue',       color: '#5098d0', cost: 100, emoji: '💧', desc: 'Clear open sky' },
+  { id: 'lavender',  name: 'Lavender Purple',color: '#b080d0', cost: 100, emoji: '🔮', desc: 'Soft mystic tone' },
+  { id: 'blush',     name: 'Blush Pink',     color: '#e878a0', cost: 100, emoji: '🌸', desc: 'Gentle petal pink' },
+  { id: 'teal',      name: 'Forest Teal',    color: '#308a78', cost: 150, emoji: '🌊', desc: 'Deep woodland pool' },
+  { id: 'moonlight', name: 'Moonlight White',color: '#c8d8d0', cost: 150, emoji: '✨', desc: 'Pale silver shimmer' },
+]
+
 export const ROCK_ITEMS = [
   {
     id: 'round',
@@ -123,14 +134,15 @@ export default function Shop() {
 
   if (!shopOpen) return null
 
+  const isDyeTab = tab === 'dyes'
   const isPlotTab = tab === 'plots'
-  const items = isPlotTab ? [PLOT_ITEM] : (tab === 'trees' ? TREE_ITEMS : ROCK_ITEMS)
+  const items = isDyeTab ? DYE_ITEMS : (isPlotTab ? [PLOT_ITEM] : (tab === 'trees' ? TREE_ITEMS : ROCK_ITEMS))
   const isPlot = selectedItem.type === 'plot'
   const isRock = selectedItem.type === 'rock'
   const currentList = isPlot ? [PLOT_ITEM] : (isRock ? ROCK_ITEMS : TREE_ITEMS)
   const currentItem =
     currentList.find((i) => i.id === selectedItem.id) ||
-    (tab === 'trees' ? TREE_ITEMS[0] : tab === 'rocks' ? ROCK_ITEMS[0] : PLOT_ITEM)
+    (tab === 'trees' ? TREE_ITEMS[0] : tab === 'rocks' ? ROCK_ITEMS[0] : tab === 'dyes' ? DYE_ITEMS[0] : PLOT_ITEM)
   const hasPlot = plots.some((p) => p.owner)
 
   return (
@@ -165,17 +177,33 @@ export default function Shop() {
           >
             📌 Plots
           </button>
+          <button
+            className={`shop-tab${tab === 'dyes' ? ' active' : ''}`}
+            onClick={() => setTab('dyes')}
+          >
+            🎨 Dyes
+          </button>
         </div>
 
         {/* Grid */}
         <div className="shop-grid">
           {items.map((item) => {
-            const itemType = tab === 'trees' ? 'tree' : tab === 'rocks' ? 'rock' : 'plot'
+            const itemType = tab === 'trees' ? 'tree' : tab === 'rocks' ? 'rock' : tab === 'dyes' ? 'dye' : 'plot'
             const isSelected =
               selectedItem.id === item.id && selectedItem.type === itemType
             const cantBuyPlot = itemType === 'plot' && hasPlot
             const canAfford = gold >= item.cost && !cantBuyPlot
-            return (
+            return isDyeTab ? (
+              <div key={item.id} className={`shop-card${!canAfford ? ' cant-afford' : ''}`}>
+                <div className="dye-swatch-card" style={{ background: item.color }} />
+                <div className="shop-card-name">{item.name}</div>
+                <div className="shop-card-desc">{item.desc}</div>
+                <div className="shop-card-cost">
+                  <span className="shop-coin" />
+                  <span>{item.cost}</span>
+                </div>
+              </div>
+            ) : (
               <ItemCard
                 key={item.id}
                 item={item}
@@ -199,13 +227,21 @@ export default function Shop() {
         {/* Selection hint — no action button here; player uses the HUD
             "Plant" button or the E key to place the chosen item. */}
         <div className="shop-hint">
-          selected: <b>{currentItem.emoji} {currentItem.name}</b>
-          {currentItem.cost > 0 && (
-            <span className="shop-hint-cost">
-              &nbsp;·&nbsp;costs <span className="shop-coin" /> {currentItem.cost}
+          {isDyeTab ? (
+            <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: '12px' }}>
+              select a tree in the world, then click <b>Dye</b> in the action pill
             </span>
+          ) : (
+            <>
+              selected: <b>{currentItem.emoji} {currentItem.name}</b>
+              {currentItem.cost > 0 && (
+                <span className="shop-hint-cost">
+                  &nbsp;·&nbsp;costs <span className="shop-coin" /> {currentItem.cost}
+                </span>
+              )}
+              <span className="shop-hint-key">press <kbd>E</kbd> to {isPlotTab ? 'claim' : 'place'}</span>
+            </>
           )}
-          <span className="shop-hint-key">press <kbd>E</kbd> to {isPlotTab ? 'claim' : 'place'}</span>
         </div>
       </div>
     </div>

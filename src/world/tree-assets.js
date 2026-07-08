@@ -31,7 +31,7 @@ export const sproutGeo = new THREE.CylinderGeometry(0.02, 0.035, 0.5, 4)
 export const sproutLeafGeo = new THREE.SphereGeometry(0.18, 8, 6)
 
 // --- Wind-sway leaf material factory ---
-function makeLeafMat(color) {
+export function makeLeafMat(color) {
   const m = new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 1 })
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = windTime

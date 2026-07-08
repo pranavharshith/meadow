@@ -52,6 +52,7 @@ create table if not exists public.trees (
   planted_at  timestamptz not null default now()
 );
 alter table public.trees add column if not exists shape smallint not null default 0;
+alter table public.trees add column if not exists dye text;
 create index if not exists trees_region_idx on public.trees (region_x, region_z);
 
 alter table public.trees enable row level security;
@@ -808,6 +809,48 @@ begin
   return g;
 end
 $$;
+
+-- ============================================================================
+-- TREE DYES — change leaf color on owned mature trees
+-- ============================================================================
+
+create or replace function public.dye_tree(p_tree_id uuid, p_color text, p_cost integer default 50)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare
+  new_gold int;
+  planted  timestamptz;
+  owner    uuid;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if p_color is null or length(p_color) = 0 or length(p_color) > 16 then
+    raise exception 'bad color';
+  end if;
+  p_cost := greatest(0, least(500, coalesce(p_cost, 50)));
+
+  select owner_id, planted_at into owner, planted
+    from public.trees where id = p_tree_id;
+  if owner is null then raise exception 'tree not found'; end if;
+  if owner <> auth.uid() then raise exception 'not your tree'; end if;
+  if now() - planted < interval '90 seconds' then raise exception 'tree too young'; end if;
+
+  update public.trees set dye = p_color where id = p_tree_id;
+
+  update public.players
+    set gold = gold - p_cost,
+        updated_at = now()
+    where id = auth.uid() and gold >= p_cost
+    returning gold into new_gold;
+  if new_gold is null then
+    update public.trees set dye = null where id = p_tree_id;
+    raise exception 'not enough gold';
+  end if;
+  return new_gold;
+end
+$$;
+
+grant execute on function public.dye_tree(uuid, text, integer) to authenticated;
 
 grant execute on function public.sanitize_chat(text)          to authenticated;
 grant execute on function public.check_region_chat(text)      to authenticated;

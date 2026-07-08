@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { isMuted, toggleMute } from '../net/moderation'
+import { remotePlayers } from '../net/state'
 
 // Chat panel — bottom-left. Opens on Enter or clicking the chat button.
 // Tabs: Region (free, nearby) and World (costs 3 gold, everyone).
@@ -11,6 +12,8 @@ export default function Chat() {
   const scope = useStore((s) => s.chatScope)
   const setChatScope = useStore((s) => s.setChatScope)
   const sendChat = useStore((s) => s.sendChat)
+  const setNavTarget = useStore((s) => s.setNavTarget)
+  const flash = useStore((s) => s.flash)
   const online = useStore((s) => s.online)
   const [text, setText] = useState('')
   const [open, setOpen] = useState(false)
@@ -99,14 +102,32 @@ export default function Chat() {
             </span>
             <span className="chat-text">{m.text}</span>
             {m.userId && !m.self && (
-              <button
-                className="chat-mute"
-                onClick={() => handleMuteClick(m.userId)}
-                title={`mute ${m.name}`}
-                aria-label={`mute ${m.name}`}
-              >
-                ⊘
-              </button>
+              <>
+                <button
+                  className="chat-nav"
+                  onClick={() => {
+                    const rp = remotePlayers.get(m.userId)
+                    if (rp) {
+                      setNavTarget({ x: rp.x, z: rp.z, name: m.name })
+                      flash(`navigating to ${m.name}`)
+                    } else {
+                      flash(`${m.name} is no longer nearby`)
+                    }
+                  }}
+                  title={`navigate to ${m.name}`}
+                  aria-label={`navigate to ${m.name}`}
+                >
+                  ⌖
+                </button>
+                <button
+                  className="chat-mute"
+                  onClick={() => handleMuteClick(m.userId)}
+                  title={`mute ${m.name}`}
+                  aria-label={`mute ${m.name}`}
+                >
+                  ⊘
+                </button>
+              </>
             )}
           </div>
         ))}
