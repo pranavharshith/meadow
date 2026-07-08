@@ -141,9 +141,12 @@ export const useStore = create((set, get) => ({
   setJoystickEnabled: (v) => set({ joystickEnabled: v }),
 
   setName: (name) => {
+    const state = get()
     const cleaned = (name || '').slice(0, 18) || 'wanderer'
+    if (cleaned.length < 2) { state.flash('name must be at least 2 characters'); return }
+    if (cleaned === state.name) return
     set({ name: cleaned })
-    bridge.saveIdentity(cleaned, get().color)
+    bridge.saveIdentity(cleaned, state.color)
   },
   setColor: (color) => {
     set({ color })

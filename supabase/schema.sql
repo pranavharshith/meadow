@@ -30,11 +30,17 @@ create table if not exists public.players (
   updated_at      timestamptz not null default now()
 );
 
-alter table public.players add column if not exists discovered      text[]      not null default '{}';
-alter table public.players add column if not exists last_bonus_date date;
-alter table public.players add column if not exists last_plant_at   timestamptz;
-alter table public.players add column if not exists last_water_at   timestamptz;
-alter table public.players add column if not exists last_chat_at    timestamptz;
+alter table public.players add column if not exists discovered        text[]      not null default '{}';
+alter table public.players add column if not exists last_bonus_date   date;
+alter table public.players add column if not exists last_plant_at     timestamptz;
+alter table public.players add column if not exists last_water_at     timestamptz;
+alter table public.players add column if not exists last_chat_at      timestamptz;
+alter table public.players add column if not exists last_profile_at   timestamptz;
+
+-- Enforce case-insensitive unique names. Players must pick distinct names.
+-- Multiple players can keep the default "wanderer", but any custom name must be
+-- unique (handles the bootstrap case gracefully without a cleanup migration).
+create unique index if not exists players_name_lower_idx on public.players (lower(name)) where lower(name) <> 'wanderer';
 
 alter table public.players enable row level security;
 
@@ -86,36 +92,86 @@ create or replace function public.ensure_profile(p_name text, p_color text)
 returns public.players
 language plpgsql security definer set search_path = public
 as $$
-declare row public.players;
+declare
+  row   public.players;
+  base  text;
+  final text;
+  sfx   int := 0;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
-  insert into public.players (id, name, color)
-  values (
-    auth.uid(),
-    coalesce(nullif(left(p_name, 18), ''), 'wanderer'),
-    coalesce(nullif(left(p_color, 16), ''), '#a9d98a')
-  )
-  on conflict (id) do nothing;
+
+  select * into row from public.players where id = auth.uid();
+  if found then return row; end if;
+
+  base  := coalesce(nullif(left(p_name, 18), ''), 'wanderer');
+  final := base;
+
+  loop
+    begin
+      insert into public.players (id, name, color)
+      values (auth.uid(), final, coalesce(nullif(left(p_color, 16), ''), '#a9d98a'));
+      exit;
+    exception
+      when unique_violation then
+        sfx := sfx + 1;
+        if sfx > 999 then raise exception 'could not assign unique name'; end if;
+        final := left(base || sfx::text, 18);
+    end;
+  end loop;
+
   select * into row from public.players where id = auth.uid();
   return row;
 end
 $$;
 
 -- Change name / color only. Gold cannot be touched from here.
+-- Enforces: minimum length, profanity filter, 5s cooldown, unique name.
 create or replace function public.update_profile(p_name text, p_color text)
 returns public.players
 language plpgsql security definer set search_path = public
 as $$
-declare row public.players;
+declare
+  row     public.players;
+  last_at timestamptz;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  -- Minimum length (after trim)
+  p_name := btrim(p_name);
+  if length(p_name) < 2 then raise exception 'name too short'; end if;
+  p_name := left(p_name, 18);
+
+  -- Profanity check (mirrors client-side moderation)
+  if public.name_contains_profanity(p_name) then
+    raise exception 'profanity in name';
+  end if;
+
+  -- Color: validate hex format, fallback to default
+  if p_color is null or p_color !~ '^#[0-9a-fA-F]{6}$' then
+    p_color := '#a9d98a';
+  end if;
+  p_color := left(p_color, 16);
+
+  -- Rate-limit: 5 seconds between profile changes
+  select last_profile_at into last_at from public.players where id = auth.uid();
+  if last_at is not null and now() - last_at < interval '5 seconds' then
+    raise exception 'name change too fast';
+  end if;
+
   update public.players
-    set name = coalesce(nullif(left(p_name, 18), ''), name),
-        color = coalesce(nullif(left(p_color, 16), ''), color),
+    set name = p_name,
+        color = p_color,
+        last_profile_at = now(),
         updated_at = now()
     where id = auth.uid();
+
+  if not found then raise exception 'player not found'; end if;
+
   select * into row from public.players where id = auth.uid();
   return row;
+exception
+  when unique_violation then
+    raise exception 'name already taken';
 end
 $$;
 
@@ -297,6 +353,9 @@ end
 $$;
 
 -- Gate for region chat: rate-limited only (free). No return value needed.
+-- Dropped first so re-running the full schema doesn't trip on a later
+-- return-type change (void → text after sanitize_chat was added).
+drop function if exists public.check_region_chat(text);
 create or replace function public.check_region_chat(p_text text)
 returns void
 language plpgsql security definer set search_path = public
@@ -693,6 +752,19 @@ grant execute on function public.buy_plot(uuid, real, real) to authenticated;
 -- modified client that skips maskProfanity() gets its text cleaned here.
 -- Returns the sanitized text.
 -- ============================================================================
+
+-- Check whether a name contains profanity. Used by update_profile to reject
+-- offensive names server-side before they propagate to other players.
+create or replace function public.name_contains_profanity(p_name text)
+returns boolean
+language sql immutable security definer set search_path = public
+as $$
+  select exists (
+    select 1 where p_name ~* '\m(fuck|shit|bitch|cunt|asshole|dick|pussy|nigger|nigga|faggot|retard|slut|whore)\M'
+  );
+$$;
+
+grant execute on function public.name_contains_profanity(text) to authenticated;
 
 create or replace function public.sanitize_chat(p_text text)
 returns text

@@ -26,6 +26,7 @@ export default function Net() {
   const regionRef = useRef(null)
   const acc = useRef(0)
   const identityTimer = useRef(null)
+  const lastProfileRef = useRef({ name: 'wanderer', color: '#a9d98a' })
   const switchingRef = useRef(false)
   const joinRegionRef = useRef(async () => {})
 
@@ -329,6 +330,7 @@ export default function Net() {
         return
       }
       if (prof) {
+        lastProfileRef.current = { name: prof.name, color: prof.color }
         useStore.getState().hydrateProfile({
           gold: prof.gold,
           name: prof.name,
@@ -350,7 +352,17 @@ export default function Net() {
             p_name: name,
             p_color: color,
           })
-          if (!error && data) {
+          if (error) {
+            const m = error.message.toLowerCase()
+            let flash = 'could not update profile'
+            if (m.includes('profanity'))           flash = 'name contains inappropriate language'
+            else if (m.includes('too fast'))        flash = 'please wait before changing your name'
+            else if (m.includes('too short'))       flash = 'name must be at least 2 characters'
+            else if (m.includes('already taken'))   flash = 'that name is already taken'
+            useStore.getState().flash(flash)
+            useStore.setState({ name: lastProfileRef.current.name, color: lastProfileRef.current.color })
+          } else if (data) {
+            lastProfileRef.current = { name: data.name, color: data.color }
             useStore.getState().hydrateProfile({ name: data.name, color: data.color })
           }
         }, 400)

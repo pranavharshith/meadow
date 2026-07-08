@@ -20,6 +20,7 @@ export const bushyLeafGeo = new THREE.SphereGeometry(1.1, 8, 6)
 
 // --- Shape 3: Willow — tall trunk, elongated drooping canopy ---
 export const willowTrunkGeo = new THREE.CylinderGeometry(0.12, 0.24, 3.4, 6)
+export const willowTrunkMat = new THREE.MeshStandardMaterial({ color: '#7a6a50', roughness: 0.9 })
 export const willowLeafGeo = new THREE.SphereGeometry(1, 8, 6)
 // Stretch it vertically for drooping look
 willowLeafGeo.scale(0.8, 1.4, 0.8)

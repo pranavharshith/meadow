@@ -7,7 +7,7 @@ import {
   trunkGeo, leafGeo, trunkMat, leafMats,
   pineTrunkGeo, pineLeafGeo, pineTrunkMat, pineLeafMats,
   bushyTrunkGeo, bushyLeafGeo, bushyLeafMats,
-  willowTrunkGeo, willowLeafGeo, willowLeafMats,
+  willowTrunkGeo, willowTrunkMat, willowLeafGeo, willowLeafMats,
   saplingTrunkGeo, saplingLeafGeo, saplingLeafMat,
   sproutGeo, sproutLeafGeo, sproutLeafMat,
   makeLeafMat,
