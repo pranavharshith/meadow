@@ -3,7 +3,7 @@ import { keys, look, P } from './player-state'
 import { useStore } from './store'
 
 const LOOK_SENS = 0.0026
-const PITCH_MIN = 0.12
+const PITCH_MIN = -0.8 // Allow camera to tilt upwards in third-person
 const PITCH_MAX = 1.35
 const ZOOM_MIN = 0.55
 const ZOOM_MAX = 2.2
