@@ -62,6 +62,17 @@ export default function CameraRig() {
     // Decay switch timer
     if (switchTimer.current > 0) switchTimer.current -= step
 
+    // Auto-follow camera: gently rotate camera to look at the player's back when moving
+    if (P.moving && view !== 'top' && view !== 'first' && performance.now() - look.lastLookTime > 1500) {
+      let diff = P.avatarYaw - look.yaw
+      while (diff > Math.PI) diff -= Math.PI * 2
+      while (diff < -Math.PI) diff += Math.PI * 2
+      
+      if (Math.abs(diff) > 0.01) {
+        look.yaw += diff * (1 - Math.exp(-2.0 * step))
+      }
+    }
+
     // Blend between slow (switch) and normal damping
     const blend = Math.max(switchTimer.current / SWITCH_DURATION, 0)
     const lambda = THREE.MathUtils.lerp(NORMAL_LAMBDA, SWITCH_LAMBDA, blend)

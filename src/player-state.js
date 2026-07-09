@@ -31,8 +31,13 @@ export const P = {
   emoteUntil: 0, // timestamp when a one-shot emote (wave) ends
 }
 
-// Camera look direction (radians) + zoom multiplier (mouse wheel).
-export const look = { yaw: lookYaw, pitch: 0.55, zoom: 1 }
+// Camera state (mutated by Controls, read by CameraRig and Player)
+export const look = {
+  yaw: Math.PI + 0.1, // looking slightly off-center
+  pitch: 0.35,        // looking slightly down
+  zoom: 1.0,
+  lastLookTime: 0,
+}
 
 // Raw keyboard state keyed by e.code.
 export const keys = {}

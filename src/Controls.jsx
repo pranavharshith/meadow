@@ -77,6 +77,9 @@ export default function Controls() {
     }
     const onMove = (e) => {
       if (!dragging) return
+      
+      look.lastLookTime = performance.now()
+
       const dx = e.clientX - lx
       const dy = e.clientY - ly
       lx = e.clientX
