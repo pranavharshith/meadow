@@ -285,10 +285,45 @@ export default function Net() {
         const st = chatCh.presenceState()
         netStatus.count = Object.keys(st).length || 1
         useStore.getState().setPlayerCount(netStatus.count)
+        
+        for (const [key, presences] of Object.entries(st)) {
+          if (key === meId.current || !presences.length) continue
+          const p = presences[0]
+          let rp = remotePlayers.get(key)
+          if (!rp) {
+            rp = {
+              id: key,
+              name: p.name || 'wanderer',
+              color: p.color || '#a9d98a',
+              headColor: p.headColor || null,
+              bodyColor: p.bodyColor || null,
+              legColor: p.legColor || null,
+              hatId: p.hatId || null,
+              x: 0, z: 0, yaw: 0, tx: 0, tz: 0, tyaw: 0,
+              emote: null, msg: '', msgUntil: 0, moving: false, running: false
+            }
+            remotePlayers.set(key, rp)
+          } else {
+            if (p.name) rp.name = p.name
+            if (p.color) rp.color = p.color
+            if (p.headColor !== undefined) rp.headColor = p.headColor
+            if (p.bodyColor !== undefined) rp.bodyColor = p.bodyColor
+            if (p.legColor !== undefined) rp.legColor = p.legColor
+            if (p.hatId !== undefined) rp.hatId = p.hatId
+          }
+        }
       })
       chatCh.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await chatCh.track({ id: meId.current, name, color })
+          await chatCh.track({ 
+            id: meId.current, 
+            name, 
+            color,
+            headColor: useStore.getState().headColor,
+            bodyColor: useStore.getState().bodyColor,
+            legColor: useStore.getState().legColor,
+            hatId: useStore.getState().hatId
+          })
         }
       })
       chatChannelRef.current = chatCh
@@ -392,8 +427,19 @@ export default function Net() {
               headColor: data.head_color,
               bodyColor: data.body_color,
               legColor: data.leg_color,
-              hatId: data.hat_id,
+              hatId: data.hat_id
             })
+            if (chatChannelRef.current && chatChannelRef.current.state === 'joined') {
+              chatChannelRef.current.track({
+                id: meId.current,
+                name: data.name,
+                color: data.color,
+                headColor: data.head_color,
+                bodyColor: data.body_color,
+                legColor: data.leg_color,
+                hatId: data.hat_id
+              }).catch(() => {})
+            }
           }
         }, 400)
       }
