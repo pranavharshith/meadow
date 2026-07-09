@@ -45,12 +45,20 @@ export default function Controls() {
       else if (e.code === 'KeyR') st.waterNearest()
       else if (e.code === 'KeyX') st.cutSelection()
       else if (e.code === 'Escape') {
-        // Placement takes precedence over selection so pressing Esc doesn't
-        // silently clear a selection that wasn't the user's focus.
-        if (st.placementMode) st.cancelPlacement()
-        else st.clearSelection()
+        if (document.pointerLockElement) {
+          document.exitPointerLock()
+        } else {
+          // Placement takes precedence over selection so pressing Esc doesn't
+          // silently clear a selection that wasn't the user's focus.
+          if (st.placementMode) st.cancelPlacement()
+          else st.clearSelection()
+        }
       }
-      else if (e.code === 'KeyG') st.setShopOpen(!st.shopOpen)
+      else if (e.code === 'KeyG') {
+        const next = !st.shopOpen
+        st.setShopOpen(next)
+        if (next && document.pointerLockElement) document.exitPointerLock()
+      }
       else if (e.code === 'KeyV') st.cycleView()
       else if (e.code === 'KeyM') st.toggleMute()
       else if (e.code === 'KeyC') P.emote = P.emote === 'sit' ? null : 'sit'
@@ -69,6 +77,11 @@ export default function Controls() {
     let ly = 0
     const onDown = (e) => {
       if (e.target.closest && e.target.closest('.no-look')) return
+      
+      if (!document.pointerLockElement && e.target.tagName === 'CANVAS') {
+        e.target.requestPointerLock()
+      }
+      
       dragging = true
       lx = e.clientX
       ly = e.clientY
@@ -76,18 +89,27 @@ export default function Controls() {
       if (P.emote === 'sit') P.emote = null
     }
     const onMove = (e) => {
-      if (!dragging) return
+      const isLocked = !!document.pointerLockElement
+      if (!dragging && !isLocked) return
       
       look.lastLookTime = performance.now()
 
-      const dx = e.clientX - lx
-      const dy = e.clientY - ly
-      lx = e.clientX
-      ly = e.clientY
+      let dx = 0
+      let dy = 0
+
+      if (isLocked) {
+        dx = e.movementX || 0
+        dy = e.movementY || 0
+      } else {
+        dx = e.clientX - lx
+        dy = e.clientY - ly
+        lx = e.clientX
+        ly = e.clientY
+      }
       
       // Prevent dragging from secretly spinning the camera while in Map view
       if (useStore.getState().viewMode !== 'top') {
-        look.yaw -= dx * LOOK_SENS
+        look.yaw += dx * LOOK_SENS
         look.pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, look.pitch + dy * LOOK_SENS))
       }
     }

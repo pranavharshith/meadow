@@ -53,6 +53,10 @@ export default function Net() {
           id: payload.id,
           name: payload.name || 'wanderer',
           color: payload.color || '#a9d98a',
+          headColor: payload.headColor || null,
+          bodyColor: payload.bodyColor || null,
+          legColor: payload.legColor || null,
+          hatId: payload.hatId || null,
           x: payload.x, z: payload.z, yaw: payload.yaw || 0,
           tx: payload.x, tz: payload.z, tyaw: payload.yaw || 0,
           emote: null, msg: '', msgUntil: 0,
@@ -65,6 +69,10 @@ export default function Net() {
       rp.emote = payload.emote || null
       if (payload.name) rp.name = payload.name
       if (payload.color) rp.color = payload.color
+      if (payload.headColor !== undefined) rp.headColor = payload.headColor
+      if (payload.bodyColor !== undefined) rp.bodyColor = payload.bodyColor
+      if (payload.legColor !== undefined) rp.legColor = payload.legColor
+      if (payload.hatId !== undefined) rp.hatId = payload.hatId
     }
 
     const receiveChat = (payload, scope) => {
