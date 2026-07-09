@@ -74,6 +74,10 @@ export const useStore = create((set, get) => ({
   // progression (server-owned when online; localStorage fallback offline)
   gold: saved.gold ?? 0,
   color: saved.color ?? randomColor(),
+  headColor: saved.headColor ?? null,
+  bodyColor: saved.bodyColor ?? null,
+  legColor: saved.legColor ?? null,
+  hatId: saved.hatId ?? null,
   name: saved.name ?? '',
   trees: saved.trees ?? [],
   discovered: saved.discovered ?? [],
@@ -150,11 +154,29 @@ export const useStore = create((set, get) => ({
     const cleaned = (name || '').trim().slice(0, 18)
     if (cleaned === state.name) return
     set({ name: cleaned })
-    bridge.saveIdentity(cleaned, state.color)
+    bridge.saveIdentity(cleaned, state.color, state.headColor, state.bodyColor, state.legColor, state.hatId)
   },
   setColor: (color) => {
+    const state = get()
     set({ color })
-    bridge.saveIdentity(get().name, color)
+    bridge.saveIdentity(state.name, color, state.headColor, state.bodyColor, state.legColor, state.hatId)
+  },
+  buyCosmetic: (type, id, colorVal, cost) => {
+    const state = get()
+    if (state.gold < cost) {
+      state.flash(`need ${cost} gold`)
+      return
+    }
+    const updates = {}
+    if (type === 'hat') updates.hatId = id
+    else if (type === 'head') updates.headColor = colorVal
+    else if (type === 'body') updates.bodyColor = colorVal
+    else if (type === 'legs') updates.legColor = colorVal
+    
+    set({ ...updates, gold: state.gold - cost })
+    state.flash(`customised avatar · -${cost} gold`)
+    const next = get()
+    bridge.saveIdentity(next.name, next.color, next.headColor, next.bodyColor, next.legColor, next.hatId)
   },
   setChatScope: (chatScope) => set({ chatScope }),
 
@@ -170,11 +192,15 @@ export const useStore = create((set, get) => ({
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
   setPlayerCount: (playerCount) => set({ playerCount }),
   // Server is the source of truth for gold + discovered. Overwrites local.
-  hydrateProfile: ({ gold, name, color, discovered, customSpawn }) =>
+  hydrateProfile: ({ gold, name, color, headColor, bodyColor, legColor, hatId, discovered, customSpawn }) =>
     set((s) => ({
       gold: gold ?? s.gold,
       name: name ?? s.name,
       color: color ?? s.color,
+      headColor: headColor ?? s.headColor,
+      bodyColor: bodyColor ?? s.bodyColor,
+      legColor: legColor ?? s.legColor,
+      hatId: hatId ?? s.hatId,
       discovered: discovered ?? s.discovered,
       customSpawn: customSpawn ?? s.customSpawn,
     })),

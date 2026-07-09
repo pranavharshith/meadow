@@ -89,11 +89,13 @@ export default function Butterflies() {
         pickAnchor(f, rng)
         f.next = t + 5 + rng() * 6
       }
-      // drift the anchor gently toward the player so butterflies stay in view
+      
+      // If the player runs far away, don't drag the butterfly (rubber-banding).
+      // Instead, instantly teleport it to a new anchor near the player's current location.
       const toP = Math.hypot(f.ax - P.pos.x, f.az - P.pos.z)
-      if (toP > 46) {
-        f.ax += (P.pos.x - f.ax) * 0.01
-        f.az += (P.pos.z - f.az) * 0.01
+      if (toP > 45) {
+        pickAnchor(f, rng)
+        f.next = t + 5 + rng() * 6
       }
 
       const ang = t * f.speed + f.phase

@@ -33,6 +33,14 @@ export default function Controls() {
       }
 
       keys[e.code] = true
+
+      // If the player presses a movement key, cancel sitting
+      if (P.emote === 'sit' && (
+        e.code === 'KeyW' || e.code === 'KeyA' || e.code === 'KeyS' || e.code === 'KeyD' ||
+        e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight'
+      )) {
+        P.emote = null
+      }
       if (e.code === 'KeyE') st.plantTree() // enters placement, or confirms if already in it
       else if (e.code === 'KeyR') st.waterNearest()
       else if (e.code === 'KeyX') st.cutSelection()

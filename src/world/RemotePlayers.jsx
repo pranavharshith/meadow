@@ -54,7 +54,7 @@ function RemoteAvatar({ id }) {
   return (
     <group ref={groupRef}>
       {rp && (
-        <AvatarMesh color={rp.color} state={rp} />
+        <AvatarMesh color={rp.color} headColor={rp.headColor} bodyColor={rp.bodyColor} legColor={rp.legColor} hatId={rp.hatId} state={rp} />
       )}
       <Html position={[0, 1.7, 0]} center distanceFactor={12} zIndexRange={[5, 0]} occlude={false}>
         <div className="nameplate">{name}</div>

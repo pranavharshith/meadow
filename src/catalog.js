@@ -64,7 +64,37 @@ export const DYE_ITEMS = [
   { id: 'blush',     name: 'Blush Pink',     color: '#e878a0', cost: 100, emoji: '🌸', desc: 'Gentle petal pink' },
   { id: 'teal',      name: 'Forest Teal',    color: '#308a78', cost: 150, emoji: '🌊', desc: 'Deep woodland pool' },
   { id: 'moonlight', name: 'Moonlight White',color: '#c8d8d0', cost: 150, emoji: '✨', desc: 'Pale silver shimmer' },
+  { id: 'onyx',      name: 'Onyx Black',     color: '#222222', cost: 200, emoji: '🦇', desc: 'Deep dark shadows' },
+  { id: 'emerald',   name: 'Emerald Green',  color: '#2e8b57', cost: 150, emoji: '🍀', desc: 'Vibrant gem tone' }
 ]
+
+export const HAT_ITEMS = [
+  { id: 'wizard',    name: 'Wizard Hat',     cost: 150, emoji: '🧙‍♂️', desc: 'A pointed, magical hat' },
+  { id: 'tophat',    name: 'Top Hat',        cost: 200, emoji: '🎩', desc: 'Dapper and tall cylinder' },
+  { id: 'crown',     name: 'Gold Crown',     cost: 500, emoji: '👑', desc: 'Fit for royalty' },
+]
+
+export const EXOTIC_TREE_ITEMS = [
+  {
+    id: 'golden_tree',
+    name: 'Golden Tree',
+    shape: 10,
+    cost: 500,
+    emoji: '💰',
+    desc: 'Leaves that shimmer like gold',
+    color: '#ffcc00',
+  },
+  {
+    id: 'star_tree',
+    name: 'Star Tree',
+    shape: 11,
+    cost: 1000,
+    emoji: '⭐',
+    desc: 'Glows with celestial light',
+    color: '#aaddff',
+  }
+]
+
 
 export const ROCK_ITEMS = [
   {

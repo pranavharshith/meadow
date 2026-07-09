@@ -13,6 +13,8 @@ import {
   saplingTrunkGeo, saplingLeafGeo, saplingLeafMat,
   sproutGeo, sproutLeafGeo, sproutLeafMat,
   makeLeafMat,
+  goldenTrunkMat, goldenLeafMat,
+  starTrunkMat, starLeafMat
 } from './tree-assets'
 import { treeRegistry, P } from '../player-state'
 import { useStore } from '../store'
@@ -112,6 +114,33 @@ function MushroomTree() {
   )
 }
 
+// Shape 10: Golden Tree
+function GoldenTree({ dyeMat }) {
+  const m1 = dyeMat || goldenLeafMat
+  return (
+    <>
+      <mesh geometry={trunkGeo} material={goldenTrunkMat} position={[0, 1.4, 0]} castShadow receiveShadow />
+      <mesh geometry={leafGeo} material={m1} position={[0, 3.4, 0]} scale={[1.5, 1.4, 1.5]} castShadow />
+      <mesh geometry={leafGeo} material={m1} position={[0.6, 2.8, 0.3]} scale={0.95} castShadow />
+      <mesh geometry={leafGeo} material={m1} position={[-0.55, 2.7, -0.3]} scale={0.85} castShadow />
+    </>
+  )
+}
+
+// Shape 11: Star Tree
+function StarTree({ dyeMat }) {
+  const m1 = dyeMat || starLeafMat
+  return (
+    <>
+      <mesh geometry={cherryTrunkGeo} material={starTrunkMat} position={[0, 1.3, 0]} castShadow receiveShadow />
+      <mesh geometry={cherryLeafGeo} material={m1} position={[0, 3.2, 0]} scale={[1.4, 1.2, 1.4]} />
+      <mesh geometry={cherryLeafGeo} material={m1} position={[0.6, 2.6, 0.4]} scale={0.9} />
+      <mesh geometry={cherryLeafGeo} material={m1} position={[-0.5, 2.7, -0.3]} scale={0.85} />
+      <pointLight color="#aaddff" intensity={2} distance={8} position={[0, 2.5, 0]} />
+    </>
+  )
+}
+
 // Picks the right tree shape component based on shape index
 function TreeParts({ variant, shape = 0, dyeMat }) {
   switch (shape) {
@@ -120,6 +149,8 @@ function TreeParts({ variant, shape = 0, dyeMat }) {
     case 3: return <WillowTree variant={variant} dyeMat={dyeMat} />
     case 4: return <CherryBlossomTree variant={variant} dyeMat={dyeMat} />
     case 5: return <MushroomTree />
+    case 10: return <GoldenTree dyeMat={dyeMat} />
+    case 11: return <StarTree dyeMat={dyeMat} />
     default: return <BroadleafTree variant={variant} dyeMat={dyeMat} />
   }
 }

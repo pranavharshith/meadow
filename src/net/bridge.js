@@ -9,8 +9,8 @@ const noopAsync = async () => ({ ok: false })
 export const bridge = {
   online: false,
 
-  // Profile edits (name, color). Gold is server-owned and NOT settable here.
-  saveIdentity: async (_name, _color) => null,
+  // Profile edits (name, color, hats). Gold is server-owned and NOT settable here.
+  saveIdentity: async (_name, _color, _headColor, _bodyColor, _legColor, _hatId) => null,
 
   // Server-gated mutations. Each returns { ok, gold?, error?, ...extras }.
   plant:       async (_tree)               => ({ ok: false, error: 'offline' }),

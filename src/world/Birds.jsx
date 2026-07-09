@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { useMemo, useRef } from 'react'
-import { useThree, useFrame } from '@react-three/fiber'
+import { useFrame } from '@react-three/fiber'
 import { mulberry32 } from './noise'
+import { P } from '../player-state'
 
 // A few small dark birds gliding in wide circles high above, wings flapping.
 // Each wing hinges at the body (parented to a pivot) so the flap looks right,
@@ -11,15 +12,14 @@ export default function Birds() {
   const groupRefs = useRef([])
   const leftRefs = useRef([])
   const rightRefs = useRef([])
-  const { camera } = useThree()
 
   const birds = useMemo(() => {
     const rng = mulberry32(77)
     const arr = []
     for (let i = 0; i < 7; i++) {
       arr.push({
-        ox: (rng() - 0.5) * 120,
-        oz: (rng() - 0.5) * 120,
+        cx: P.pos.x + (rng() - 0.5) * 160,
+        cz: P.pos.z + (rng() - 0.5) * 160,
         R: 14 + rng() * 30,
         h: 22 + rng() * 16,
         speed: 0.15 + rng() * 0.15,
@@ -49,24 +49,40 @@ export default function Birds() {
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime
-    // slowly drift the flock centre toward the player so birds stay in view
-    const px = camera.position.x
-    const pz = camera.position.z
+    const px = P.pos.x
+    const pz = P.pos.z
+    const BOUNDS = 90
+    
     for (let i = 0; i < birds.length; i++) {
       const b = birds[i]
       const g = groupRefs.current[i]
       if (!g) continue
+
+      // Wrap circle center if it gets too far from player
+      let dx = b.cx - px
+      let dz = b.cz - pz
+      if (dx > BOUNDS) b.cx -= BOUNDS * 2
+      if (dx < -BOUNDS) b.cx += BOUNDS * 2
+      if (dz > BOUNDS) b.cz -= BOUNDS * 2
+      if (dz < -BOUNDS) b.cz += BOUNDS * 2
+
       const ang = t * b.speed + b.phase
-      const cx = px + b.ox
-      const cz = pz + b.oz
+      
+      // Organic wobble to radius
+      const wobble = Math.sin(t * 0.4 + b.phase * 2) * 4
+      const radius = b.R + wobble
+
       g.position.set(
-        cx + Math.cos(ang) * b.R,
+        b.cx + Math.cos(ang) * radius,
         b.h + Math.sin(t * 0.4 + b.phase) * 1.5,
-        cz + Math.sin(ang) * b.R
+        b.cz + Math.sin(ang) * radius
       )
-      g.rotation.set(0, -ang + Math.PI / 2, 0)
+      
+      // Angle tangent correction for wobble
+      const wobbleRot = Math.cos(t * 0.4 + b.phase * 2) * 0.2
+      g.rotation.set(0, -ang + Math.PI / 2 + wobbleRot, 0)
       // bank into the circle
-      g.rotateZ(0.35)
+      g.rotateZ(0.35 + wobbleRot * 0.5)
 
       const f = Math.sin(t * b.flap + b.phase) * 0.6
       const l = leftRefs.current[i]

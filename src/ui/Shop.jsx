@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import { TREE_ITEMS, ROCK_ITEMS, PLOT_ITEM } from '../catalog'
+import { TREE_ITEMS, ROCK_ITEMS, PLOT_ITEM, HAT_ITEMS, DYE_ITEMS } from '../catalog'
 
 // ── Item Card ──────────────────────────────────────────────────────────────
 
@@ -40,17 +40,25 @@ export default function Shop() {
   const plots = useStore((s) => s.plots)
 
   const [tab, setTab] = useState('trees')
+  const [cosmeticSubTab, setCosmeticSubTab] = useState('hats') // 'hats', 'head', 'body', 'legs'
 
   if (!shopOpen) return null
 
   const isPlotTab = tab === 'plots'
-  const items = isPlotTab ? [PLOT_ITEM] : (tab === 'trees' ? TREE_ITEMS : ROCK_ITEMS)
+  const isCosmeticTab = tab === 'cosmetics'
+  const isHatTab = isCosmeticTab && cosmeticSubTab === 'hats'
+  const isDyeTab = isCosmeticTab && !isHatTab
+  const items = isPlotTab ? [PLOT_ITEM] : (isCosmeticTab ? (isHatTab ? HAT_ITEMS : DYE_ITEMS) : (tab === 'trees' ? TREE_ITEMS : ROCK_ITEMS))
+  
   const isPlot = selectedItem.type === 'plot'
   const isRock = selectedItem.type === 'rock'
-  const currentList = isPlot ? [PLOT_ITEM] : (isRock ? ROCK_ITEMS : TREE_ITEMS)
+  const isHat = selectedItem.type === 'hat'
+  const isDye = selectedItem.type === 'dye'
+  
+  const currentList = isPlot ? [PLOT_ITEM] : (isRock ? ROCK_ITEMS : (isHat ? HAT_ITEMS : (isDye ? DYE_ITEMS : TREE_ITEMS)))
   const currentItem =
     currentList.find((i) => i.id === selectedItem.id) ||
-    (tab === 'trees' ? TREE_ITEMS[0] : tab === 'rocks' ? ROCK_ITEMS[0] : PLOT_ITEM)
+    (isCosmeticTab ? (isHatTab ? HAT_ITEMS[0] : DYE_ITEMS[0]) : (tab === 'trees' ? TREE_ITEMS[0] : tab === 'rocks' ? ROCK_ITEMS[0] : PLOT_ITEM))
   const myPlots = plots.filter((p) => p.owner)
   let myUsedArea = 0
   myPlots.forEach((p) => {
@@ -93,16 +101,31 @@ export default function Shop() {
           >
             📌 Plots
           </button>
+          <button
+            className={`shop-tab${tab === 'cosmetics' ? ' active' : ''}`}
+            onClick={() => setTab('cosmetics')}
+          >
+            🎩 Style
+          </button>
         </div>
+
+        {tab === 'cosmetics' && (
+          <div className="shop-tabs" style={{ background: 'transparent', padding: '0 8px 8px' }}>
+            <button className={`shop-tab${cosmeticSubTab === 'hats' ? ' active' : ''}`} onClick={() => setCosmeticSubTab('hats')}>Hats</button>
+            <button className={`shop-tab${cosmeticSubTab === 'head' ? ' active' : ''}`} onClick={() => setCosmeticSubTab('head')}>Head Dye</button>
+            <button className={`shop-tab${cosmeticSubTab === 'body' ? ' active' : ''}`} onClick={() => setCosmeticSubTab('body')}>Body Dye</button>
+            <button className={`shop-tab${cosmeticSubTab === 'legs' ? ' active' : ''}`} onClick={() => setCosmeticSubTab('legs')}>Legs Dye</button>
+          </div>
+        )}
 
         {/* Grid */}
         <div className="shop-grid">
           {items.map((item) => {
-            const itemType = tab === 'trees' ? 'tree' : tab === 'rocks' ? 'rock' : 'plot'
-            const isSelected =
-              selectedItem.id === item.id && selectedItem.type === itemType
+            const itemType = tab === 'trees' ? 'tree' : tab === 'rocks' ? 'rock' : tab === 'plots' ? 'plot' : (isHatTab ? 'hat' : 'dye')
+            const isSelected = selectedItem.id === item.id && selectedItem.type === itemType
             const cantBuyPlot = itemType === 'plot' && hasMaxPlots
             const canAfford = (itemType === 'plot' ? (gold >= item.cost && !hasMaxPlots) : (gold >= item.cost))
+            
             return (
               <ItemCard
                 key={item.id}
@@ -117,10 +140,18 @@ export default function Shop() {
                     shape: tab === 'trees' ? item.shape : undefined,
                     rockShape: tab === 'rocks' ? item.rockShape : undefined,
                     cost: item.cost,
+                    color: item.color,
                   })
-                  setShopOpen(false) // Auto-close!
-                  if (itemType === 'plot') {
-                    setTimeout(() => useStore.getState().enterPlacement(), 10)
+                  
+                  if (itemType === 'hat') {
+                    useStore.getState().buyCosmetic('hat', item.id, null, item.cost)
+                  } else if (itemType === 'dye') {
+                    useStore.getState().buyCosmetic(cosmeticSubTab, null, item.color, item.cost)
+                  } else {
+                    setShopOpen(false) // Auto-close for placables!
+                    if (itemType === 'plot') {
+                      setTimeout(() => useStore.getState().enterPlacement(), 10)
+                    }
                   }
                 }}
               />

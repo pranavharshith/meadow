@@ -67,7 +67,8 @@ export default function CameraRig() {
     const lambda = THREE.MathUtils.lerp(NORMAL_LAMBDA, SWITCH_LAMBDA, blend)
     const k = 1 - Math.exp(-lambda * step)
 
-    head.set(P.pos.x, P.pos.y + 1.3, P.pos.z)
+    const targetHeadY = P.pos.y + (P.emote === 'sit' ? 0.7 : 1.3)
+    head.set(P.pos.x, targetHeadY, P.pos.z)
 
     if (view === 'first') {
       pos.copy(head)
@@ -87,7 +88,7 @@ export default function CameraRig() {
       const dist = THIRD_DIST * look.zoom
       pos.set(
         P.pos.x - Math.sin(look.yaw) * cp * dist,
-        P.pos.y + 1.3 + Math.sin(look.pitch) * dist,
+        targetHeadY + Math.sin(look.pitch) * dist,
         P.pos.z - Math.cos(look.yaw) * cp * dist
       )
       target.copy(head)

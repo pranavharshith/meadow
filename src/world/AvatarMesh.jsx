@@ -12,7 +12,12 @@ limbGeo.translate(0, -0.19, 0)
 const eyeGeo = new THREE.SphereGeometry(0.04, 12, 12)
 const pupilGeo = new THREE.SphereGeometry(0.015, 8, 8)
 
-export default function AvatarMesh({ color, state }) {
+const wizardHatGeo = new THREE.ConeGeometry(0.3, 0.6, 16)
+const topHatGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.4, 16)
+const topHatBrimGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.05, 16)
+const crownGeo = new THREE.CylinderGeometry(0.2, 0.25, 0.2, 8)
+
+export default function AvatarMesh({ color, headColor, bodyColor, legColor, hatId, state }) {
   const bobRef = useRef()
   const armLRef = useRef()
   const armRRef = useRef()
@@ -20,7 +25,12 @@ export default function AvatarMesh({ color, state }) {
   const legRRef = useRef()
   const bodyRef = useRef()
 
-  const bodyMat = useMemo(() => new THREE.MeshStandardMaterial({ color, roughness: 0.7 }), [color])
+  const matBody = useMemo(() => new THREE.MeshStandardMaterial({ color: bodyColor || color, roughness: 0.7 }), [color, bodyColor])
+  const matHead = useMemo(() => new THREE.MeshStandardMaterial({ color: headColor || color, roughness: 0.7 }), [color, headColor])
+  const matLegs = useMemo(() => new THREE.MeshStandardMaterial({ color: legColor || color, roughness: 0.7 }), [color, legColor])
+  const matHatDark = useMemo(() => new THREE.MeshStandardMaterial({ color: '#222', roughness: 0.9 }), [])
+  const matHatBlue = useMemo(() => new THREE.MeshStandardMaterial({ color: '#204080', roughness: 0.9 }), [])
+  const matHatGold = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffd700', roughness: 0.3, metalness: 0.8 }), [])
   const jointMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#333333', roughness: 0.8 }), [])
   const eyeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0.3 }), [])
   const pupilMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.1 }), [])
@@ -91,10 +101,10 @@ export default function AvatarMesh({ color, state }) {
     if (waving) {
       // Enthusiastic wave on right arm
       armRRef.current.rotation.x = THREE.MathUtils.lerp(armRRef.current.rotation.x, 0, k)
-      armRRef.current.rotation.z = -2.2 + Math.sin(t * 15) * 0.4
-      // Left arm slightly raised
+      armRRef.current.rotation.z = 2.5 + Math.sin(t * 15) * 0.3
+      // Left arm slightly outwards
       armLRef.current.rotation.x = THREE.MathUtils.lerp(armLRef.current.rotation.x, 0, k)
-      armLRef.current.rotation.z = THREE.MathUtils.lerp(armLRef.current.rotation.z, 0.5, k)
+      armLRef.current.rotation.z = THREE.MathUtils.lerp(armLRef.current.rotation.z, -0.2, k)
     }
   })
 
@@ -102,15 +112,37 @@ export default function AvatarMesh({ color, state }) {
     <group ref={bobRef}>
       {/* Body container (tilts when walking) */}
       <group ref={bodyRef}>
-        <mesh position={[0, 0.7, 0]} material={bodyMat} castShadow>
+        <mesh position={[0, 0.7, 0]} material={matBody} castShadow>
           <primitive object={bodyGeo} />
         </mesh>
         
         {/* Head */}
         <group position={[0, 1.15, 0]}>
-          <mesh material={bodyMat} castShadow>
+          <mesh material={matHead} castShadow>
             <primitive object={headGeo} />
           </mesh>
+          
+          {/* Hat */}
+          {hatId === 'wizard' && (
+            <mesh position={[0, 0.45, -0.05]} rotation={[-0.1, 0, 0]} material={matHatBlue} castShadow>
+              <primitive object={wizardHatGeo} />
+            </mesh>
+          )}
+          {hatId === 'tophat' && (
+            <group position={[0, 0.4, 0]}>
+              <mesh position={[0, 0, 0]} material={matHatDark} castShadow>
+                <primitive object={topHatGeo} />
+              </mesh>
+              <mesh position={[0, -0.18, 0]} material={matHatDark} castShadow>
+                <primitive object={topHatBrimGeo} />
+              </mesh>
+            </group>
+          )}
+          {hatId === 'crown' && (
+            <mesh position={[0, 0.3, 0]} material={matHatGold} castShadow>
+              <primitive object={crownGeo} />
+            </mesh>
+          )}
           {/* Eyes */}
           <mesh position={[0.1, 0.05, 0.21]} material={eyeMat}>
             <primitive object={eyeGeo} />
@@ -129,13 +161,13 @@ export default function AvatarMesh({ color, state }) {
         {/* Arms (hinge at shoulder joint) */}
         <mesh position={[0.3, 0.9, 0]} material={jointMat} castShadow>
           <primitive object={jointGeo} />
-          <mesh ref={armRRef} material={bodyMat} castShadow>
+          <mesh ref={armRRef} material={matBody} castShadow>
             <primitive object={limbGeo} />
           </mesh>
         </mesh>
         <mesh position={[-0.3, 0.9, 0]} material={jointMat} castShadow>
           <primitive object={jointGeo} />
-          <mesh ref={armLRef} material={bodyMat} castShadow>
+          <mesh ref={armLRef} material={matBody} castShadow>
             <primitive object={limbGeo} />
           </mesh>
         </mesh>
@@ -149,13 +181,13 @@ export default function AvatarMesh({ color, state }) {
       {/* Legs (hinge at hip joint) */}
       <mesh position={[0.14, 0.35, 0]} material={jointMat} castShadow>
         <primitive object={jointGeo} />
-        <mesh ref={legRRef} material={bodyMat} castShadow>
+        <mesh ref={legRRef} material={matLegs} castShadow>
           <primitive object={limbGeo} />
         </mesh>
       </mesh>
       <mesh position={[-0.14, 0.35, 0]} material={jointMat} castShadow>
         <primitive object={jointGeo} />
-        <mesh ref={legLRef} material={bodyMat} castShadow>
+        <mesh ref={legLRef} material={matLegs} castShadow>
           <primitive object={limbGeo} />
         </mesh>
       </mesh>

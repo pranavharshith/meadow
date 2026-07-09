@@ -61,6 +61,10 @@ function pushOut(x, z) {
 export default function Player() {
   const groupRef = useRef()
   const color = useStore((s) => s.color)
+  const headColor = useStore((s) => s.headColor)
+  const bodyColor = useStore((s) => s.bodyColor)
+  const legColor = useStore((s) => s.legColor)
+  const hatId = useStore((s) => s.hatId)
   const view = useStore((s) => s.viewMode)
 
   const fwd = useMemo(() => new THREE.Vector3(), [])
@@ -123,10 +127,6 @@ export default function Player() {
       P.pos.z = nz
       P.avatarYaw = Math.atan2(velocity.x, velocity.z)
     }
-    // When waving, face the camera direction (toward other players you're looking at)
-    if (waving) {
-      P.avatarYaw = look.yaw
-    }
     // Ground the player on whichever surface is highest at their XZ:
     // inside the Meadow Gate plaza the raised step geometry sits above raw
     // terrain, so we must use the plaza floor height there instead of the
@@ -142,7 +142,7 @@ export default function Player() {
 
   return (
     <group ref={groupRef}>
-      <AvatarMesh color={color} state={P} />
+      <AvatarMesh color={color} headColor={headColor} bodyColor={bodyColor} legColor={legColor} hatId={hatId} state={P} />
     </group>
   )
 }

@@ -342,6 +342,10 @@ export default function Net() {
           gold: prof.gold,
           name: prof.name,
           color: prof.color,
+          headColor: prof.head_color,
+          bodyColor: prof.body_color,
+          legColor: prof.leg_color,
+          hatId: prof.hat_id,
           discovered: prof.discovered || [],
           customSpawn: (prof.custom_spawn_x != null ? { x: prof.custom_spawn_x, z: prof.custom_spawn_z } : undefined),
         })
@@ -352,12 +356,16 @@ export default function Net() {
       bridge.isMuted = isMuted
       bridge.toggleMute = toggleMuteLocal
 
-      bridge.saveIdentity = async (name, color) => {
+      bridge.saveIdentity = async (name, color, headColor, bodyColor, legColor, hatId) => {
         clearTimeout(identityTimer.current)
         identityTimer.current = setTimeout(async () => {
           const { data, error } = await supabase.rpc('update_profile', {
             p_name: name,
             p_color: color,
+            p_head_color: headColor,
+            p_body_color: bodyColor,
+            p_leg_color: legColor,
+            p_hat_id: hatId,
           })
           if (error) {
             const m = error.message.toLowerCase()
@@ -370,7 +378,14 @@ export default function Net() {
             useStore.setState({ name: lastProfileRef.current.name, color: lastProfileRef.current.color })
           } else if (data) {
             lastProfileRef.current = { name: data.name, color: data.color }
-            useStore.getState().hydrateProfile({ name: data.name, color: data.color })
+            useStore.getState().hydrateProfile({ 
+              name: data.name, 
+              color: data.color,
+              headColor: data.head_color,
+              bodyColor: data.body_color,
+              legColor: data.leg_color,
+              hatId: data.hat_id,
+            })
           }
         }, 400)
       }
