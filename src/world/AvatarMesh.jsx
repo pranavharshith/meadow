@@ -112,83 +112,74 @@ export default function AvatarMesh({ color, headColor, bodyColor, legColor, hatI
     <group ref={bobRef}>
       {/* Body container (tilts when walking) */}
       <group ref={bodyRef}>
-        <mesh position={[0, 0.7, 0]} material={matBody} castShadow>
-          <primitive object={bodyGeo} />
+        <mesh position={[0, 0.7, 0]} geometry={bodyGeo} material={matBody} castShadow>
+
         </mesh>
         
         {/* Head */}
         <group position={[0, 1.15, 0]}>
-          <mesh material={matHead} castShadow>
-            <primitive object={headGeo} />
+          <mesh geometry={headGeo} material={matHead} castShadow>
+
           </mesh>
           
           {/* Hat */}
           {hatId === 'wizard' && (
-            <mesh position={[0, 0.45, -0.05]} rotation={[-0.1, 0, 0]} material={matHatBlue} castShadow>
-              <primitive object={wizardHatGeo} />
+            <mesh position={[0, 0.45, -0.05]} rotation={[-0.1, 0, 0]} geometry={wizardHatGeo} material={matHatBlue} castShadow>
+
             </mesh>
           )}
           {hatId === 'tophat' && (
             <group position={[0, 0.4, 0]}>
-              <mesh position={[0, 0, 0]} material={matHatDark} castShadow>
-                <primitive object={topHatGeo} />
+              <mesh position={[0, 0, 0]} geometry={topHatGeo} material={matHatDark} castShadow>
               </mesh>
-              <mesh position={[0, -0.18, 0]} material={matHatDark} castShadow>
-                <primitive object={topHatBrimGeo} />
+              <mesh position={[0, -0.18, 0]} geometry={topHatBrimGeo} material={matHatDark} castShadow>
+
               </mesh>
             </group>
           )}
           {hatId === 'crown' && (
-            <mesh position={[0, 0.3, 0]} material={matHatGold} castShadow>
-              <primitive object={crownGeo} />
+            <mesh position={[0, 0.3, 0]} geometry={crownGeo} material={matHatGold} castShadow>
+
             </mesh>
           )}
           {/* Eyes */}
-          <mesh position={[0.1, 0.05, 0.21]} material={eyeMat}>
-            <primitive object={eyeGeo} />
-            <mesh position={[0, 0, 0.03]} material={pupilMat}>
-              <primitive object={pupilGeo} />
+          <mesh position={[0.1, 0.05, 0.21]} geometry={eyeGeo} material={eyeMat}>
+            <mesh position={[0, 0, 0.03]} geometry={pupilGeo} material={pupilMat}>
+
             </mesh>
           </mesh>
-          <mesh position={[-0.1, 0.05, 0.21]} material={eyeMat}>
-            <primitive object={eyeGeo} />
-            <mesh position={[0, 0, 0.03]} material={pupilMat}>
-              <primitive object={pupilGeo} />
+          <mesh position={[-0.1, 0.05, 0.21]} geometry={eyeGeo} material={eyeMat}>
+            <mesh position={[0, 0, 0.03]} geometry={pupilGeo} material={pupilMat}>
+
             </mesh>
           </mesh>
         </group>
         
         {/* Arms (hinge at shoulder joint) */}
-        <mesh position={[0.3, 0.9, 0]} material={jointMat} castShadow>
-          <primitive object={jointGeo} />
-          <mesh ref={armRRef} material={matBody} castShadow>
-            <primitive object={limbGeo} />
+        <mesh position={[0.3, 0.9, 0]} geometry={jointGeo} material={jointMat} castShadow>
+          <mesh ref={armRRef} geometry={limbGeo} material={matBody} castShadow>
           </mesh>
         </mesh>
-        <mesh position={[-0.3, 0.9, 0]} material={jointMat} castShadow>
-          <primitive object={jointGeo} />
-          <mesh ref={armLRef} material={matBody} castShadow>
-            <primitive object={limbGeo} />
+        <mesh position={[-0.3, 0.9, 0]} geometry={jointGeo} material={jointMat} castShadow>
+          <mesh ref={armLRef} geometry={limbGeo} material={matBody} castShadow>
+
           </mesh>
         </mesh>
       </group>
       
       {/* Pelvis */}
-      <mesh position={[0, 0.35, 0]} material={jointMat} castShadow>
-        <primitive object={pelvisGeo} />
+      <mesh position={[0, 0.35, 0]} geometry={pelvisGeo} material={jointMat} castShadow>
+
       </mesh>
 
       {/* Legs (hinge at hip joint) */}
-      <mesh position={[0.14, 0.35, 0]} material={jointMat} castShadow>
-        <primitive object={jointGeo} />
-        <mesh ref={legRRef} material={matLegs} castShadow>
-          <primitive object={limbGeo} />
+      <mesh position={[0.14, 0.35, 0]} geometry={jointGeo} material={jointMat} castShadow>
+        <mesh ref={legRRef} geometry={limbGeo} material={matLegs} castShadow>
         </mesh>
       </mesh>
-      <mesh position={[-0.14, 0.35, 0]} material={jointMat} castShadow>
-        <primitive object={jointGeo} />
-        <mesh ref={legLRef} material={matLegs} castShadow>
-          <primitive object={limbGeo} />
+      <mesh position={[-0.14, 0.35, 0]} geometry={jointGeo} material={jointMat} castShadow>
+        <mesh ref={legLRef} geometry={limbGeo} material={matLegs} castShadow>
+
         </mesh>
       </mesh>
     </group>
