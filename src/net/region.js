@@ -11,7 +11,7 @@ const HYSTERESIS = 20 // must be this far inside new region before switching
 // per-channel presence stays under Realtime's comfortable cap (~30-40).
 // Chat is broadcast on a separate un-sharded channel so it still reaches
 // everyone in the region.
-export const SHARDS_PER_REGION = 4
+export const SHARDS_PER_REGION = 1
 
 export function regionOf(x, z) {
   return { rx: Math.floor(x / REGION), rz: Math.floor(z / REGION) }

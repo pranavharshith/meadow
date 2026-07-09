@@ -94,8 +94,18 @@ export default function CameraRig() {
       target.copy(head)
     }
 
+    // Pre-lerp collision check to prevent steady-state jitter.
+    // By ensuring the target destination is valid, the lerp smoothly resolves to it
+    // without fighting the post-lerp safety clamp.
+    const posPlazaY = plazaFloorHeight(pos.x, pos.z)
+    const posFloorY = posPlazaY !== null ? posPlazaY : terrainHeight(pos.x, pos.z)
+    if (pos.y < posFloorY + 0.6 && view !== 'top') {
+      pos.y = posFloorY + 0.6
+    }
+
     curPos.lerp(pos, k)
     curTarget.lerp(target, k)
+
     
     // Post-lerp collision check: prevent camera from dipping under terrain or plaza structures
     // (We do this on curPos to prevent clipping during fast movement or view transitions)

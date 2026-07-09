@@ -5,6 +5,8 @@ import { Html } from '@react-three/drei'
 import { terrainHeight } from './noise'
 import { plazaFloorHeight } from './SpawnPlaza'
 import { remotePlayers } from '../net/state'
+import { P } from '../player-state'
+import { useStore } from '../store'
 import AvatarMesh from './AvatarMesh'
 
 // Renders everyone else in your region: capsule avatars that smoothly
@@ -69,7 +71,17 @@ export default function RemotePlayers() {
 
   useEffect(() => {
     const tick = () => {
-      const cur = Array.from(remotePlayers.keys())
+      const allPlayers = Array.from(remotePlayers.values())
+      allPlayers.sort((a, b) => {
+        const da = (a.x - P.pos.x) ** 2 + (a.z - P.pos.z) ** 2
+        const db = (b.x - P.pos.x) ** 2 + (b.z - P.pos.z) ** 2
+        return da - db
+      })
+      const cur = allPlayers.slice(0, 20).map(p => p.id)
+      
+      const st = useStore.getState()
+      if (st.setRenderedCount) st.setRenderedCount(cur.length)
+
       setIds((prev) => {
         if (prev.length === cur.length && prev.every((v, i) => v === cur[i])) return prev
         return cur

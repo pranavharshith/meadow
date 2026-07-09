@@ -245,7 +245,19 @@ export default function Net() {
         try { await supabase.removeChannel(chatChannelRef.current) } catch {}
         chatChannelRef.current = null
       }
-      remotePlayers.clear()
+      
+      const oldIds = Array.from(remotePlayers.keys())
+      setTimeout(() => {
+        const activeIds = new Set()
+        if (chatChannelRef.current) {
+          const st = chatChannelRef.current.presenceState()
+          Object.keys(st).forEach(k => activeIds.add(k))
+        }
+        oldIds.forEach((id) => {
+          if (!activeIds.has(id)) remotePlayers.delete(id)
+        })
+      }, 3000)
+
 
       const name = useStore.getState().name
       const color = useStore.getState().color

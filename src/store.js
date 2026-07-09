@@ -122,7 +122,9 @@ export const useStore = create((set, get) => ({
   online: false,
   connectionStatus: 'offline',
   playerCount: 1,
+  renderedCount: 0,
   chat: [],
+
   chatScope: 'region',
 
   setView: (v) => set({ viewMode: v }),
@@ -191,6 +193,7 @@ export const useStore = create((set, get) => ({
   setOnline: (online) => set({ online, connectionStatus: online ? 'connected' : 'offline' }),
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
   setPlayerCount: (playerCount) => set({ playerCount }),
+  setRenderedCount: (renderedCount) => set({ renderedCount }),
   // Server is the source of truth for gold + discovered. Overwrites local.
   hydrateProfile: ({ gold, name, color, headColor, bodyColor, legColor, hatId, discovered, customSpawn }) =>
     set((s) => ({
