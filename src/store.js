@@ -220,15 +220,27 @@ export const useStore = create((set, get) => ({
     const state = get()
     const sel = state.selectedItem
     if (sel.type === 'plot') {
-      if (state.plots.some((p) => p.owner)) {
-        state.flash('you already own a plot')
+      const myPlots = state.plots.filter((p) => p.owner)
+      if (myPlots.length >= 5) {
+        state.flash('you can only own up to 5 plots')
         return
       }
-      if (state.gold < PLOT_COST) {
-        state.flash(`need ${PLOT_COST} gold to claim a plot`)
+      
+      let myArea = 0
+      myPlots.forEach(p => {
+        if (p.shapeType === 0) myArea += 3.14159 * p.width * p.width
+        else myArea += (p.width * 2) * (p.depth * 2)
+      })
+      if (myArea >= 1600) {
+        state.flash('you have reached your land quota (1600 sq m)')
         return
       }
-      set({ placementMode: 'plot', placementSubject: { ...sel, kind: 'plot' } })
+
+      set({ 
+        placementMode: 'plot', 
+        placementSubject: { ...sel, kind: 'plot', shapeType: 0, width: 10, depth: 10 },
+        viewMode: 'drone'
+      })
       return
     }
     const kind = sel.type === 'rock' ? 'rock' : 'tree'
@@ -244,7 +256,7 @@ export const useStore = create((set, get) => ({
 
   cancelPlacement: () => {
     if (!get().placementMode) return
-    set({ placementMode: null, placementSubject: null })
+    set({ placementMode: null, placementSubject: null, viewMode: 'third' })
     get().flash('placement cancelled')
   },
 
@@ -261,7 +273,7 @@ export const useStore = create((set, get) => ({
     const px = placement.x
     const pz = placement.z
     // Clear mode BEFORE async work so a follow-up E press doesn't reopen it.
-    set({ placementMode: null, placementSubject: null })
+    set({ placementMode: null, placementSubject: null, viewMode: 'third' })
     if (mode === 'tree') {
       await get()._finalizePlant(px, pz, sub)
     } else if (mode === 'rock') {
@@ -269,6 +281,12 @@ export const useStore = create((set, get) => ({
     } else if (mode === 'plot') {
       await get()._finalizeBuyPlot(px, pz, sub)
     }
+  },
+
+  updateCustomPlot: (shapeType, width, depth) => {
+    set((s) => ({
+      placementSubject: s.placementSubject ? { ...s.placementSubject, shapeType, width, depth } : null
+    }))
   },
 
   _finalizePlant: async (px, pz, sub) => {
@@ -368,14 +386,24 @@ export const useStore = create((set, get) => ({
       if (typeof res.gold === 'number') set({ gold: res.gold })
       // Plot added locally via broadcast receiver
     } else {
-      if (state.plots.some((p) => p.owner)) {
-        state.flash('you already own a plot')
+      const myPlots = state.plots.filter((p) => p.owner)
+      if (myPlots.length >= 5) {
+        state.flash('you can only own up to 5 plots')
         return
       }
-      set((s) => ({
-        gold: s.gold - PLOT_COST,
-        plots: [...s.plots, { id: genId(), x: px, z: pz, owner: true, radius: 10, name: s.name }],
-      }))
+      set((s) => {
+        let cost = 0
+        if (sub.shapeType === 0) cost = Math.round((3.14159 * sub.width * sub.width) * 0.8)
+        else cost = Math.round((sub.width * 2 * sub.depth * 2) * 0.15)
+        
+        return {
+          gold: s.gold - cost,
+          plots: [...s.plots, { 
+            id: genId(), x: px, z: pz, owner: true, 
+            radius: sub.width, shapeType: sub.shapeType, width: sub.width, depth: sub.depth, name: s.name 
+          }],
+        }
+      })
     }
     state.flash('plot claimed!')
   },

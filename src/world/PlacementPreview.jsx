@@ -128,10 +128,19 @@ function RockGhost({ rockShape, material }) {
   )
 }
 
-function PlotGhost({ material }) {
+function PlotGhost({ material, subject }) {
+  const w = subject?.width || 20
+  const d = subject?.depth || 20
+  if (subject?.shapeType === 0) {
+    return (
+      <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]} material={material}>
+        <circleGeometry args={[w, 48]} />
+      </mesh>
+    )
+  }
   return (
     <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]} material={material}>
-      <torusGeometry args={[10, 0.15, 8, 48]} />
+      <planeGeometry args={[w * 2, d * 2]} />
     </mesh>
   )
 }
@@ -171,15 +180,36 @@ export default function PlacementPreview() {
     groupRef.current.rotation.y = mode === 'rock' ? P.avatarYaw : 0
 
     // ── Validity ────────────────────────────────────────────────────────
-    const myR = mode === 'rock' ? ROCK_RADIUS : mode === 'plot' ? PLOT_RADIUS : TREE_RADIUS
+    const myR = mode === 'rock' ? ROCK_RADIUS : TREE_RADIUS
     let valid = true
     let reason = ''
 
+    // Helper for plot bounds checking
+    const inPlot = (px, pz, p) => {
+      const w = p.width ?? p.radius ?? 10
+      const d = p.depth ?? p.radius ?? 10
+      if (p.shapeType === 1) {
+        return Math.abs(px - p.x) <= w && Math.abs(pz - p.z) <= d
+      }
+      return Math.hypot(p.x - px, p.z - pz) <= w
+    }
+
     if (mode === 'plot') {
       const store = useStore.getState()
+      const sw = subject.width || 20
+      const sd = subject.depth || 20
+      
+      const checkDist = (ox, oz, minDist) => {
+        if (subject.shapeType === 1) {
+          // crude AABB expansion check
+          return Math.abs(ox - px) < sw + minDist && Math.abs(oz - pz) < sd + minDist
+        }
+        return Math.hypot(ox - px, oz - pz) < sw + minDist
+      }
+
       // Check distance from landmarks
       for (const lm of LANDMARKS) {
-        if (Math.hypot(lm.x - px, lm.z - pz) < PLOT_LANDMARK_MIN) {
+        if (checkDist(lm.x, lm.z, PLOT_LANDMARK_MIN)) {
           valid = false
           reason = 'too close to a landmark'
           break
@@ -188,41 +218,35 @@ export default function PlacementPreview() {
       // Check distance from other plots
       if (valid) {
         for (const p of store.plots) {
-          if (Math.hypot(p.x - px, p.z - pz) < PLOT_PLOT_MIN) {
+          const pw = p.width ?? p.radius ?? 10
+          if (checkDist(p.x, p.z, pw + 5)) { // 5 unit buffer between plots
             valid = false
             reason = 'overlaps another plot'
             break
           }
         }
       }
-      // Check gold
-      if (valid && store.gold < 250) {
+      // Check gold handled by UI now, but just in case
+      let cost = 0
+      if (subject.shapeType === 0) cost = Math.round((3.14159 * sw * sw) * 0.8)
+      else cost = Math.round((sw * sd) * 0.6)
+      if (valid && store.gold < cost) {
         valid = false
-        reason = `need 250 gold`
+        reason = `need ${cost} gold`
       }
-      // Water: check the entire 10-unit radius circle, not just the center
+      // Water: crude bounds check
       if (valid) {
         for (const p of PONDS) {
-          if (Math.hypot(p.x - px, p.z - pz) < p.r + WATER_MARGIN + PLOT_RADIUS) {
+          if (checkDist(p.x, p.z, p.r + WATER_MARGIN)) {
             valid = false
             reason = 'plot would overlap water'
             break
           }
         }
         if (valid) {
-          const halfW = STREAM_WIDTH * 0.5 + WATER_MARGIN + PLOT_RADIUS
           for (let i = 0; i < STREAM_POINTS.length - 1; i++) {
             const a = STREAM_POINTS[i]
-            const b = STREAM_POINTS[i + 1]
-            const dx = b.x - a.x
-            const dz = b.z - a.z
-            const len2 = dx * dx + dz * dz
-            if (len2 <= 1e-6) continue
-            let t = ((px - a.x) * dx + (pz - a.z) * dz) / len2
-            t = t < 0 ? 0 : t > 1 ? 1 : t
-            const cx = a.x + dx * t
-            const cz = a.z + dz * t
-            if (Math.hypot(px - cx, pz - cz) < halfW) {
+            if (checkDist(a.x, a.z, STREAM_WIDTH * 0.5 + WATER_MARGIN)) {
               valid = false
               reason = 'plot would overlap water'
               break
@@ -230,20 +254,26 @@ export default function PlacementPreview() {
           }
         }
       }
-      // Slope: sample around the full plot circle so the fence sits flat
+      // Slope: sample bounds
       if (valid) {
-        const SAMPLES = 8
         let maxH = py
         let minH = py
-        for (let i = 0; i < SAMPLES; i++) {
-          const a = (Math.PI * 2 * i) / SAMPLES
-          const sx = px + Math.cos(a) * PLOT_RADIUS
-          const sz = pz + Math.sin(a) * PLOT_RADIUS
-          const h = terrainHeight(sx, sz)
+        const samples = []
+        if (subject.shapeType === 0) {
+          for (let i = 0; i < 8; i++) {
+            const a = (Math.PI * 2 * i) / 8
+            samples.push({ x: px + Math.cos(a) * sw, z: pz + Math.sin(a) * sw })
+          }
+        } else {
+          samples.push({ x: px - sw, z: pz - sd }, { x: px + sw, z: pz - sd })
+          samples.push({ x: px - sw, z: pz + sd }, { x: px + sw, z: pz + sd })
+        }
+        for (const s of samples) {
+          const h = terrainHeight(s.x, s.z)
           if (h > maxH) maxH = h
           if (h < minH) minH = h
         }
-        if (maxH - minH > SLOPE_LIMIT * 2) {
+        if (maxH - minH > SLOPE_LIMIT * 3) {
           valid = false
           reason = 'ground is too steep for a plot'
         }
@@ -271,8 +301,19 @@ export default function PlacementPreview() {
         }
       }
     }
-    // For plots, skip tree/rock proximity checks (plot is territorial, not physical)
+    // For plots, skip tree/rock/territory checks (plot is territorial, not physical)
     if (mode !== 'plot') {
+      if (valid) {
+        const store = useStore.getState()
+        for (const p of store.plots) {
+          // If we're planting inside a plot that we don't own, block it!
+          if (!p.owner && inPlot(px, pz, p)) {
+            valid = false
+            reason = 'this land belongs to someone else'
+            break
+          }
+        }
+      }
       if (valid) {
         for (const t of treeRegistry) {
           const other = t.placementR ?? t.r ?? 0.7
@@ -312,7 +353,7 @@ export default function PlacementPreview() {
   return (
     <group ref={groupRef}>
       {mode === 'plot' ? (
-        <PlotGhost material={material} />
+        <PlotGhost material={material} subject={subject} />
       ) : mode === 'rock' ? (
         <RockGhost rockShape={subject.rockShape ?? 2} material={material} />
       ) : (

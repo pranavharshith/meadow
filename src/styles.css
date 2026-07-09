@@ -1580,3 +1580,126 @@ canvas { display: block; touch-action: none; }
     height: 104px;
   }
 }
+
+/* Plot Customizer */
+.plot-customizer {
+  position: fixed;
+  left: 50%;
+  top: 108px;
+  transform: translate(-50%, -8px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(24, 28, 22, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(126, 227, 138, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  color: #fff;
+  z-index: 5;
+  width: 280px;
+  animation: place-banner-in 0.18s ease-out;
+}
+
+.pc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pc-header h2 {
+  font-size: 15px;
+  margin: 0;
+  font-weight: 700;
+}
+.pc-cost {
+  font-weight: 700;
+  color: #ffd700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pc-field label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.pc-field input[type=range] {
+  width: 100%;
+  accent-color: #7ee38a;
+}
+
+.pc-toggle {
+  display: flex;
+  background: rgba(0,0,0,0.3);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.pc-toggle button {
+  flex: 1;
+  background: transparent;
+  color: rgba(255,255,255,0.6);
+  border: none;
+  padding: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.pc-toggle button.active {
+  background: rgba(126, 227, 138, 0.2);
+  color: #fff;
+  font-weight: bold;
+}
+
+.pc-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+}
+.pc-status {
+  font-size: 12px;
+  text-align: center;
+  color: rgba(126, 227, 138, 0.95);
+}
+.pc-actions {
+  display: flex;
+  gap: 8px;
+}
+.pc-cancel, .pc-confirm {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.pc-cancel {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+.pc-confirm {
+  background: linear-gradient(135deg, #a6ecb4, #6bd08a);
+  color: #0f2617;
+}
+.pc-confirm:disabled {
+  background: rgba(120,120,120,0.28);
+  color: rgba(255,255,255,0.4);
+  cursor: not-allowed;
+}
+

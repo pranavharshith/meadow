@@ -140,6 +140,9 @@ export default function Net() {
         x: payload.x,
         z: payload.z,
         radius: payload.radius ?? 10,
+        shapeType: payload.shape_type ?? 0,
+        width: payload.width ?? 20,
+        depth: payload.depth ?? 20,
         owner: false,
         name: payload.name || '',
       })
@@ -215,8 +218,11 @@ export default function Net() {
         x: p.x,
         z: p.z,
         radius: p.radius ?? 10,
+        shapeType: p.shape_type ?? 0,
+        width: p.width ?? 20,
+        depth: p.depth ?? 20,
         owner: p.owner_id === meId.current,
-        name: p.owner_id === meId.current ? useStore.getState().name : '',
+        name: p.players?.name || '',
       }))
       useStore.getState().setPlots(plots)
     }
@@ -496,28 +502,37 @@ export default function Net() {
         return { ok: true, gold: data }
       }
 
-      bridge.buyPlot = async (plot) => {
-        const { data, error } = await supabase.rpc('buy_plot', {
+      bridge.buyCustomPlot = async (plot) => {
+        const { data, error } = await supabase.rpc('buy_custom_plot', {
           p_id: plot.id,
+          p_shape: plot.shapeType,
+          p_w: plot.width,
+          p_d: plot.depth,
           p_x: plot.x,
           p_z: plot.z,
         })
-        if (error) return { ok: false, error: error.message }
+        if (error) {
+          return { ok: false, error: error.message }
+        }
         // Broadcast so region peers see the plot immediately.
-        const ch = posChannelRef.current
-        if (ch && ch.state === 'joined') {
-          ch.send({
-            type: 'broadcast',
-            event: 'plot',
-            payload: {
-              id: plot.id,
-              owner_id: meId.current,
-              x: plot.x,
-              z: plot.z,
-              radius: 10,
-              name: useStore.getState().name,
-            },
-          })
+        const posCh = posChannelRef.current
+        if (posCh && posCh.state === 'joined') {
+          posCh
+            .send({
+              type: 'broadcast',
+              event: 'plot',
+              payload: {
+                id: plot.id,
+                owner_id: meId.current,
+                x: plot.x,
+                z: plot.z,
+                radius: plot.width,
+                shape_type: plot.shapeType,
+                width: plot.width,
+                depth: plot.depth,
+                name: useStore.getState().name,
+              },
+            })
         }
         return { ok: true, gold: data }
       }
@@ -632,7 +647,7 @@ export default function Net() {
       bridge.removeRock = async () => ({ ok: false, error: 'offline' })
       bridge.teleport = async () => ({ ok: false, error: 'offline' })
       bridge.setSpawn = async () => ({ ok: false, error: 'offline' })
-      bridge.buyPlot = async () => ({ ok: false, error: 'offline' })
+      bridge.buyCustomPlot = async () => ({ ok: false, error: 'offline' })
       bridge.dye = async () => ({ ok: false, error: 'offline' })
       clearTimeout(identityTimer.current)
       clearInterval(reconnectInterval)

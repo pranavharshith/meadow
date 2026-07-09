@@ -79,6 +79,9 @@ export default function CameraRig() {
     } else if (view === 'top') {
       pos.set(P.pos.x, P.pos.y + TOP_HEIGHT * look.zoom, P.pos.z + 0.01)
       target.set(P.pos.x, P.pos.y, P.pos.z)
+    } else if (view === 'drone') {
+      pos.set(P.pos.x, P.pos.y + (TOP_HEIGHT * 0.45) * look.zoom, P.pos.z + 0.01)
+      target.set(P.pos.x, P.pos.y, P.pos.z)
     } else {
       const cp = Math.cos(look.pitch)
       const dist = THIRD_DIST * look.zoom

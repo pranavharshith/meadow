@@ -16,8 +16,9 @@ import Toast from './Toast'
 import PlacementBanner from './PlacementBanner'
 import ActionPill from './ActionPill'
 import NavIndicator from './NavIndicator'
+import PlotCustomizer from './PlotCustomizer'
 
-const VIEW_LABEL = { third: 'Follow', first: 'First person', top: 'Map' }
+const VIEW_LABEL = { third: 'Follow', first: 'First person', top: 'Map', drone: 'Drone' }
 
 export default function Hud() {
   const gold = useStore((s) => s.gold)
@@ -64,6 +65,7 @@ export default function Hud() {
       <PlaceLabel />
       <Toast />
       <PlacementBanner />
+      <PlotCustomizer />
       <ActionPill selection={selection} onCut={cutSelection} />
 
       {!seen && (

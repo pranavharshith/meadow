@@ -17,7 +17,7 @@ export default function PlacementBanner() {
     return () => window.clearInterval(id)
   }, [mode])
 
-  if (!mode || !subject) return null
+  if (!mode || !subject || mode === 'plot') return null
 
   const fallbackIcon = mode === 'rock' ? 'rock' : 'tree'
   const label = subject.emoji || fallbackIcon

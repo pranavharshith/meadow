@@ -31,7 +31,7 @@ export const bridge = {
   dye:         async (_treeId, _color, _cost) => ({ ok: false, error: 'offline' }),
 
   // Plot mutation (server-persisted, one per player, permanent)
-  buyPlot:     async (_plot)              => ({ ok: false, error: 'offline' }),
+  buyCustomPlot: async (_plot)              => ({ ok: false, error: 'offline' }),
 
   // Chat: gate + broadcast in one call. Returns { ok, gold?, error?, text? }.
   sendChat:    noopAsync,

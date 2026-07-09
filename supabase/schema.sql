@@ -692,6 +692,9 @@ create table if not exists public.plots (
   x           real        not null,
   z           real        not null,
   radius      real        not null default 10,
+  shape_type  smallint    not null default 0, -- 0=circle, 1=rectangle
+  width       real        not null default 20,
+  depth       real        not null default 20,
   placed_at   timestamptz not null default now()
 );
 
@@ -727,8 +730,8 @@ begin
 
   if crowded > 0 then raise exception 'too close to another plot'; end if;
 
-  insert into public.plots (id, owner_id, region_x, region_z, x, z, radius, placed_at)
-    values (p_id, auth.uid(), rx, rz, p_x, p_z, 10, now());
+  insert into public.plots (id, owner_id, region_x, region_z, x, z, radius, shape_type, width, depth, placed_at)
+    values (p_id, auth.uid(), rx, rz, p_x, p_z, 10, 0, 20, 20, now());
 
   update public.players
     set gold = gold - 250,
@@ -927,3 +930,79 @@ grant execute on function public.dye_tree(uuid, text, integer) to authenticated;
 grant execute on function public.sanitize_chat(text)          to authenticated;
 grant execute on function public.check_region_chat(text)      to authenticated;
 grant execute on function public.send_world_chat(text)        to authenticated;
+
+drop function if exists public.buy_custom_plot(uuid, smallint, real, real, real, real);
+create or replace function public.buy_custom_plot(p_id uuid, p_shape smallint, p_w real, p_d real, p_x real, p_z real)
+returns integer
+language plpgsql security definer set search_path = public
+as $body$
+declare
+  rx int; rz int;
+  crowded int;
+  new_gold int;
+  cost int;
+  my_plot_count int;
+  my_total_area real := 0;
+  new_area real := 0;
+  max_area real := 1600; -- equivalent to one 40x40 area (w=20, d=20)
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+
+  -- Validate dimensions and calculate area
+  if p_shape = 0 then
+    -- circle, p_w is radius
+    if p_w < 5 or p_w > 20 then raise exception 'invalid radius'; end if;
+    new_area := 3.14159 * p_w * p_w;
+    cost := round(new_area * 0.8)::int;
+  elsif p_shape = 1 then
+    -- rectangle
+    if p_w < 10 or p_w > 40 or p_d < 10 or p_d > 40 then raise exception 'invalid dimensions'; end if;
+    new_area := (p_w * 2) * (p_d * 2);
+    cost := round(new_area * 0.15)::int; -- 0.15 per sq meter so it matches old math
+  else
+    raise exception 'invalid shape';
+  end if;
+
+  -- Check plot limit and quota
+  select count(*), coalesce(sum(
+    case when shape_type = 0 then 3.14159 * width * width
+         else (width * 2) * (depth * 2) end
+  ), 0)
+  into my_plot_count, my_total_area
+  from public.plots where owner_id = auth.uid();
+
+  if my_plot_count >= 5 then
+    raise exception 'limit of 5 plots reached';
+  end if;
+
+  if (my_total_area + new_area) > max_area then
+    raise exception 'exceeds maximum land quota (1600 sq meters)';
+  end if;
+
+  rx := floor(p_x / 120.0)::int;
+  rz := floor(p_z / 120.0)::int;
+
+  select count(*) into crowded
+    from public.plots
+    where region_x = rx and region_z = rz
+      and (x - p_x) * (x - p_x) + (z - p_z) * (z - p_z) < 225.0;
+
+  if crowded > 0 then raise exception 'too close to another plot'; end if;
+
+  insert into public.plots (id, owner_id, region_x, region_z, x, z, radius, shape_type, width, depth, placed_at)
+    values (p_id, auth.uid(), rx, rz, p_x, p_z, p_w, p_shape, p_w, p_d, now());
+
+  update public.players
+    set gold = gold - cost,
+        updated_at = now()
+    where id = auth.uid() and gold >= cost
+    returning gold into new_gold;
+    
+  if new_gold is null then
+    delete from public.plots where id = p_id;
+    raise exception 'not enough gold';
+  end if;
+
+  return new_gold;
+end;
+$body$;

@@ -1,6 +1,7 @@
 // Deterministic value noise + fractal terrain height.
 // The SAME terrainHeight() is used to displace the ground mesh and to place
 // grass, flowers and trees, so everything sits perfectly on the surface.
+import { useStore } from '../store'
 
 export function mulberry32(a) {
   return function () {
@@ -87,6 +88,33 @@ export function terrainHeight(x, z) {
     const t = (r - CRATER_R) / BLEND_W
     const s = t * t * (3 - 2 * t) // smoothstep
     return CENTER_Y + (raw - CENTER_Y) * s
+  }
+
+  // Flatten active player plots so owners have a clean foundation
+  const plots = useStore.getState().plots || []
+  for (let i = 0; i < plots.length; i++) {
+    const p = plots[i]
+    let dist = 0
+    if (p.shapeType === 1) {
+      // Box SDF: 0 inside, >0 outside
+      const dx = Math.max(Math.abs(x - p.x) - (p.width ?? p.radius ?? 10), 0)
+      const dz = Math.max(Math.abs(z - p.z) - (p.depth ?? p.radius ?? 10), 0)
+      dist = Math.hypot(dx, dz)
+    } else {
+      const pr = Math.hypot(x - p.x, z - p.z)
+      dist = Math.max(pr - (p.width ?? p.radius ?? 10), 0)
+    }
+    
+    if (dist <= 6.0) { // blend over 6 units outside the plot
+      const centerH = rawTerrainHeight(p.x, p.z)
+      if (dist === 0) {
+        return centerH
+      } else {
+        const t = dist / 6.0
+        const s = t * t * (3 - 2 * t)
+        return centerH + (raw - centerH) * s
+      }
+    }
   }
 
   // Flatten ponds so water geometry doesn't clip, carving a slight crater
