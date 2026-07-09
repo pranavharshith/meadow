@@ -160,6 +160,7 @@ export default function PlacementPreview() {
         transparent: true,
         opacity: 0.42,
         depthWrite: false,
+        depthTest: false,
         toneMapped: false,
       }),
     [mode] // reset when mode changes (tree ↔ rock)

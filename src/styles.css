@@ -1703,3 +1703,5 @@ canvas { display: block; touch-action: none; }
   cursor: not-allowed;
 }
 
+.plot-customizer { pointer-events: auto !important; }
+.plot-customizer { left: 24px !important; transform: none !important; }

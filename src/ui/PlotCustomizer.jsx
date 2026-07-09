@@ -39,8 +39,10 @@ export default function PlotCustomizer() {
   const myPlots = plots.filter((p) => p.owner)
   let myUsedArea = 0
   myPlots.forEach((p) => {
-    if (p.shapeType === 0) myUsedArea += 3.14159 * p.width * p.width
-    else myUsedArea += (p.width * 2) * (p.depth * 2)
+    const pw = p.width ?? 10
+    const pd = p.depth ?? 10
+    if (p.shapeType === 0 || p.shapeType === undefined) myUsedArea += 3.14159 * pw * pw
+    else myUsedArea += (pw * 2) * (pd * 2)
   })
 
   const maxArea = 1600

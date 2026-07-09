@@ -503,14 +503,16 @@ export default function Net() {
       }
 
       bridge.buyCustomPlot = async (plot) => {
-        const { data, error } = await supabase.rpc('buy_custom_plot', {
-          p_id: plot.id,
-          p_shape: plot.shapeType,
-          p_w: plot.width,
-          p_d: plot.depth,
-          p_x: plot.x,
-          p_z: plot.z,
-        })
+        const params = {
+          p_id:    String(plot.id),
+          p_shape: Math.round(Number(plot.shapeType ?? 0)),
+          p_w:     Number(plot.width  ?? 10),
+          p_d:     Number(plot.depth  ?? 10),
+          p_x:     Number(plot.x),
+          p_z:     Number(plot.z),
+        }
+        console.log('[buyCustomPlot] sending:', params)
+        const { data, error } = await supabase.rpc('buy_custom_plot', params)
         if (error) {
           return { ok: false, error: error.message }
         }

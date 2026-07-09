@@ -51,7 +51,15 @@ export default function Shop() {
   const currentItem =
     currentList.find((i) => i.id === selectedItem.id) ||
     (tab === 'trees' ? TREE_ITEMS[0] : tab === 'rocks' ? ROCK_ITEMS[0] : PLOT_ITEM)
-  const hasPlot = plots.some((p) => p.owner)
+  const myPlots = plots.filter((p) => p.owner)
+  let myUsedArea = 0
+  myPlots.forEach((p) => {
+    const pw = p.width ?? 10
+    const pd = p.depth ?? 10
+    if (p.shapeType === 0 || p.shapeType === undefined) myUsedArea += 3.14159 * pw * pw
+    else myUsedArea += (pw * 2) * (pd * 2)
+  })
+  const hasMaxPlots = myPlots.length >= 5 || myUsedArea >= 1600
 
   return (
     <div className="shop-overlay no-look" onClick={(e) => { if (e.target === e.currentTarget) setShopOpen(false) }}>
@@ -93,8 +101,8 @@ export default function Shop() {
             const itemType = tab === 'trees' ? 'tree' : tab === 'rocks' ? 'rock' : 'plot'
             const isSelected =
               selectedItem.id === item.id && selectedItem.type === itemType
-            const cantBuyPlot = itemType === 'plot' && hasPlot
-            const canAfford = gold >= item.cost && !cantBuyPlot
+            const cantBuyPlot = itemType === 'plot' && hasMaxPlots
+            const canAfford = (itemType === 'plot' ? (gold >= item.cost && !hasMaxPlots) : (gold >= item.cost))
             return (
               <ItemCard
                 key={item.id}
@@ -111,6 +119,9 @@ export default function Shop() {
                     cost: item.cost,
                   })
                   setShopOpen(false) // Auto-close!
+                  if (itemType === 'plot') {
+                    setTimeout(() => useStore.getState().enterPlacement(), 10)
+                  }
                 }}
               />
             )

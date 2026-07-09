@@ -228,8 +228,10 @@ export const useStore = create((set, get) => ({
       
       let myArea = 0
       myPlots.forEach(p => {
-        if (p.shapeType === 0) myArea += 3.14159 * p.width * p.width
-        else myArea += (p.width * 2) * (p.depth * 2)
+        const pw = p.width ?? 10
+        const pd = p.depth ?? 10
+        if (p.shapeType === 0 || p.shapeType === undefined) myArea += 3.14159 * pw * pw
+        else myArea += (pw * 2) * (pd * 2)
       })
       if (myArea >= 1600) {
         state.flash('you have reached your land quota (1600 sq m)')
@@ -372,19 +374,41 @@ export const useStore = create((set, get) => ({
   _finalizeBuyPlot: async (px, pz, sub) => {
     const state = get()
     if (bridge.online) {
-      const plot = { id: genId(), x: px, z: pz }
-      const res = await bridge.buyPlot(plot)
+      const plot = { 
+        id: genId(), 
+        x: px, 
+        z: pz,
+        shapeType: sub.shapeType,
+        width: sub.width,
+        depth: sub.depth
+      }
+      const res = await bridge.buyCustomPlot(plot)
       if (!res.ok) {
+        console.error('[buyPlot] server error:', res.error)
         const map = {
           'already owned': 'you already own a plot',
+          'limit of 5 plots reached': 'you can only own 5 plots',
           'too close to another plot': 'too close to another plot',
-          'not enough gold': `need ${PLOT_COST} gold`,
+          'exceeds maximum land quota (1600 sq meters)': 'land quota exceeded',
+          'not enough gold': 'not enough gold',
         }
-        state.flash(map[res.error] || 'could not claim plot')
+        state.flash(map[res.error] || res.error || 'could not claim plot')
         return
       }
       if (typeof res.gold === 'number') set({ gold: res.gold })
-      // Plot added locally via broadcast receiver
+      // Add plot to local state directly (broadcast receiver skips own events)
+      get().addPlot({
+        id: plot.id,
+        x: px,
+        z: pz,
+        radius: plot.width,
+        shapeType: plot.shapeType ?? 0,
+        width: plot.width,
+        depth: plot.depth,
+        owner: true,
+        name: get().name,
+      })
+      get().flash('plot claimed! 🏡')
     } else {
       const myPlots = state.plots.filter((p) => p.owner)
       if (myPlots.length >= 5) {

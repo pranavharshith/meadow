@@ -100,8 +100,8 @@ export const PLOT_ITEM = {
   id: 'plot',
   name: 'Personal Plot',
   type: 'plot',
-  cost: 250,
+  cost: 60,
   emoji: '📌',
-  desc: 'Claim a circle of land others can\'t plant on',
+  desc: 'Claim land! Starts at 60g',
   color: '#5ba8d8',
 }

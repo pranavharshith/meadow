@@ -935,7 +935,7 @@ drop function if exists public.buy_custom_plot(uuid, smallint, real, real, real,
 create or replace function public.buy_custom_plot(p_id uuid, p_shape smallint, p_w real, p_d real, p_x real, p_z real)
 returns integer
 language plpgsql security definer set search_path = public
-as $body$
+as $$
 declare
   rx int; rz int;
   crowded int;
@@ -944,29 +944,29 @@ declare
   my_plot_count int;
   my_total_area real := 0;
   new_area real := 0;
-  max_area real := 1600; -- equivalent to one 40x40 area (w=20, d=20)
+  max_area real := 1600;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
 
-  -- Validate dimensions and calculate area
+  -- Validate dimensions and calculate cost
   if p_shape = 0 then
-    -- circle, p_w is radius
+    -- circle: p_w = radius (5..20)
     if p_w < 5 or p_w > 20 then raise exception 'invalid radius'; end if;
     new_area := 3.14159 * p_w * p_w;
-    cost := round(new_area * 0.8)::int;
+    cost := greatest(1, round(new_area * 0.8)::int);
   elsif p_shape = 1 then
-    -- rectangle
-    if p_w < 10 or p_w > 40 or p_d < 10 or p_d > 40 then raise exception 'invalid dimensions'; end if;
-    new_area := (p_w * 2) * (p_d * 2);
-    cost := round(new_area * 0.15)::int; -- 0.15 per sq meter so it matches old math
+    -- rectangle: p_w = half-width, p_d = half-depth (10..40)
+    if p_w < 5 or p_w > 40 or p_d < 5 or p_d > 40 then raise exception 'invalid dimensions'; end if;
+    new_area := (p_w * 2.0) * (p_d * 2.0);
+    cost := greatest(1, round(new_area * 0.15)::int);
   else
     raise exception 'invalid shape';
   end if;
 
-  -- Check plot limit and quota
+  -- Check plot count + area quota
   select count(*), coalesce(sum(
     case when shape_type = 0 then 3.14159 * width * width
-         else (width * 2) * (depth * 2) end
+         else (width * 2.0) * (depth * 2.0) end
   ), 0)
   into my_plot_count, my_total_area
   from public.plots where owner_id = auth.uid();
@@ -982,10 +982,11 @@ begin
   rx := floor(p_x / 120.0)::int;
   rz := floor(p_z / 120.0)::int;
 
+  -- Proximity check: ensure centers are at least (p_w + 5) units apart
   select count(*) into crowded
     from public.plots
     where region_x = rx and region_z = rz
-      and (x - p_x) * (x - p_x) + (z - p_z) * (z - p_z) < 225.0;
+      and sqrt((x - p_x)^2 + (z - p_z)^2) < (coalesce(width, 10) + p_w + 5.0);
 
   if crowded > 0 then raise exception 'too close to another plot'; end if;
 
@@ -997,7 +998,7 @@ begin
         updated_at = now()
     where id = auth.uid() and gold >= cost
     returning gold into new_gold;
-    
+
   if new_gold is null then
     delete from public.plots where id = p_id;
     raise exception 'not enough gold';
@@ -1005,4 +1006,6 @@ begin
 
   return new_gold;
 end;
-$body$;
+$$;
+
+grant execute on function public.buy_custom_plot(uuid, smallint, real, real, real, real) to authenticated;
