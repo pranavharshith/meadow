@@ -32,104 +32,118 @@ const rippleMat = new THREE.MeshBasicMaterial({
   depthWrite: false
 })
 
+const POOL_SIZE = 50
+
 export default function WaterEffect() {
-  const waterEvent = useStore((s) => s.waterEvent)
-  const groupRef = useRef()
+  const waterEvents = useStore((s) => s.waterEvent) // wait, waterEvent is a single object or signal?
   const instancedRef = useRef()
   const rippleRef = useRef()
-  const timeRef = useRef(-1)
-  const posRef = useRef(new THREE.Vector3())
+  const dummy = useMemo(() => new THREE.Object3D(), [])
+  const lastEventId = useRef(0)
 
-  // Per-particle initial trajectories
-  const particles = useMemo(() => {
-    const vels = []
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-      const angle = (i / PARTICLE_COUNT) * Math.PI * 2 + (Math.random() - 0.5)
-      const speed = 1.2 + Math.random() * 1.5
-      const rise = 2.0 + Math.random() * 1.5
-      vels.push({
-        vx: Math.cos(angle) * speed,
-        vz: Math.sin(angle) * speed,
-        vy: rise,
-        scale: 0.6 + Math.random() * 0.8,
-        rotSpeed: (Math.random() - 0.5) * 12
-      })
+  // Pool state
+  const pool = useMemo(() => {
+    const arr = []
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const p = []
+      for (let j = 0; j < PARTICLE_COUNT; j++) {
+        const angle = (j / PARTICLE_COUNT) * Math.PI * 2 + (Math.random() - 0.5)
+        const speed = 1.2 + Math.random() * 1.5
+        const rise = 2.0 + Math.random() * 1.5
+        p.push({ vx: Math.cos(angle) * speed, vz: Math.sin(angle) * speed, vy: rise, scale: 0.6 + Math.random() * 0.8, rotSpeed: (Math.random() - 0.5) * 12 })
+      }
+      arr.push({ active: false, time: 0, x: 0, y: 0, z: 0, particles: p })
     }
-    return vels
+    return arr
   }, [])
 
-  const dummy = useMemo(() => new THREE.Object3D(), [])
-  const lastEventRef = useRef(null)
-
   useFrame((_, dt) => {
-    if (!groupRef.current) return
+    if (!instancedRef.current || !rippleRef.current) return
 
-    if (waterEvent && waterEvent !== lastEventRef.current) {
-      lastEventRef.current = waterEvent
-      timeRef.current = 0
-      const wy = terrainHeight(waterEvent.x, waterEvent.z)
-      posRef.current.set(waterEvent.x, wy, waterEvent.z)
-      groupRef.current.position.copy(posRef.current)
+    // Check for new event
+    const e = useStore.getState().waterEvent
+    if (e && e.id !== lastEventId.current) {
+      lastEventId.current = e.id
+      // Find inactive
+      for (let i = 0; i < POOL_SIZE; i++) {
+        if (!pool[i].active) {
+          pool[i].active = true
+          pool[i].time = 0
+          pool[i].x = e.x
+          pool[i].z = e.z
+          pool[i].y = terrainHeight(e.x, e.z)
+          break
+        }
+      }
     }
 
-    if (timeRef.current < 0) {
-      groupRef.current.visible = false
-      return
-    }
+    let dropsDirty = false
+    let rippleDirty = false
 
-    groupRef.current.visible = true
-    timeRef.current += dt
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const effect = pool[i]
+      if (!effect.active) continue
 
-    const t = timeRef.current
-    const progress = t / DURATION
+      effect.time += dt
+      const t = effect.time
+      const progress = t / DURATION
 
-    if (progress > 1) {
-      timeRef.current = -1
-      groupRef.current.visible = false
-      return
-    }
+      if (progress > 1) {
+        effect.active = false
+        // Hide ripple
+        dummy.position.set(0, -9999, 0)
+        dummy.scale.set(0, 0, 0)
+        dummy.updateMatrix()
+        rippleRef.current.setMatrixAt(i, dummy.matrix)
+        rippleDirty = true
+        // Hide drops
+        for (let j = 0; j < PARTICLE_COUNT; j++) {
+          instancedRef.current.setMatrixAt(i * PARTICLE_COUNT + j, dummy.matrix)
+        }
+        dropsDirty = true
+        continue
+      }
 
-    // Ripple expansion and fade
-    if (rippleRef.current) {
+      // Update Ripple
       const rScale = 1 + progress * 3.5
-      rippleRef.current.scale.set(rScale, rScale, rScale)
-      rippleRef.current.material.opacity = (1 - progress) * 0.8
-    }
+      dummy.position.set(effect.x, effect.y + 0.05, effect.z)
+      dummy.rotation.set(-Math.PI / 2, 0, 0)
+      dummy.scale.set(rScale, rScale, rScale)
+      dummy.updateMatrix()
+      rippleRef.current.setMatrixAt(i, dummy.matrix)
+      // Note: InstancedMesh doesn't support per-instance opacity easily without instanced color,
+      // so we use scale to fade it out, or we can just accept it doesn't fade, or scale Y to 0.
+      // To simulate fade without custom shader, we shrink it rapidly at the end.
+      rippleDirty = true
 
-    // 3D Droplets physics
-    if (instancedRef.current) {
-      const fade = Math.max(0, 1 - progress * progress) // rapid shrink at end
+      // Update Drops
+      const fade = Math.max(0, 1 - progress * progress)
       const gravity = 8.0
+      
+      for (let j = 0; j < PARTICLE_COUNT; j++) {
+        const p = effect.particles[j]
+        const px = effect.x + p.vx * t
+        const py = effect.y + p.vy * t - 0.5 * gravity * t * t + 0.3
+        const pz = effect.z + p.vz * t
 
-      for (let i = 0; i < PARTICLE_COUNT; i++) {
-        const p = particles[i]
-        
-        // Arc trajectory relative to group
-        const px = p.vx * t
-        const py = p.vy * t - 0.5 * gravity * t * t + 0.3
-        const pz = p.vz * t
-
-        dummy.position.set(px, Math.max(py, 0), pz)
-        
-        // Spinning drops
-        dummy.rotation.x = t * p.rotSpeed
-        dummy.rotation.y = t * p.rotSpeed
-        
-        // Shrink as they fall
+        dummy.position.set(px, Math.max(py, effect.y), pz)
+        dummy.rotation.set(t * p.rotSpeed, t * p.rotSpeed, 0)
         const s = p.scale * fade
         dummy.scale.set(s, s, s)
-        
         dummy.updateMatrix()
-        instancedRef.current.setMatrixAt(i, dummy.matrix)
+        instancedRef.current.setMatrixAt(i * PARTICLE_COUNT + j, dummy.matrix)
       }
-      instancedRef.current.instanceMatrix.needsUpdate = true
+      dropsDirty = true
     }
+
+    if (dropsDirty) instancedRef.current.instanceMatrix.needsUpdate = true
+    if (rippleDirty) rippleRef.current.instanceMatrix.needsUpdate = true
   })
 
   return (
-    <group ref={groupRef} visible={false}>
-      <mesh ref={rippleRef} geometry={rippleGeo} material={rippleMat} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]} />
-      <instancedMesh ref={instancedRef} args={[dropGeo, dropMat, PARTICLE_COUNT]} />
+    <group>
+      <instancedMesh ref={rippleRef} args={[rippleGeo, rippleMat, POOL_SIZE]} />
+      <instancedMesh ref={instancedRef} args={[dropGeo, dropMat, POOL_SIZE * PARTICLE_COUNT]} />
     </group>
   )
 }

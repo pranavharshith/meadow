@@ -31,6 +31,7 @@ export default function Net() {
   const lastProfileRef = useRef({ name: 'wanderer', color: '#a9d98a' })
   const switchingRef = useRef(false)
   const joinRegionRef = useRef(async () => {})
+  const loadChunksRef = useRef(async () => {})
 
   useEffect(() => {
     if (!ONLINE) {
@@ -219,6 +220,7 @@ export default function Net() {
         }
       })
     }
+    loadChunksRef.current = loadChunksAround
 
     async function joinRegion(rx, rz) {
       // Tear down previous region channels safely (staged lifecycle)
@@ -296,10 +298,12 @@ export default function Net() {
               legColor: p.legColor || null,
               hatId: p.hatId || null,
               x: 0, z: 0, yaw: 0, tx: 0, tz: 0, tyaw: 0,
-              emote: null, msg: '', msgUntil: 0, moving: false, running: false
+              emote: null, msg: '', msgUntil: 0, moving: false, running: false,
+              lastSeen: Date.now()
             }
             remotePlayers.set(key, rp)
           } else {
+            rp.lastSeen = Date.now()
             if (p.name) rp.name = p.name
             if (p.color) rp.color = p.color
             if (p.headColor !== undefined) rp.headColor = p.headColor
@@ -388,6 +392,7 @@ export default function Net() {
           customSpawn: (prof.custom_spawn_x != null ? { x: prof.custom_spawn_x, z: prof.custom_spawn_z } : undefined),
           joinDate: prof.created_at,
           treesPlanted: prof.trees_planted,
+          lastSeen: Date.now()
         })
       }
 
@@ -799,7 +804,7 @@ export default function Net() {
     const cKey = chunkKey(cx, cz)
     if (cKey !== currentChunkRef.current) {
       currentChunkRef.current = cKey
-      loadChunksAround(cx, cz)
+      loadChunksRef.current(cx, cz)
     }
 
     acc.current += dt

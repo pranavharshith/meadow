@@ -1141,7 +1141,10 @@ create table if not exists public.friends (
 );
 
 alter table public.friends enable row level security;
+drop policy if exists "Friends readable by anyone" on public.friends;
 create policy "Friends readable by anyone" on public.friends for select using (true);
+
+drop policy if exists "Users can delete their own friendships" on public.friends;
 create policy "Users can delete their own friendships" on public.friends for delete using (auth.uid() = user1_id or auth.uid() = user2_id);
 
 create table if not exists public.friend_requests (
@@ -1153,6 +1156,7 @@ create table if not exists public.friend_requests (
 );
 
 alter table public.friend_requests enable row level security;
+drop policy if exists "Friend requests readable by involved parties" on public.friend_requests;
 create policy "Friend requests readable by involved parties" on public.friend_requests for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
 
 create or replace function public.send_friend_request(p_receiver_id uuid)

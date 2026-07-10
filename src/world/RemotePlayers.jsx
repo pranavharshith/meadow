@@ -5,6 +5,7 @@ import { Html } from '@react-three/drei'
 import { terrainHeight } from './noise'
 import { plazaFloorHeight } from './SpawnPlaza'
 import { remotePlayers } from '../net/state'
+import { CHUNK } from './chunk'
 import { P } from '../player-state'
 import { useStore } from '../store'
 import AvatarMesh from './AvatarMesh'
@@ -71,13 +72,32 @@ export default function RemotePlayers() {
 
   useEffect(() => {
     const tick = () => {
-      const allPlayers = Array.from(remotePlayers.values())
-      allPlayers.sort((a, b) => {
+      const now = Date.now()
+      const pCx = Math.floor(P.pos.x / CHUNK)
+      const pCz = Math.floor(P.pos.z / CHUNK)
+      
+      const candidates = []
+      for (const [id, rp] of remotePlayers.entries()) {
+        // 1. TTL Cleanup (10 seconds)
+        if (rp.lastSeen && now - rp.lastSeen > 10000) {
+          remotePlayers.delete(id)
+          continue
+        }
+
+        // 2. Spatial Hashing (only care about 3x3 chunk grid)
+        const cx = Math.floor(rp.x / CHUNK)
+        const cz = Math.floor(rp.z / CHUNK)
+        if (Math.abs(cx - pCx) <= 1 && Math.abs(cz - pCz) <= 1) {
+          candidates.push(rp)
+        }
+      }
+
+      candidates.sort((a, b) => {
         const da = (a.x - P.pos.x) ** 2 + (a.z - P.pos.z) ** 2
         const db = (b.x - P.pos.x) ** 2 + (b.z - P.pos.z) ** 2
         return da - db
       })
-      const cur = allPlayers.slice(0, 20).map(p => p.id)
+      const cur = candidates.slice(0, 20).map(p => p.id)
       
       const st = useStore.getState()
       if (st.setRenderedCount) st.setRenderedCount(cur.length)

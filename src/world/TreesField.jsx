@@ -21,6 +21,9 @@ import { useStore } from '../store'
 import { Select } from '@react-three/postprocessing'
 import { plazaFloorHeight } from './SpawnPlaza'
 
+const distantTrunkMat = trunkMat
+const distantLeafMat = leafMats[0]
+
 const GROW_SECONDS = 90
 const CUT_DURATION = 0.85 // seconds the cut animation runs
 
@@ -324,64 +327,135 @@ export default function TreesField() {
     if (cx !== center.cx || cz !== center.cz) setCenter({ cx, cz })
   })
 
-  const decorative = useMemo(() => {
-    const arr = []
+  const chunksRef = useRef(new Map())
+  const [decorative, setDecorative] = useState([])
+
+  // Delta chunk loader
+  useEffect(() => {
+    let changed = false
+    const newKeys = new Set()
+
+    // Generate new chunks
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         const cx = center.cx + dx
         const cz = center.cz + dz
-        const rng = mulberry32(seedFor(cx, cz) ^ 0x7)
-        const n = 3 + Math.floor(rng() * 3)
-        for (let i = 0; i < n; i++) {
-          const x = cx * CHUNK + rng() * CHUNK
-          const z = cz * CHUNK + rng() * CHUNK
-          arr.push({
-            x,
-            z,
-            y: terrainHeight(x, z),
-            s: 1.4 + rng() * 1.2,
-            rot: rng() * Math.PI * 2,
-            variant: (rng() * 3) | 0,
-            shape: (rng() * 3) | 0, // 0=broadleaf, 1=pine, 2=bushy
-          })
+        const key = `${cx},${cz}`
+        newKeys.add(key)
+
+        if (!chunksRef.current.has(key)) {
+          changed = true
+          const arr = []
+          const rng = mulberry32(seedFor(cx, cz) ^ 0x7)
+          const n = 3 + Math.floor(rng() * 3)
+          for (let i = 0; i < n; i++) {
+            const x = cx * CHUNK + rng() * CHUNK
+            const z = cz * CHUNK + rng() * CHUNK
+            const t = {
+              x, z,
+              y: terrainHeight(x, z),
+              s: 1.4 + rng() * 1.2,
+              rot: rng() * Math.PI * 2,
+              variant: (rng() * 3) | 0,
+              shape: (rng() * 3) | 0,
+              chunkKey: key
+            }
+            arr.push(t)
+            treeRegistry.push({
+              x: t.x, z: t.z,
+              r: 0.8,
+              placementR: 0.6 + t.s * 0.4,
+              mature: true,
+              chunkKey: key,
+              _source: 'decorative'
+            })
+          }
+          chunksRef.current.set(key, arr)
         }
       }
     }
-    return arr
+
+    // Prune old chunks
+    for (const key of chunksRef.current.keys()) {
+      if (!newKeys.has(key)) {
+        changed = true
+        chunksRef.current.delete(key)
+        for (let i = treeRegistry.length - 1; i >= 0; i--) {
+          if (treeRegistry[i].chunkKey === key) {
+            treeRegistry.splice(i, 1)
+          }
+        }
+      }
+    }
+
+    if (changed) {
+      const allDeco = []
+      for (const arr of chunksRef.current.values()) {
+        allDeco.push(...arr)
+      }
+      setDecorative(allDeco)
+    }
   }, [center.cx, center.cz])
 
+  // Sync planted trees to registry independently
   useEffect(() => {
-    const now = Date.now()
-    treeRegistry.length = 0
-    // r          — trunk-ish physics radius (player can brush past the canopy)
-    // placementR — canopy extent, used by PlacementPreview so nothing new
-    //              gets planted underneath an existing tree's crown even
-    //              if the trunks aren't touching.
-    for (const t of decorative) {
-      // Decorative canopies scale with the tree's own `s` (1.4–2.6). We
-      // don't want to reserve the whole visual crown radius (2–5 units!)
-      // because casually planting near a big tree should feel possible.
-      // 0.6 + s*0.4 gives a snug placement radius that keeps trunks
-      // meaningfully apart without demanding a small forest of clearance.
-      treeRegistry.push({
-        x: t.x, z: t.z,
-        r: 0.8,
-        placementR: 0.6 + t.s * 0.4,
-        mature: true,
-      })
+    // Remove all old planted trees from registry
+    for (let i = treeRegistry.length - 1; i >= 0; i--) {
+      if (treeRegistry[i]._source === 'planted') {
+        treeRegistry.splice(i, 1)
+      }
     }
+    const now = Date.now()
     for (const t of trees) {
       const grown = now - t.plantedAt >= GROW_SECONDS * 1000
       treeRegistry.push({
         x: t.x, z: t.z,
         r: 0.6,
-        // Reserve the grown footprint even while it's a sapling — otherwise
-        // players could crowd a young tree and get overlap once it matures.
         placementR: 1.3,
         mature: grown,
+        _source: 'planted'
       })
     }
-  }, [decorative, trees])
+  }, [trees])
+
+  const groupRefs = useRef([])
+  const distantTrunksRef = useRef()
+  const distantLeavesRef = useRef()
+  const dummy = useMemo(() => new THREE.Object3D(), [])
+
+  useFrame(({ camera }) => {
+    if (!distantTrunksRef.current || !distantLeavesRef.current) return
+    let count = 0
+    for (let i = 0; i < decorative.length; i++) {
+      const t = decorative[i]
+      const dist = Math.hypot(t.x - camera.position.x, t.z - camera.position.z)
+      const isNear = dist < 70
+      
+      if (groupRefs.current[i]) {
+        groupRefs.current[i].visible = isNear
+      }
+      
+      if (!isNear) {
+        // Trunk matrix (Y offset +1.4)
+        dummy.position.set(t.x, t.y + 1.4 * t.s, t.z)
+        dummy.scale.setScalar(t.s)
+        dummy.rotation.set(0, t.rot, 0)
+        dummy.updateMatrix()
+        distantTrunksRef.current.setMatrixAt(count, dummy.matrix)
+
+        // Leaf matrix (Y offset +3.4, and scaled up)
+        dummy.position.set(t.x, t.y + 3.4 * t.s, t.z)
+        dummy.scale.set(1.5 * t.s, 1.4 * t.s, 1.5 * t.s)
+        dummy.updateMatrix()
+        distantLeavesRef.current.setMatrixAt(count, dummy.matrix)
+        count++
+      }
+    }
+    distantTrunksRef.current.count = count
+    distantLeavesRef.current.count = count
+    distantTrunksRef.current.instanceMatrix.needsUpdate = true
+    distantLeavesRef.current.instanceMatrix.needsUpdate = true
+  })
 
   // Clicking a decorative (world-generated) tree tells the player it can't
   // be removed. Without this, a click on such a tree falls through to
@@ -395,9 +469,12 @@ export default function TreesField() {
 
   return (
     <group>
+      <instancedMesh ref={distantTrunksRef} args={[trunkGeo, distantTrunkMat, 2000]} />
+      <instancedMesh ref={distantLeavesRef} args={[leafGeo, distantLeafMat, 2000]} />
       {decorative.map((t, i) => (
         <group
-          key={i}
+          key={`${t.chunkKey}-${i}`}
+          ref={(el) => (groupRefs.current[i] = el)}
           position={[t.x, t.y, t.z]}
           scale={t.s}
           rotation={[0, t.rot, 0]}

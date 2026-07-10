@@ -17,9 +17,13 @@ const FLOWER_PALETTE = ['#ffffff', '#fff2b0', '#ffd1e8', '#e6d4ff', '#fff7d6', '
 function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCount }) {
   const grassRef = useRef()
   const flowerRef = useRef()
+  const bladesData = useRef([])
+  const flowersData = useRef([])
 
   useLayoutEffect(() => {
     const d = new THREE.Object3D()
+    bladesData.current = []
+    flowersData.current = []
 
     // Per-chunk bounding sphere so InstancedMesh frustum culling actually
     // works. The shared blade geometry has a tiny local bound; without this
@@ -57,23 +61,18 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
       d.scale.set(scX, scY, 1)
       d.updateMatrix()
       grassRef.current.setMatrixAt(i, d.matrix)
+      bladesData.current.push({ x: d.position.x, y: d.position.y, z: d.position.z, matrix: d.matrix.clone() })
     }
     grassRef.current.count = bladeCount
     grassRef.current.instanceMatrix.needsUpdate = true
 
     const rngF = mulberry32(seedFor(cx, cz) ^ 0xf1)
-    const col = new THREE.Color()
     for (let i = 0; i < FLOWERS_PER_CHUNK; i++) {
-      const x       = cx * CHUNK + rngF() * CHUNK
-      const z       = cz * CHUNK + rngF() * CHUNK
-      // Pre-consume RNG before any branch so sequence is always stable
-      const sparse  = rngF() > 0.25 + clusterField(x, z) * 0.8
-      const rotY    = rngF() * Math.PI
-      const sc      = 0.7 + rngF() * 0.8
-      const colIdx  = (rngF() * FLOWER_PALETTE.length) | 0
+      const x = cx * CHUNK + rngF() * CHUNK
+      const z = cz * CHUNK + rngF() * CHUNK
+      if (clusterField(x, z) < 0.6) continue
 
-      // Suppress flowers inside the Meadow Gate plaza stone floor (fix #9)
-      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS || sparse) {
+      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS) {
         d.position.set(0, -9999, 0)
         d.scale.setScalar(0.0001)
         d.updateMatrix()
@@ -81,17 +80,57 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
         continue
       }
 
-      d.position.set(x, terrainHeight(x, z), z)
-      d.rotation.set(0, rotY, 0)
-      d.scale.setScalar(sc)
+      d.position.set(x, terrainHeight(x, z) + 0.1, z)
+      d.rotation.set(0, rngF() * Math.PI, 0)
+      const s = 0.5 + rngF() * 0.5
+      d.scale.setScalar(s)
       d.updateMatrix()
       flowerRef.current.setMatrixAt(i, d.matrix)
-      col.set(FLOWER_PALETTE[colIdx])
-      flowerRef.current.setColorAt(i, col)
+      
+      const c = new THREE.Color(FLOWER_PALETTE[(rngF() * FLOWER_PALETTE.length) | 0])
+      flowerRef.current.setColorAt(i, c)
+      flowersData.current.push({ x: d.position.x, y: d.position.y, z: d.position.z, matrix: d.matrix.clone(), color: c })
     }
+
+    grassRef.current.instanceMatrix.needsUpdate = true
     flowerRef.current.instanceMatrix.needsUpdate = true
     if (flowerRef.current.instanceColor) flowerRef.current.instanceColor.needsUpdate = true
   }, [cx, cz, bladeCount])
+
+  // Dynamic Frustum Culling (Fix 5.5)
+  const frustum = useMemo(() => new THREE.Frustum(), [])
+  const projScreenMatrix = useMemo(() => new THREE.Matrix4(), [])
+  
+  useFrame(({ camera }) => {
+    if (!grassRef.current || !flowerRef.current) return
+    
+    camera.updateMatrixWorld()
+    projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+    frustum.setFromProjectionMatrix(projScreenMatrix)
+
+    let gCount = 0
+    for (let i = 0; i < bladesData.current.length; i++) {
+      const b = bladesData.current[i]
+      if (frustum.containsPoint(b)) {
+        grassRef.current.setMatrixAt(gCount++, b.matrix)
+      }
+    }
+    grassRef.current.count = gCount
+    grassRef.current.instanceMatrix.needsUpdate = true
+
+    let fCount = 0
+    for (let i = 0; i < flowersData.current.length; i++) {
+      const f = flowersData.current[i]
+      if (frustum.containsPoint(f)) {
+        flowerRef.current.setMatrixAt(fCount, f.matrix)
+        flowerRef.current.setColorAt(fCount, f.color)
+        fCount++
+      }
+    }
+    flowerRef.current.count = fCount
+    flowerRef.current.instanceMatrix.needsUpdate = true
+    if (flowerRef.current.instanceColor) flowerRef.current.instanceColor.needsUpdate = true
+  })
 
   return (
     <group>

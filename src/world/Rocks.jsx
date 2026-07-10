@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight, mulberry32, clusterField } from './noise'
 import { CHUNK, seedFor } from './chunk'
@@ -16,59 +16,73 @@ export default function Rocks() {
     if (cx !== center.cx || cz !== center.cz) setCenter({ cx, cz })
   })
 
-  const allRocks = useMemo(() => {
-    const arr = []
+  const chunksRef = useRef(new Map())
+  const [allRocks, setAllRocks] = useState([])
+
+  // Delta chunk loader
+  useEffect(() => {
+    let changed = false
+    const newKeys = new Set()
+
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         const cx = center.cx + dx
         const cz = center.cz + dz
-        const rng = mulberry32(seedFor(cx, cz) ^ 0x5c)
-        const n = 2 + ((rng() * 4) | 0)
-        for (let i = 0; i < n; i++) {
-          const x = cx * CHUNK + rng() * CHUNK
-          const z = cz * CHUNK + rng() * CHUNK
-          if (clusterField(x, z) > 0.5) { rng(); rng(); rng(); rng(); rng(); continue }
-          const rot = rng() * Math.PI * 2
-          const sx = 0.6 + rng() * 1.6
-          const sy = 0.4 + rng() * 0.8
-          const sz = 0.6 + rng() * 1.6
-          const sink = 0.15 + rng() * 0.25
-          const shape = (rng() * 3) | 0
-          const matIdx = (rng() * 3) | 0
-          arr.push({ x, z, y: terrainHeight(x, z), rot, sx, sy, sz, sink, shape, matIdx })
+        const key = `${cx},${cz}`
+        newKeys.add(key)
+
+        if (!chunksRef.current.has(key)) {
+          changed = true
+          const arr = []
+          const rng = mulberry32(seedFor(cx, cz) ^ 0x5c)
+          const n = 2 + ((rng() * 4) | 0)
+          for (let i = 0; i < n; i++) {
+            const x = cx * CHUNK + rng() * CHUNK
+            const z = cz * CHUNK + rng() * CHUNK
+            if (clusterField(x, z) > 0.5) { rng(); rng(); rng(); rng(); rng(); continue }
+            const rot = rng() * Math.PI * 2
+            const sx = 0.6 + rng() * 1.6
+            const sy = 0.4 + rng() * 0.8
+            const sz = 0.6 + rng() * 1.6
+            const sink = 0.15 + rng() * 0.25
+            const shape = (rng() * 3) | 0
+            const matIdx = (rng() * 3) | 0
+            const r = { x, z, y: terrainHeight(x, z), rot, sx, sy, sz, sink, shape, matIdx, chunkKey: key }
+            arr.push(r)
+            
+            const placementR = Math.max(sx, sz)
+            if (sy >= 0.55) {
+              rockRegistry.push({ x, z, r: Math.max(sx, sz) * 0.5 + 0.3, placementR, _source: 'decorative', chunkKey: key })
+            } else {
+              rockRegistry.push({ x, z, placementR, _source: 'decorative', chunkKey: key })
+            }
+          }
+          chunksRef.current.set(key, arr)
         }
       }
     }
-    return arr
-  }, [center.cx, center.cz])
 
-  // Sync decorative rocks into rockRegistry for collision.
-  // Tags entries with _source: 'decorative' so PlacedRocks.jsx can
-  // manage its own entries without conflict regardless of effect order.
-  useEffect(() => {
-    for (let i = rockRegistry.length - 1; i >= 0; i--) {
-      if (rockRegistry[i]._source === 'decorative') rockRegistry.splice(i, 1)
-    }
-    // Two radii per entry:
-    //   r          — physics/collision radius (half the visual, ~roomy to
-    //                walk around; only tall-enough rocks block movement).
-    //   placementR — full visual radius, used by PlacementPreview to
-    //                actually prevent ghost/rock overlap. Every rock has
-    //                this so no size falls through the placement checker.
-    for (const r of allRocks) {
-      const placementR = Math.max(r.sx, r.sz)
-      if (r.sy >= 0.55) {
-        rockRegistry.push({
-          x: r.x, z: r.z,
-          r: Math.max(r.sx, r.sz) * 0.5 + 0.3,
-          placementR,
-          _source: 'decorative',
-        })
-      } else {
-        rockRegistry.push({ x: r.x, z: r.z, placementR, _source: 'decorative' })
+    // Prune old chunks
+    for (const key of chunksRef.current.keys()) {
+      if (!newKeys.has(key)) {
+        changed = true
+        chunksRef.current.delete(key)
+        for (let i = rockRegistry.length - 1; i >= 0; i--) {
+          if (rockRegistry[i].chunkKey === key) {
+            rockRegistry.splice(i, 1)
+          }
+        }
       }
     }
-  }, [allRocks])
+
+    if (changed) {
+      const allR = []
+      for (const arr of chunksRef.current.values()) {
+        allR.push(...arr)
+      }
+      setAllRocks(allR)
+    }
+  }, [center.cx, center.cz])
 
   // Clicking a natural/world-generated rock should tell the player it
   // can't be removed, and stop the click from bubbling to the canvas
