@@ -1,11 +1,7 @@
 // Cloudflare Turnstile helper used to gate anonymous sign-in.
 //
-// When VITE_TURNSTILE_SITE_KEY is unset (default), getCaptchaToken() returns
-// null and sign-in proceeds without a token. Enabling captcha requires BOTH:
-//   1. Set VITE_TURNSTILE_SITE_KEY here (the frontend site key), and
-//   2. Enable the CAPTCHA integration in the Supabase Auth dashboard with the
-//      matching secret key. Supabase will then require a token for
-//      signInAnonymously() and reject sign-ins that lack one.
+// VITE_TURNSTILE_SITE_KEY MUST be set. If not, the application will refuse
+// to authenticate, preventing bot networks from bypassing the check.
 //
 // We render an invisible widget once, cache the promise, and refresh the
 // token on demand — Turnstile tokens are single-use and expire after ~5 min.
@@ -52,7 +48,10 @@ function ensureContainer() {
  * game keeps working in dev without a captcha configured.
  */
 export async function getCaptchaToken() {
-  if (!SITE_KEY) return null
+  if (!SITE_KEY) {
+    console.error('CRITICAL SECURITY ERROR: VITE_TURNSTILE_SITE_KEY is not set. Captcha is REQUIRED to prevent bot abuse.')
+    throw new Error('Captcha configuration missing')
+  }
   try {
     const turnstile = await loadScript()
     if (!turnstile) return null

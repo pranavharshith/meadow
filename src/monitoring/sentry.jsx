@@ -11,6 +11,25 @@ export function initMonitoring() {
     environment: import.meta.env.MODE,
     tracesSampleRate: Number.isFinite(tracesRate) ? tracesRate : 0,
     sendDefaultPii: false,
+    beforeSend(event) {
+      // Deep-scrub string properties for PII before transmission
+      try {
+        let eventStr = JSON.stringify(event)
+        
+        // Scrub UUIDs (Supabase auth IDs, tree IDs, etc)
+        const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+        eventStr = eventStr.replace(uuidRegex, '[FILTERED_UUID]')
+        
+        // Scrub email addresses (in case any leak in auth errors or chat)
+        const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi
+        eventStr = eventStr.replace(emailRegex, '[FILTERED_EMAIL]')
+        
+        return JSON.parse(eventStr)
+      } catch (err) {
+        // If parsing fails for some edge case, drop the event completely rather than risk a leak
+        return null
+      }
+    }
   })
 }
 

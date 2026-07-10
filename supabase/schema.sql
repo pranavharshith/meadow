@@ -72,9 +72,10 @@ alter table public.trees enable row level security;
 
 -- --- policies: SELECT only. Mutations go through RPCs. ---------------------
 drop policy if exists "players readable"    on public.players;
+drop policy if exists "players read self"   on public.players;
 drop policy if exists "players insert self" on public.players;
 drop policy if exists "players update self" on public.players;
-create policy "players readable" on public.players for select using (true);
+create policy "players read self" on public.players for select using (auth.uid() = id);
 
 drop policy if exists "trees readable"    on public.trees;
 drop policy if exists "trees insert self" on public.trees;
@@ -94,6 +95,34 @@ revoke insert, update, delete on public.trees   from anon, authenticated;
 -- Needed for gen_random_bytes() used by trusted chat message ids.
 create extension if not exists pgcrypto with schema extensions;
 
+-- Global Rate Limiter (Token Bucket)
+create table if not exists public.user_action_logs (
+  id bigserial primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists user_actions_idx on public.user_action_logs (user_id, created_at);
+
+create or replace function public.check_rate_limit()
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  recent_actions int;
+begin
+  if auth.uid() is null then return; end if;
+  
+  select count(*) into recent_actions from public.user_action_logs
+  where user_id = auth.uid() and created_at > now() - interval '1 second';
+  
+  if recent_actions >= 5 then
+    raise exception '429 Too Many Requests';
+  end if;
+  
+  insert into public.user_action_logs (user_id) values (auth.uid());
+end;
+$$;
+
 -- Ensure a player row exists on first sign-in. Returns the row.
 create or replace function public.ensure_profile(p_name text, p_color text)
 returns public.players
@@ -106,6 +135,7 @@ declare
   sfx   int := 0;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   select * into row from public.players where id = auth.uid();
   if found then return row; end if;
@@ -161,6 +191,7 @@ declare
   last_at timestamptz;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   -- Minimum length (after trim)
   p_name := btrim(p_name);
@@ -209,6 +240,7 @@ declare
   row public.players;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   
   select * into row from public.players where id = auth.uid();
   if row.gold < p_cost then raise exception 'not enough gold'; end if;
@@ -244,6 +276,7 @@ declare
   last_at timestamptz;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   select last_plant_at into last_at from public.players where id = auth.uid();
   if last_at is not null and now() - last_at < interval '500 milliseconds' then
@@ -300,6 +333,8 @@ declare
   new_gold  int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
+  perform public.check_rate_limit();
 
   select last_water_at into last_at from public.players where id = auth.uid();
   if last_at is not null and now() - last_at < interval '4 seconds' then
@@ -333,6 +368,7 @@ as $$
 declare g int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   if p_landmark_id is null or length(p_landmark_id) = 0 or length(p_landmark_id) > 64 then
     raise exception 'bad landmark id';
   end if;
@@ -362,6 +398,7 @@ as $$
 declare g int; today date := (now() at time zone 'utc')::date;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   update public.players
     set gold = gold + 10,
@@ -388,6 +425,7 @@ as $$
 declare g int; last_at timestamptz;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   if p_text is null or length(p_text) = 0 or length(p_text) > 160 then
     raise exception 'bad text';
   end if;
@@ -421,6 +459,7 @@ declare
   clean_text text;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   if p_text is null or length(p_text) = 0 or length(p_text) > 160 then
     raise exception 'bad text';
   end if;
@@ -472,6 +511,7 @@ declare
   new_gold  int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   select last_cut_at into last_at from public.players where id = auth.uid();
   if last_at is not null and now() - last_at < interval '500 milliseconds' then
@@ -521,6 +561,7 @@ declare
   mid      text;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   if p_text is null then raise exception 'bad text'; end if;
 
   -- Normalize + length gate
@@ -616,6 +657,7 @@ declare
   new_gold int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   select last_rock_at into last_at from public.players where id = auth.uid();
   if last_at is not null and now() - last_at < interval '500 milliseconds' then
@@ -668,6 +710,7 @@ as $$
 declare new_gold int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   delete from public.rocks
     where id = p_rock_id and owner_id = auth.uid();
@@ -701,6 +744,7 @@ as $$
 declare g int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   if p_landmark_id is null or length(p_landmark_id) = 0 or length(p_landmark_id) > 64 then
     raise exception 'bad landmark id';
   end if;
@@ -727,6 +771,7 @@ as $$
 declare g int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   update public.players
     set gold = gold - 40,
@@ -779,6 +824,7 @@ declare
   new_gold int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   perform 1 from public.plots where owner_id = auth.uid();
   if found then raise exception 'already owned'; end if;
@@ -881,6 +927,7 @@ declare
   clean    text;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   if p_text is null or length(btrim(p_text)) = 0 or length(p_text) > 160 then
     raise exception 'bad text';
   end if;
@@ -910,6 +957,7 @@ declare
   clean    text;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   if p_text is null then raise exception 'bad text'; end if;
 
   p_text := btrim(p_text);
@@ -964,6 +1012,7 @@ declare
   owner    uuid;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   if p_color is null or length(p_color) = 0 or length(p_color) > 16 then
     raise exception 'bad color';
   end if;
@@ -1012,6 +1061,7 @@ declare
   max_area real := 1600;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
 
   -- Validate dimensions and calculate cost
   if p_shape = 0 then
@@ -1113,6 +1163,7 @@ declare
   is_friend int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   if auth.uid() = p_receiver_id then raise exception 'cannot friend yourself'; end if;
   
   select count(*) into is_friend from public.friends where 
@@ -1129,6 +1180,7 @@ language plpgsql security definer set search_path = public
 as $$
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   
   delete from public.friend_requests where sender_id = p_sender_id and receiver_id = auth.uid();
   if found then
@@ -1145,6 +1197,7 @@ language plpgsql security definer set search_path = public
 as $$
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   delete from public.friend_requests where sender_id = p_sender_id and receiver_id = auth.uid();
 end;
 $$;
@@ -1155,6 +1208,7 @@ language plpgsql security definer set search_path = public
 as $$
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   delete from public.friends where user1_id = least(auth.uid(), p_friend_id) and user2_id = greatest(auth.uid(), p_friend_id);
 end;
 $$;
@@ -1203,6 +1257,7 @@ declare
   new_blocks uuid[];
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
   
   select blocked_users into curr_blocks from public.players where id = auth.uid();
   if curr_blocks is null then curr_blocks := '{}'::uuid[]; end if;

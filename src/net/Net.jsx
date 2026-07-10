@@ -348,10 +348,9 @@ export default function Net() {
       // anonymous identity (persisted by supabase-js in localStorage)
       let { data: sess } = await supabase.auth.getSession()
       if (!sess.session) {
-        // Optional captcha token — null when Turnstile isn't configured.
+        // Captcha token is strictly enforced; an exception here halts boot
         const captchaToken = await getCaptchaToken()
-        const opts = captchaToken ? { options: { captchaToken } } : undefined
-        const { data, error } = await supabase.auth.signInAnonymously(opts)
+        const { data, error } = await supabase.auth.signInAnonymously({ options: { captchaToken } })
         if (error) {
           useStore.getState().setOnline(false)
           return
