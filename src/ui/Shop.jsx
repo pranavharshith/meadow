@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useStore } from '../store'
-import { TREE_ITEMS, ROCK_ITEMS, PLOT_ITEM, HAT_ITEMS, DYE_ITEMS } from '../catalog'
+import { TREE_ITEMS, ROCK_ITEMS, PLOT_ITEM, HAT_ITEMS, DYE_ITEMS, EXOTIC_TREE_ITEMS } from '../catalog'
+
+const ALL_TREES = [...TREE_ITEMS, ...EXOTIC_TREE_ITEMS]
 
 // ── Item Card ──────────────────────────────────────────────────────────────
 
@@ -48,17 +50,17 @@ export default function Shop() {
   const isCosmeticTab = tab === 'cosmetics'
   const isHatTab = isCosmeticTab && cosmeticSubTab === 'hats'
   const isDyeTab = isCosmeticTab && !isHatTab
-  const items = isPlotTab ? [PLOT_ITEM] : (isCosmeticTab ? (isHatTab ? HAT_ITEMS : DYE_ITEMS) : (tab === 'trees' ? TREE_ITEMS : ROCK_ITEMS))
+  const items = isPlotTab ? [PLOT_ITEM] : (isCosmeticTab ? (isHatTab ? HAT_ITEMS : DYE_ITEMS) : (tab === 'trees' ? ALL_TREES : ROCK_ITEMS))
   
   const isPlot = selectedItem.type === 'plot'
   const isRock = selectedItem.type === 'rock'
   const isHat = selectedItem.type === 'hat'
   const isDye = selectedItem.type === 'dye'
   
-  const currentList = isPlot ? [PLOT_ITEM] : (isRock ? ROCK_ITEMS : (isHat ? HAT_ITEMS : (isDye ? DYE_ITEMS : TREE_ITEMS)))
+  const currentList = isPlot ? [PLOT_ITEM] : (isRock ? ROCK_ITEMS : (isHat ? HAT_ITEMS : (isDye ? DYE_ITEMS : ALL_TREES)))
   const currentItem =
     currentList.find((i) => i.id === selectedItem.id) ||
-    (isCosmeticTab ? (isHatTab ? HAT_ITEMS[0] : DYE_ITEMS[0]) : (tab === 'trees' ? TREE_ITEMS[0] : tab === 'rocks' ? ROCK_ITEMS[0] : PLOT_ITEM))
+    (isCosmeticTab ? (isHatTab ? HAT_ITEMS[0] : DYE_ITEMS[0]) : (tab === 'trees' ? ALL_TREES[0] : tab === 'rocks' ? ROCK_ITEMS[0] : PLOT_ITEM))
   const myPlots = plots.filter((p) => p.owner)
   let myUsedArea = 0
   myPlots.forEach((p) => {
@@ -112,11 +114,11 @@ export default function Shop() {
         
         if (itemType === 'hat') {
           setIsProcessing(true)
-          await useStore.getState().buyCosmetic('hat', currentItem.id, null, currentItem.cost)
+          await useStore.getState().buyCosmetic('hat', currentItem.id, null)
           setIsProcessing(false)
         } else if (itemType === 'dye') {
           setIsProcessing(true)
-          await useStore.getState().buyCosmetic(cosmeticSubTab, null, currentItem.color, currentItem.cost)
+          await useStore.getState().buyCosmetic(cosmeticSubTab, null, currentItem.color)
           setIsProcessing(false)
         } else {
           setShopOpen(false)
@@ -210,11 +212,11 @@ export default function Shop() {
                     
                     if (itemType === 'hat') {
                       setIsProcessing(true)
-                      await useStore.getState().buyCosmetic('hat', item.id, null, item.cost)
+                      await useStore.getState().buyCosmetic('hat', item.id, null)
                       setIsProcessing(false)
                     } else if (itemType === 'dye') {
                       setIsProcessing(true)
-                      await useStore.getState().buyCosmetic(cosmeticSubTab, null, item.color, item.cost)
+                      await useStore.getState().buyCosmetic(cosmeticSubTab, null, item.color)
                       setIsProcessing(false)
                     } else {
                       setShopOpen(false) // Auto-close for placables!

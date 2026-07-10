@@ -37,7 +37,7 @@ export default function Controls() {
 
       // If the player presses a movement key, cancel sitting
       if (P.emote === 'sit' && (
-        e.code === 'KeyW' || e.code === 'KeyA' || e.code === 'KeyS' || e.code === 'KeyD' ||
+        e.code === st.keybinds.forward || e.code === st.keybinds.left || e.code === st.keybinds.backward || e.code === st.keybinds.right ||
         e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight'
       )) {
         P.emote = null
@@ -48,12 +48,9 @@ export default function Controls() {
       else if (e.code === 'Escape') {
         if (document.pointerLockElement) {
           document.exitPointerLock()
-        } else {
-          // Placement takes precedence over selection so pressing Esc doesn't
-          // silently clear a selection that wasn't the user's focus.
-          if (st.placementMode) st.cancelPlacement()
-          else st.clearSelection()
         }
+        if (st.placementMode) st.cancelPlacement()
+        else st.clearSelection()
       }
       else if (e.code === 'KeyG') {
         const next = !st.shopOpen
@@ -74,16 +71,22 @@ export default function Controls() {
     }
 
     let dragging = false
+    let hasMoved = false
     let lx = 0
     let ly = 0
     const onDown = (e) => {
+      // Ignore right-clicks (2) and middle-clicks (1) so the browser's context menu (Inspect) works
+      if (e.button !== 0) return
+      
       if (e.target.closest && e.target.closest('.no-look')) return
       
       if (!document.pointerLockElement && e.target.tagName === 'CANVAS') {
-        e.target.requestPointerLock()
+        const promise = e.target.requestPointerLock()
+        if (promise) promise.catch(() => {})
       }
       
       dragging = true
+      hasMoved = false
       lx = e.clientX
       ly = e.clientY
       // any movement key / drag cancels sitting
@@ -108,10 +111,15 @@ export default function Controls() {
         ly = e.clientY
       }
       
-      // Prevent dragging from secretly spinning the camera while in Map view
-      if (useStore.getState().viewMode !== 'top') {
+      if (!hasMoved && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
+        hasMoved = true
+        useStore.getState().setIsDraggingCamera(true)
+      }
+      
+      // Prevent dragging from secretly spinning the camera while in Map or Drone view
+      const view = useStore.getState().viewMode
+      if (view !== 'top' && view !== 'drone') {
         look.yaw -= dx * LOOK_SENS
-        const view = useStore.getState().viewMode
         const pMin = view === 'first' ? -1.5 : PITCH_MIN
         const pMax = view === 'first' ? 1.5 : PITCH_MAX
         look.pitch = Math.min(pMax, Math.max(pMin, look.pitch + dy * LOOK_SENS))
@@ -119,6 +127,14 @@ export default function Controls() {
     }
     const onUp = () => {
       dragging = false
+      if (hasMoved) {
+        setTimeout(() => {
+          useStore.getState().setIsDraggingCamera(false)
+        }, 50)
+      }
+      if (document.pointerLockElement) {
+        document.exitPointerLock()
+      }
     }
     const onWheel = (e) => {
       // Same guard as onDown: scrolling inside a UI panel (chat, settings,

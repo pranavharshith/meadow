@@ -270,33 +270,58 @@ exception
 end
 $$;
 
-create or replace function public.buy_cosmetic(p_type text, p_id text, p_color text, p_cost integer)
+drop function if exists public.buy_cosmetic(text, text, text, integer);
+create or replace function public.buy_cosmetic(p_type text, p_id text, p_color text)
 returns public.players
 language plpgsql security definer set search_path = public
 as $$
 declare
   row public.players;
+  v_cost int;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
   perform public.check_rate_limit();
   
+  if p_type = 'hat' then
+    v_cost := case p_id
+      when 'wizard' then 150
+      when 'tophat' then 200
+      when 'crown' then 500
+      else 99999
+    end;
+  else
+    v_cost := case p_color
+      when '#d46a2a' then 50
+      when '#c44030' then 50
+      when '#e8b830' then 50
+      when '#5098d0' then 100
+      when '#b080d0' then 100
+      when '#e878a0' then 100
+      when '#308a78' then 150
+      when '#c8d8d0' then 150
+      when '#222222' then 200
+      when '#2e8b57' then 150
+      else 99999
+    end;
+  end if;
+
   select * into row from public.players where id = auth.uid();
-  if row.gold < p_cost then raise exception 'not enough gold'; end if;
+  if row.gold < v_cost then raise exception 'not enough gold'; end if;
   
   if p_type = 'hat' then
-    update public.players set hat_id = p_id, gold = gold - p_cost where id = auth.uid() returning * into row;
+    update public.players set hat_id = p_id, gold = gold - v_cost where id = auth.uid() returning * into row;
   elsif p_type = 'head' then
-    update public.players set head_color = p_color, gold = gold - p_cost where id = auth.uid() returning * into row;
+    update public.players set head_color = p_color, gold = gold - v_cost where id = auth.uid() returning * into row;
   elsif p_type = 'body' then
-    update public.players set body_color = p_color, gold = gold - p_cost where id = auth.uid() returning * into row;
+    update public.players set body_color = p_color, gold = gold - v_cost where id = auth.uid() returning * into row;
   elsif p_type = 'legs' then
-    update public.players set leg_color = p_color, gold = gold - p_cost where id = auth.uid() returning * into row;
+    update public.players set leg_color = p_color, gold = gold - v_cost where id = auth.uid() returning * into row;
   end if;
   
   return row;
 end
 $$;
-grant execute on function public.buy_cosmetic(text, text, text, integer) to authenticated;
+grant execute on function public.buy_cosmetic(text, text, text) to authenticated;
 
 -- Plant a tree. Enforces cooldown + spacing. Awards +5 gold.
 -- Returns the updated player row (for gold reconciliation).
@@ -324,7 +349,7 @@ begin
   -- clamp cosmetic values so a modded client can't ship absurd trees
   p_scale   := greatest(0.8::real, least(2.4::real, coalesce(p_scale,   1.4::real)));
   p_variant := greatest(0::smallint, least(2::smallint, coalesce(p_variant, 0::smallint)));
-  p_shape   := greatest(0::smallint, least(3::smallint, coalesce(p_shape,   0::smallint)));
+  p_shape   := greatest(0::smallint, least(11::smallint, coalesce(p_shape,   0::smallint)));
 
   rx := floor(p_x / 120.0)::int;
   rz := floor(p_z / 120.0)::int;
@@ -345,13 +370,30 @@ begin
   insert into public.trees (id, owner_id, region_x, region_z, x, z, variant, shape, scale, planted_at)
     values (p_id, auth.uid(), rx, rz, p_x, p_z, p_variant, p_shape, p_scale, now());
 
-  update public.players
-    set gold = gold + 5,
-        trees_planted = trees_planted + 1,
-        last_plant_at = now(),
-        updated_at = now()
-    where id = auth.uid()
-    returning * into row;
+  declare v_cost int;
+  begin
+    v_cost := case p_shape
+      when 1 then 5
+      when 2 then 5
+      when 3 then 75
+      when 4 then 50
+      when 5 then 100
+      when 10 then 500
+      when 11 then 1000
+      else 0
+    end;
+    
+    select * into row from public.players where id = auth.uid();
+    if row.gold < v_cost then raise exception 'not enough gold'; end if;
+
+    update public.players
+      set gold = gold - v_cost + 5,
+          trees_planted = trees_planted + 1,
+          last_plant_at = now(),
+          updated_at = now()
+      where id = auth.uid()
+      returning * into row;
+  end;
   return row;
 end
 $$;
@@ -931,7 +973,19 @@ begin
   if p_color is null or length(p_color) = 0 or length(p_color) > 16 then
     raise exception 'bad color';
   end if;
-  p_cost := greatest(0, least(500, coalesce(p_cost, 50)));
+  p_cost := case lower(p_color)
+    when '#d46a2a' then 50
+    when '#c44030' then 50
+    when '#e8b830' then 50
+    when '#5098d0' then 100
+    when '#b080d0' then 100
+    when '#e878a0' then 100
+    when '#308a78' then 150
+    when '#c8d8d0' then 150
+    when '#2e8b57' then 150
+    when '#222222' then 200
+    else 500
+  end;
 
   select owner_id, planted_at into owner, planted
     from public.trees where id = p_tree_id;

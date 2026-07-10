@@ -25,14 +25,14 @@ export default function AvatarMesh({ color, headColor, bodyColor, legColor, hatI
   const legRRef = useRef()
   const bodyRef = useRef()
 
-  const matBody = useMemo(() => new THREE.MeshStandardMaterial({ color: bodyColor || color, roughness: 0.7 }), [color, bodyColor])
-  const matHead = useMemo(() => new THREE.MeshStandardMaterial({ color: headColor || color, roughness: 0.7 }), [color, headColor])
+  const matBody = useMemo(() => new THREE.MeshStandardMaterial({ color: bodyColor || color, roughness: 0.6, metalness: 0.1 }), [color, bodyColor])
+  const matHead = useMemo(() => new THREE.MeshStandardMaterial({ color: headColor || color, roughness: 0.5, metalness: 0.2 }), [color, headColor])
   const matLegs = useMemo(() => new THREE.MeshStandardMaterial({ color: legColor || color, roughness: 0.7 }), [color, legColor])
-  const matHatDark = useMemo(() => new THREE.MeshStandardMaterial({ color: '#222', roughness: 0.9 }), [])
-  const matHatBlue = useMemo(() => new THREE.MeshStandardMaterial({ color: '#204080', roughness: 0.9 }), [])
-  const matHatGold = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffd700', roughness: 0.3, metalness: 0.8 }), [])
-  const jointMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#333333', roughness: 0.8 }), [])
-  const eyeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0.3 }), [])
+  const matHatDark = useMemo(() => new THREE.MeshStandardMaterial({ color: '#111', roughness: 0.7, metalness: 0.2 }), [])
+  const matHatBlue = useMemo(() => new THREE.MeshStandardMaterial({ color: '#103060', roughness: 0.8, metalness: 0.1 }), [])
+  const matHatGold = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffea00', roughness: 0.1, metalness: 1.0, emissive: '#ffaa00', emissiveIntensity: 0.2 }), [])
+  const jointMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#222222', roughness: 0.8 }), [])
+  const eyeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#050505', roughness: 0.1, metalness: 0.8 }), [])
   const pupilMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.1 }), [])
 
   useFrame(({ clock }, dt) => {

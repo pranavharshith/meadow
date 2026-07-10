@@ -1,4 +1,46 @@
 import { useStore } from '../store'
+import { useState, useEffect } from 'react'
+
+function KeybindRow({ action, label }) {
+  const code = useStore((s) => s.keybinds[action])
+  const setKeybind = useStore((s) => s.setKeybind)
+  const [listening, setListening] = useState(false)
+
+  useEffect(() => {
+    if (!listening) return
+    const onKeyDown = (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      if (e.code === 'Escape') {
+        setListening(false)
+        return
+      }
+      setKeybind(action, e.code)
+      setListening(false)
+    }
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+  }, [listening, action, setKeybind])
+
+  const formatKey = (c) => {
+    if (!c) return ''
+    if (c.startsWith('Key')) return c.slice(3)
+    if (c.startsWith('Arrow')) return c.slice(5)
+    return c
+  }
+
+  return (
+    <label className="settings-row">
+      <span>{label}</span>
+      <button
+        className={`settings-toggle${listening ? ' active' : ''}`}
+        onClick={() => setListening(true)}
+      >
+        {listening ? 'press key...' : formatKey(code)}
+      </button>
+    </label>
+  )
+}
 
 // Settings panel — gear icon always visible in the button row.
 // Panel springs up above the gear when open, without displacing other icons.
@@ -73,6 +115,14 @@ export default function Settings() {
                 ))}
               </div>
             </label>
+
+            {/* Keybinds */}
+            <div className="settings-divider" />
+            <div className="settings-hint" style={{ marginBottom: '8px' }}>Movement Keys</div>
+            <KeybindRow action="forward" label="Forward" />
+            <KeybindRow action="left" label="Left" />
+            <KeybindRow action="backward" label="Backward" />
+            <KeybindRow action="right" label="Right" />
 
             {/* Touch Controls divider */}
             <div className="settings-divider" />

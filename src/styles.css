@@ -1116,18 +1116,18 @@ canvas { display: block; touch-action: none; }
 }
 
 .shop-drawer {
-  width: min(540px, 96vw);
-  background: rgba(16, 22, 16, 0.78);
-  border: 1px solid rgba(100, 180, 120, 0.28);
-  border-radius: 22px 22px 18px 18px;
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  width: min(580px, 96vw);
+  background: linear-gradient(135deg, rgba(16, 26, 16, 0.85) 0%, rgba(8, 14, 8, 0.95) 100%);
+  border: 1px solid rgba(120, 220, 150, 0.3);
+  border-radius: 28px 28px 22px 22px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   box-shadow:
-    0 -4px 60px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(255,255,255,0.06) inset,
-    0 40px 80px rgba(0,0,0,0.35);
+    0 -8px 80px rgba(0, 0, 0, 0.65),
+    0 0 0 1.5px rgba(255, 255, 255, 0.08) inset,
+    0 40px 100px rgba(0, 0, 0, 0.45);
   overflow: hidden;
-  animation: shopDrawerIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: shopDrawerIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes shopDrawerIn {
   from { transform: translateY(32px) scale(0.97); opacity: 0; }
@@ -1214,25 +1214,28 @@ canvas { display: block; touch-action: none; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  background: rgba(255,255,255,0.045);
-  border: 1.5px solid rgba(255,255,255,0.10);
-  border-radius: 14px;
-  padding: 14px 8px 12px;
+  gap: 6px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  padding: 16px 10px 14px;
   cursor: pointer;
   font: inherit;
   color: #fff;
-  transition: background 0.18s, border-color 0.18s, transform 0.14s;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   overflow: hidden;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.15);
 }
 .shop-card:hover {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.2);
-  transform: translateY(-2px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+  border-color: rgba(255,255,255,0.3);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1) inset;
 }
 .shop-card.selected {
-  background: rgba(80, 200, 140, 0.13);
-  border-color: rgba(100, 220, 160, 0.65);
+  background: linear-gradient(180deg, rgba(80, 220, 150, 0.15) 0%, rgba(80, 200, 140, 0.05) 100%);
+  border-color: rgba(120, 240, 180, 0.8);
+  box-shadow: 0 4px 20px rgba(80, 220, 150, 0.2), 0 0 0 1px rgba(120, 240, 180, 0.4) inset;
 }
 .shop-card.cant-afford {
   opacity: 0.45;
@@ -1688,7 +1691,7 @@ canvas { display: block; touch-action: none; }
 
 .ui-queue {
   position: fixed;
-  bottom: 120px;
+  bottom: 145px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

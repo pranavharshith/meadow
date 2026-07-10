@@ -28,6 +28,14 @@ export default function Hud() {
   const color = useStore((s) => s.color)
   const cycleView = useStore((s) => s.cycleView)
   const plantTree = useStore((s) => s.plantTree)
+  const keybinds = useStore((s) => s.keybinds)
+  const formatKey = (c) => {
+    if (!c) return ''
+    if (c.startsWith('Key')) return c.slice(3)
+    if (c.startsWith('Arrow')) return c.slice(5)
+    return c
+  }
+  const moveKeys = `${formatKey(keybinds.forward)}${formatKey(keybinds.left)}${formatKey(keybinds.backward)}${formatKey(keybinds.right)}`
   const cutSelection = useStore((s) => s.cutSelection)
   const selection = useStore((s) => s.selection)
   const shopOpen = useStore((s) => s.shopOpen)
@@ -88,7 +96,7 @@ export default function Hud() {
       {!seen && (
         <button className="hint no-look" onClick={() => setSeen(true)} title="Dismiss hint">
           <span>drag look</span>
-          <span><b>WASD</b> walk</span>
+          <span><b>{moveKeys}</b> walk</span>
           <span><b>V</b> view</span>
           <span><b>C</b> sit</span>
           <span><b>F</b> wave</span>

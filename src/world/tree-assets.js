@@ -36,24 +36,26 @@ export const cherryLeafMats = [
 ]
 
 // --- Shape 5: Bioluminescent Mushroom ---
-export const mushroomStemGeo = new THREE.CylinderGeometry(0.1, 0.25, 1.5, 7)
-export const mushroomCapGeo = new THREE.SphereGeometry(1.2, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.5)
-export const mushroomStemMat = new THREE.MeshStandardMaterial({ color: '#cce6ff', roughness: 0.7 })
+export const mushroomStemGeo = new THREE.CapsuleGeometry(0.2, 0.8, 8, 8)
+const mCapGeo = new THREE.SphereGeometry(1.2, 16, 16)
+mCapGeo.scale(1, 0.5, 1)
+export const mushroomCapGeo = mCapGeo
+export const mushroomStemMat = new THREE.MeshStandardMaterial({ color: '#cce6ff', roughness: 0.3 })
 // Emissive material that glows in the dark
 export const mushroomCapMat = new THREE.MeshStandardMaterial({
-  color: '#4db8ff',
-  emissive: '#0088ff',
-  emissiveIntensity: 0.6,
-  roughness: 0.4,
+  color: '#ff66ff',
+  emissive: '#ff44ee',
+  emissiveIntensity: 2.5,
+  roughness: 0.1,
 })
 
 // --- Shape 10: Golden Tree ---
-export const goldenTrunkMat = new THREE.MeshStandardMaterial({ color: '#b8860b', metalness: 0.8, roughness: 0.4 })
-export const goldenLeafMat = new THREE.MeshStandardMaterial({ color: '#ffd700', emissive: '#aa8800', emissiveIntensity: 0.2, metalness: 0.5, roughness: 0.2 })
+export const goldenTrunkMat = new THREE.MeshStandardMaterial({ color: '#ffb300', metalness: 0.9, roughness: 0.2 })
+export const goldenLeafMat = new THREE.MeshStandardMaterial({ color: '#ffe600', emissive: '#ffaa00', emissiveIntensity: 0.4, metalness: 1.0, roughness: 0.1 })
 
 // --- Shape 11: Star Tree ---
-export const starTrunkMat = new THREE.MeshStandardMaterial({ color: '#224488', emissive: '#112244', emissiveIntensity: 0.5, roughness: 0.8 })
-export const starLeafMat = new THREE.MeshStandardMaterial({ color: '#aaddff', emissive: '#aaddff', emissiveIntensity: 1.2, transparent: true, opacity: 0.9 })
+export const starTrunkMat = new THREE.MeshStandardMaterial({ color: '#112244', emissive: '#112244', emissiveIntensity: 0.2, roughness: 0.8 })
+export const starLeafMat = new THREE.MeshStandardMaterial({ color: '#ccffff', emissive: '#88ccff', emissiveIntensity: 1.8, transparent: true, opacity: 0.95, metalness: 0.5, roughness: 0.2 })
 
 // --- Growth stage geos (shared across all shapes) ---
 export const saplingTrunkGeo = new THREE.CylinderGeometry(0.04, 0.07, 1.2, 5)

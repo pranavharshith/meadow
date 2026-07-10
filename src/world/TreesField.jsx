@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { useMemo, useRef, useState, useEffect } from 'react'
+import { generateTreeGeometries } from './ProceduralTree'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight, mulberry32 } from './noise'
 import { CHUNK, seedFor } from './chunk'
@@ -107,40 +108,109 @@ function CherryBlossomTree({ variant, dyeMat }) {
 }
 
 // Shape 5: Bioluminescent Mushroom
-function MushroomTree() {
+function MushroomTree({ dyeMat }) {
+  const [mat, lightColor] = useMemo(() => {
+    if (!dyeMat) return [mushroomCapMat, "#ff44ee"]
+    const m = mushroomCapMat.clone()
+    m.color.copy(dyeMat.color)
+    m.emissive.copy(dyeMat.color)
+    return [m, dyeMat.color.getHexString()]
+  }, [dyeMat])
   return (
     <>
-      <mesh geometry={mushroomStemGeo} material={mushroomStemMat} position={[0, 0.75, 0]} castShadow receiveShadow />
-      <mesh geometry={mushroomCapGeo} material={mushroomCapMat} position={[0, 1.5, 0]} castShadow />
-      <pointLight color="#4db8ff" intensity={3} distance={10} position={[0, 1.0, 0]} />
+      <mesh geometry={mushroomStemGeo} material={mushroomStemMat} position={[0, 0.4, 0]} castShadow receiveShadow />
+      <mesh geometry={mushroomCapGeo} material={mat} position={[0, 0.9, 0]} castShadow />
+      <pointLight color={"#" + lightColor} intensity={3} distance={10} position={[0, 1.0, 0]} />
     </>
   )
 }
 
 // Shape 10: Golden Tree
 function GoldenTree({ dyeMat }) {
-  const m1 = dyeMat || goldenLeafMat
+  const [mat, lightColor] = useMemo(() => {
+    if (!dyeMat) return [goldenLeafMat, "#ffd700"]
+    const m = goldenLeafMat.clone()
+    m.color.copy(dyeMat.color)
+    return [m, dyeMat.color.getHexString()]
+  }, [dyeMat])
   return (
     <>
       <mesh geometry={trunkGeo} material={goldenTrunkMat} position={[0, 1.4, 0]} castShadow receiveShadow />
-      <mesh geometry={leafGeo} material={m1} position={[0, 3.4, 0]} scale={[1.5, 1.4, 1.5]} castShadow />
-      <mesh geometry={leafGeo} material={m1} position={[0.6, 2.8, 0.3]} scale={0.95} castShadow />
-      <mesh geometry={leafGeo} material={m1} position={[-0.55, 2.7, -0.3]} scale={0.85} castShadow />
+      <mesh geometry={leafGeo} material={mat} position={[0, 3.4, 0]} scale={[1.8, 1.6, 1.8]} castShadow />
+      <mesh geometry={leafGeo} material={mat} position={[0.8, 3.0, 0.6]} scale={1.2} castShadow />
+      <mesh geometry={leafGeo} material={mat} position={[-0.7, 2.9, -0.5]} scale={1.1} castShadow />
+      <mesh geometry={leafGeo} material={mat} position={[-0.8, 3.2, 0.5]} scale={0.9} castShadow />
+      <mesh geometry={leafGeo} material={mat} position={[0.7, 3.5, -0.6]} scale={0.8} castShadow />
+      <pointLight color={"#" + lightColor} intensity={1} distance={6} position={[0, 3.0, 0]} />
     </>
   )
 }
 
 // Shape 11: Star Tree
 function StarTree({ dyeMat }) {
-  const m1 = dyeMat || starLeafMat
+  const [mat, lightColor] = useMemo(() => {
+    if (!dyeMat) return [starLeafMat, "#88ccff"]
+    const m = starLeafMat.clone()
+    m.color.copy(dyeMat.color)
+    m.emissive.copy(dyeMat.color)
+    return [m, dyeMat.color.getHexString()]
+  }, [dyeMat])
   return (
     <>
       <mesh geometry={cherryTrunkGeo} material={starTrunkMat} position={[0, 1.3, 0]} castShadow receiveShadow />
-      <mesh geometry={cherryLeafGeo} material={m1} position={[0, 3.2, 0]} scale={[1.4, 1.2, 1.4]} />
-      <mesh geometry={cherryLeafGeo} material={m1} position={[0.6, 2.6, 0.4]} scale={0.9} />
-      <mesh geometry={cherryLeafGeo} material={m1} position={[-0.5, 2.7, -0.3]} scale={0.85} />
-      <pointLight color="#aaddff" intensity={2} distance={8} position={[0, 2.5, 0]} />
+      <mesh geometry={cherryLeafGeo} material={mat} position={[0, 3.5, 0]} scale={[0.8, 2.0, 0.8]} />
+      <mesh geometry={cherryLeafGeo} material={mat} position={[0, 3.5, 0]} scale={[2.0, 0.8, 0.8]} rotation={[0, Math.PI/4, 0]} />
+      <mesh geometry={cherryLeafGeo} material={mat} position={[0, 3.5, 0]} scale={[2.0, 0.8, 0.8]} rotation={[0, -Math.PI/4, 0]} />
+      <pointLight color={"#" + lightColor} intensity={3} distance={12} position={[0, 3.5, 0]} />
     </>
+  )
+}
+
+// Picks the right tree shape component based on shape index
+function ProceduralTreeMesh({ seed, shape = 0, variant, dyeMat }) {
+  const [geos] = useState(() => generateTreeGeometries(seed))
+  
+  useEffect(() => {
+    return () => {
+      geos.trunkGeo.dispose()
+      geos.leafGeo.dispose()
+    }
+  }, [geos])
+
+  const [tMat, lMat, lightColor] = useMemo(() => {
+    let t = trunkMat
+    let l = dyeMat || leafMats[variant % leafMats.length]
+    let c = null
+    
+    if (shape === 1) { t = pineTrunkMat; l = dyeMat || pineLeafMats[variant % pineLeafMats.length] }
+    else if (shape === 2) { l = dyeMat || bushyLeafMats[variant % bushyLeafMats.length] }
+    else if (shape === 3) { t = willowTrunkMat; l = dyeMat || willowLeafMats[variant % willowLeafMats.length] }
+    else if (shape === 4) { l = dyeMat || cherryLeafMats[variant % cherryLeafMats.length] }
+    else if (shape === 10) { 
+      t = goldenTrunkMat
+      if (!dyeMat) l = goldenLeafMat
+      else { l = goldenLeafMat.clone(); l.color.copy(dyeMat.color) }
+      c = dyeMat ? dyeMat.color.getHexString() : "ffd700"
+    }
+    else if (shape === 11) { 
+      t = starTrunkMat
+      if (!dyeMat) l = starLeafMat
+      else { l = starLeafMat.clone(); l.color.copy(dyeMat.color); l.emissive.copy(dyeMat.color) }
+      c = dyeMat ? dyeMat.color.getHexString() : "88ccff"
+    }
+    return [t, l, c]
+  }, [shape, variant, dyeMat])
+
+  if (shape === 5) {
+    return <MushroomTree dyeMat={dyeMat} />
+  }
+
+  return (
+    <group>
+      <mesh geometry={geos.trunkGeo} material={tMat} castShadow receiveShadow />
+      <mesh geometry={geos.leafGeo} material={lMat} castShadow />
+      {lightColor && <pointLight color={"#" + lightColor} intensity={2} distance={10} position={[0, 3.5, 0]} />}
+    </group>
   )
 }
 
@@ -151,36 +221,14 @@ function TreeParts({ variant, shape = 0, dyeMat }) {
     case 2: return <BushyTree variant={variant} dyeMat={dyeMat} />
     case 3: return <WillowTree variant={variant} dyeMat={dyeMat} />
     case 4: return <CherryBlossomTree variant={variant} dyeMat={dyeMat} />
-    case 5: return <MushroomTree />
+    case 5: return <MushroomTree dyeMat={dyeMat} />
     case 10: return <GoldenTree dyeMat={dyeMat} />
     case 11: return <StarTree dyeMat={dyeMat} />
     default: return <BroadleafTree variant={variant} dyeMat={dyeMat} />
   }
 }
 
-// --- Growth stages ---
-function Sprout() {
-  return (
-    <>
-      <mesh geometry={sproutGeo} material={trunkMat} position={[0, 0.25, 0]} castShadow />
-      <mesh geometry={sproutLeafGeo} material={sproutLeafMat} position={[0, 0.55, 0]} castShadow />
-      <mesh geometry={sproutLeafGeo} material={sproutLeafMat} position={[0.1, 0.48, 0.06]} scale={0.6} castShadow />
-    </>
-  )
-}
-
-function Sapling({ variant }) {
-  return (
-    <>
-      <mesh geometry={saplingTrunkGeo} material={trunkMat} position={[0, 0.6, 0]} castShadow receiveShadow />
-      <mesh geometry={saplingLeafGeo} material={saplingLeafMat} position={[0, 1.4, 0]} scale={[1.1, 1.0, 1.1]} castShadow />
-      <mesh geometry={saplingLeafGeo} material={leafMats[variant % 3]} position={[0.2, 1.15, 0.1]} scale={0.6} castShadow />
-    </>
-  )
-}
-
-const SPROUT_END = 30
-const SAPLING_END = 90
+const GROWTH_SECONDS = 90
 
 function PlantedTrees({ trees }) {
   const refs = useRef([])
@@ -244,14 +292,12 @@ function PlantedTrees({ trees }) {
         }
       }
 
-      if (age < SPROUT_END) {
-        const p = age / SPROUT_END
-        g.scale.setScalar(0.3 + easeOut(p) * 0.4)
-      } else if (age < SAPLING_END) {
-        const p = (age - SPROUT_END) / (SAPLING_END - SPROUT_END)
-        g.scale.setScalar(0.5 + easeOut(p) * 0.35)
+      if (age < GROWTH_SECONDS) {
+        const p = age / GROWTH_SECONDS
+        const baseScale = t.scale || 1
+        g.scale.setScalar(baseScale * (0.1 + easeOut(p) * 0.9))
       } else {
-        g.scale.setScalar(t.scale)
+        g.scale.setScalar(t.scale || 1)
       }
     }
   })
@@ -279,6 +325,7 @@ function PlantedTrees({ trees }) {
           : undefined
         const onClick = (e) => {
           e.stopPropagation()
+          if (cuttingId === t.id) return
           if (!owned) {
             flash('this tree was planted by someone else')
             return
@@ -301,13 +348,7 @@ function PlantedTrees({ trees }) {
               {/* Only enable the outline on the currently selected tree so
                   the amber glow reads as a decisive pick, not visual noise. */}
               <Select enabled={isSelected}>
-                {age < SPROUT_END ? (
-                  <Sprout />
-                ) : age < SAPLING_END ? (
-                  <Sapling variant={t.variant} />
-                ) : (
-                  <TreeParts variant={t.variant} shape={shape} dyeMat={dyeMat} />
-                )}
+                <ProceduralTreeMesh seed={t.seed || t.id} variant={t.variant} shape={shape} dyeMat={dyeMat} />
               </Select>
             </group>
           </group>
@@ -352,6 +393,7 @@ export default function TreesField() {
             const x = cx * CHUNK + rng() * CHUNK
             const z = cz * CHUNK + rng() * CHUNK
             const t = {
+              localId: i,
               x, z,
               y: terrainHeight(x, z),
               s: 1.4 + rng() * 1.2,
@@ -402,6 +444,7 @@ export default function TreesField() {
         allDeco.push(...arr)
       }
       setDecorative(allDeco)
+      dirtyLOD.current = true
     }
   }, [center.cx, center.cz])
 
@@ -429,25 +472,55 @@ export default function TreesField() {
   }, [trees])
 
   const groupRefs = useRef([])
-  const distantTrunksRef = useRef()
-  const distantLeavesRef = useRef()
+  const distTrunk0 = useRef()
+  const distLeaf0 = useRef()
+  const distTrunk1 = useRef()
+  const distLeaf1 = useRef()
+  const distTrunk2 = useRef()
+  const distLeaf2 = useRef()
   const lastCamPos = useRef(new THREE.Vector3(9999, 9999, 9999))
+  const dirtyLOD = useRef(true)
 
   const matrices = useMemo(() => {
     const arr = []
     const dummy = new THREE.Object3D()
     for (let i = 0; i < decorative.length; i++) {
       const t = decorative[i]
-      dummy.position.set(t.x, t.y + 1.4 * t.s, t.z)
-      dummy.scale.setScalar(t.s)
-      dummy.rotation.set(0, t.rot, 0)
-      dummy.updateMatrix()
-      const tm = dummy.matrix.clone()
+      let tm, lm
+      if (t.shape === 1) {
+        dummy.position.set(t.x, t.y + 1.6 * t.s, t.z)
+        dummy.scale.setScalar(t.s)
+        dummy.rotation.set(0, t.rot, 0)
+        dummy.updateMatrix()
+        tm = dummy.matrix.clone()
 
-      dummy.position.set(t.x, t.y + 3.4 * t.s, t.z)
-      dummy.scale.set(1.5 * t.s, 1.4 * t.s, 1.5 * t.s)
-      dummy.updateMatrix()
-      const lm = dummy.matrix.clone()
+        dummy.position.set(t.x, t.y + 3.6 * t.s, t.z)
+        dummy.scale.setScalar(t.s)
+        dummy.updateMatrix()
+        lm = dummy.matrix.clone()
+      } else if (t.shape === 2) {
+        dummy.position.set(t.x, t.y + 0.9 * t.s, t.z)
+        dummy.scale.setScalar(t.s)
+        dummy.rotation.set(0, t.rot, 0)
+        dummy.updateMatrix()
+        tm = dummy.matrix.clone()
+
+        dummy.position.set(t.x, t.y + 2.5 * t.s, t.z)
+        dummy.scale.set(1.3 * t.s, 1.1 * t.s, 1.3 * t.s)
+        dummy.updateMatrix()
+        lm = dummy.matrix.clone()
+      } else {
+        dummy.position.set(t.x, t.y + 1.4 * t.s, t.z)
+        dummy.scale.setScalar(t.s)
+        dummy.rotation.set(0, t.rot, 0)
+        dummy.updateMatrix()
+        tm = dummy.matrix.clone()
+
+        dummy.position.set(t.x, t.y + 3.4 * t.s, t.z)
+        dummy.scale.set(1.5 * t.s, 1.4 * t.s, 1.5 * t.s)
+        dummy.updateMatrix()
+        lm = dummy.matrix.clone()
+      }
       
       arr.push({ tm, lm })
     }
@@ -455,13 +528,16 @@ export default function TreesField() {
   }, [decorative])
 
   useFrame(({ camera }) => {
-    if (!distantTrunksRef.current || !distantLeavesRef.current) return
+    if (!distTrunk0.current || !distLeaf0.current || !distTrunk1.current || !distLeaf1.current || !distTrunk2.current || !distLeaf2.current) return
     
-    // Only update LODs if camera moved significantly (2 units)
-    if (lastCamPos.current.distanceToSquared(camera.position) < 4) return
+    // Only update LODs if camera moved significantly (2 units) or chunks changed
+    const moved = lastCamPos.current.distanceToSquared(camera.position) >= 4
+    if (!moved && !dirtyLOD.current) return
+    
     lastCamPos.current.copy(camera.position)
+    dirtyLOD.current = false
 
-    let count = 0
+    let c0 = 0, c1 = 0, c2 = 0
     const cx = camera.position.x
     const cz = camera.position.z
 
@@ -475,15 +551,35 @@ export default function TreesField() {
       }
       
       if (!isNear) {
-        distantTrunksRef.current.setMatrixAt(count, matrices[i].tm)
-        distantLeavesRef.current.setMatrixAt(count, matrices[i].lm)
-        count++
+        if (t.shape === 1) {
+          distTrunk1.current.setMatrixAt(c1, matrices[i].tm)
+          distLeaf1.current.setMatrixAt(c1, matrices[i].lm)
+          c1++
+        } else if (t.shape === 2) {
+          distTrunk2.current.setMatrixAt(c2, matrices[i].tm)
+          distLeaf2.current.setMatrixAt(c2, matrices[i].lm)
+          c2++
+        } else {
+          distTrunk0.current.setMatrixAt(c0, matrices[i].tm)
+          distLeaf0.current.setMatrixAt(c0, matrices[i].lm)
+          c0++
+        }
       }
     }
-    distantTrunksRef.current.count = count
-    distantLeavesRef.current.count = count
-    distantTrunksRef.current.instanceMatrix.needsUpdate = true
-    distantLeavesRef.current.instanceMatrix.needsUpdate = true
+    distTrunk0.current.count = c0
+    distLeaf0.current.count = c0
+    distTrunk0.current.instanceMatrix.needsUpdate = true
+    distLeaf0.current.instanceMatrix.needsUpdate = true
+    
+    distTrunk1.current.count = c1
+    distLeaf1.current.count = c1
+    distTrunk1.current.instanceMatrix.needsUpdate = true
+    distLeaf1.current.instanceMatrix.needsUpdate = true
+    
+    distTrunk2.current.count = c2
+    distLeaf2.current.count = c2
+    distTrunk2.current.instanceMatrix.needsUpdate = true
+    distLeaf2.current.instanceMatrix.needsUpdate = true
   })
 
   // Clicking a decorative (world-generated) tree tells the player it can't
@@ -498,11 +594,17 @@ export default function TreesField() {
 
   return (
     <group>
-      <instancedMesh ref={distantTrunksRef} args={[trunkGeo, distantTrunkMat, 2000]} />
-      <instancedMesh ref={distantLeavesRef} args={[leafGeo, distantLeafMat, 2000]} />
+      <instancedMesh ref={distTrunk0} args={[trunkGeo, distantTrunkMat, 1000]} frustumCulled={false} />
+      <instancedMesh ref={distLeaf0} args={[leafGeo, distantLeafMat, 1000]} frustumCulled={false} />
+      
+      <instancedMesh ref={distTrunk1} args={[pineTrunkGeo, distantTrunkMat, 1000]} frustumCulled={false} />
+      <instancedMesh ref={distLeaf1} args={[pineLeafGeo, distantLeafMat, 1000]} frustumCulled={false} />
+      
+      <instancedMesh ref={distTrunk2} args={[bushyTrunkGeo, distantTrunkMat, 1000]} frustumCulled={false} />
+      <instancedMesh ref={distLeaf2} args={[bushyLeafGeo, distantLeafMat, 1000]} frustumCulled={false} />
       {decorative.map((t, i) => (
         <group
-          key={`${t.chunkKey}-${i}`}
+          key={`${t.chunkKey}-${t.localId}`}
           ref={(el) => (groupRefs.current[i] = el)}
           position={[t.x, t.y, t.z]}
           scale={t.s}

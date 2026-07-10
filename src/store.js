@@ -70,6 +70,7 @@ export const useStore = create((set, get) => ({
 
   // touch joystick — auto-enable on touch devices, else off
   joystickEnabled: saved.joystickEnabled ?? (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0),
+  keybinds: saved.keybinds || { forward: 'KeyW', backward: 'KeyS', left: 'KeyA', right: 'KeyD' },
 
   // progression (server-owned when online; localStorage fallback offline)
   gold: saved.gold ?? 0,
@@ -112,6 +113,7 @@ export const useStore = create((set, get) => ({
   navTarget: null,
   waterEvent: null,
   inputContext: 'GAME', // 'GAME', 'UI', 'CHAT'
+  isDraggingCamera: false,
   
   // Interactive selection in the world: which user-planted tree / placed rock
   // is currently picked (for cutting or future actions). Null when nothing
@@ -148,6 +150,8 @@ export const useStore = create((set, get) => ({
   toggleFireflies: () => set((s) => ({ fireflies: !s.fireflies })),
   toggleShadows: () => set((s) => ({ shadows: !s.shadows })),
   setGrassDensity: (v) => set({ grassDensity: v }),
+  setJoystickEnabled: (v) => set({ joystickEnabled: v }),
+  setKeybind: (action, code) => set(s => ({ keybinds: { ...s.keybinds, [action]: code } })),
   toggleEffects: () => set((s) => ({ effects: !s.effects })),
   toggleParticles: () => set((s) => ({ particles: !s.particles })),
   setSettingsOpen: (v) => set({ settingsOpen: v }),
@@ -165,8 +169,8 @@ export const useStore = create((set, get) => ({
   setDyeingTreeId: (id) => set({ dyeingTreeId: id, previewColor: null }),
   setPreviewColor: (color) => set({ previewColor: color }),
   cancelDyeing: () => set({ dyeingTreeId: null, previewColor: null }),
-  setJoystickEnabled: (v) => set({ joystickEnabled: v }),
   setInputContext: (ctx) => set({ inputContext: ctx }),
+  setIsDraggingCamera: (v) => set({ isDraggingCamera: v }),
 
   setName: (name) => {
     const state = get()
@@ -180,25 +184,21 @@ export const useStore = create((set, get) => ({
     if (!bridge.online) set({ color })
     bridge.saveIdentity(state.name, color, state.headColor, state.bodyColor, state.legColor, state.hatId)
   },
-  buyCosmetic: async (type, id, colorVal, cost) => {
+  buyCosmetic: async (type, id, colorVal) => {
     const state = get()
-    if (state.gold < cost) {
-      state.flash(`need ${cost} gold`)
-      return false
-    }
     
     if (!bridge.online) {
       state.flash('must be online to buy')
       return false
     }
     
-    const res = await bridge.buyCosmetic(type, id, colorVal, cost)
+    const res = await bridge.buyCosmetic(type, id, colorVal)
     if (!res.ok) {
       get().flash(res.error || 'purchase failed')
       return false
     }
     
-    get().flash(`customised avatar · -${cost} gold`)
+    get().flash(`customised avatar`)
     return true
   },
   setChatScope: (chatScope) => set({ chatScope }),
@@ -547,53 +547,57 @@ export const useStore = create((set, get) => ({
       return
     } else if (sel.kind === 'tree') {
       const tree = state.trees.find((t) => t.id === sel.id)
-      if (tree && !tree.owner && (Date.now() - (tree.plantedAt || Date.now())) / 86400000 >= 2) return get().releaseSelection()
-      if (!tree || !tree.owner) { set({ selection: null }); return }
-      state.flash('that tree is no longer here')
-      return
-    }
-    const now = Date.now()
-    const age = (now - tree.plantedAt) / 1000
-    const isGrownTree = age >= GROW_SECONDS
-    const reward = isGrownTree ? CUT_GROWN_REWARD : CUT_SAPLING_REWARD
-    const verb = isGrownTree ? 'cut down' : 'uprooted'
+      if (!tree) {
+        state.flash('that tree is no longer here')
+        set({ selection: null })
+        return
+      }
+      if (!tree.owner) {
+        if ((Date.now() - (tree.plantedAt || Date.now())) / 86400000 >= 2) return get().releaseSelection()
+        state.flash('that tree is not yours')
+        set({ selection: null })
+        return
+      }
 
-    // Play the fall animation, clear selection, credit optimistically
-    set((s) => ({ cuttingId: tree.id, selection: null, gold: s.gold + reward }))
-    state.flash(`${verb} a tree · +${reward} gold`)
+      const now = Date.now()
+      const age = (now - tree.plantedAt) / 1000
+      const isGrownTree = age >= GROW_SECONDS
+      const reward = isGrownTree ? CUT_GROWN_REWARD : CUT_SAPLING_REWARD
+      const verb = isGrownTree ? 'cut down' : 'uprooted'
 
-    // Kick the server RPC in parallel with the animation. Only remove the tree
-    // from local state after the server confirms — if it rejects, revert gold
-    // and cancel the fall (tree stays). The animation runs for 850ms from the
-    // cut start; tree removal waits for whichever is later: server response or
-    // animation completion.
-    const cutStart = performance.now()
-    const doRemove = () => {
-      set((s) => ({
-        trees: s.trees.filter((t) => t.id !== tree.id),
-        cuttingId: null,
-      }))
-    }
+      // Play the fall animation, clear selection, credit optimistically
+      set((s) => ({ cuttingId: tree.id, selection: null, gold: s.gold + reward }))
+      state.flash(`${verb} a tree · +${reward} gold`)
 
-    if (bridge.online) {
-      bridge.cut(tree.id).then((res) => {
-        if (!res.ok) {
-          set((s) => ({ cuttingId: null }))
-          const map = {
-            'cut cooldown': 'wait a moment before cutting again',
-            'not your tree': 'that tree is not yours',
-            'not signed in': 'reconnecting — try again',
+      // Kick the server RPC in parallel with the animation
+      const cutStart = performance.now()
+      const doRemove = () => {
+        set((s) => ({
+          trees: s.trees.filter((t) => t.id !== tree.id),
+          cuttingId: null,
+        }))
+      }
+
+      if (bridge.online) {
+        bridge.cut(tree.id).then((res) => {
+          if (!res.ok) {
+            set((s) => ({ cuttingId: null }))
+            const map = {
+              'cut cooldown': 'wait a moment before cutting again',
+              'not your tree': 'that tree is not yours',
+              'not signed in': 'reconnecting — try again',
+            }
+            get().flash(map[res.error] || `could not cut: ${res.error || 'unknown'}`)
+            return
           }
-          get().flash(map[res.error] || `could not cut: ${res.error || 'unknown'}`)
-          return
-        }
-        if (typeof res.gold === 'number') set({ gold: res.gold })
-        const elapsed = performance.now() - cutStart
-        const remaining = Math.max(0, 850 - elapsed)
-        setTimeout(doRemove, remaining)
-      })
-    } else {
-      setTimeout(doRemove, 850)
+          if (typeof res.gold === 'number') set({ gold: res.gold })
+          const elapsed = performance.now() - cutStart
+          const remaining = Math.max(0, 850 - elapsed)
+          setTimeout(doRemove, remaining)
+        })
+      } else {
+        setTimeout(doRemove, 850)
+      }
     }
   },
 
@@ -946,6 +950,7 @@ useStore.subscribe((s) => {
         effects: s.effects,
         particles: s.particles,
         joystickEnabled: s.joystickEnabled,
+        keybinds: s.keybinds,
         customSpawn: s.customSpawn,
         playtimeSeconds: s.playtimeSeconds,
       }

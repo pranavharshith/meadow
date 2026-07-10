@@ -482,12 +482,11 @@ export default function Net() {
         }, 400)
       }
 
-      bridge.buyCosmetic = async (type, id, colorVal, cost) => {
+      bridge.buyCosmetic = async (type, id, colorVal) => {
         const { data, error } = await supabase.rpc('buy_cosmetic', {
           p_type: type,
           p_id: id,
-          p_color: colorVal,
-          p_cost: cost
+          p_color: colorVal
         })
         if (error) {
           console.error('buyCosmetic error', error)

@@ -52,7 +52,7 @@ export function regionChatChannel(rx, rz) {
   return `region-chat:${rx}:${rz}`
 }
 
-export const CHUNK_SIZE = 30
+export const CHUNK_SIZE = 100
 
 export function chunkOf(x, z) {
   return { cx: Math.floor(x / CHUNK_SIZE), cz: Math.floor(z / CHUNK_SIZE) }

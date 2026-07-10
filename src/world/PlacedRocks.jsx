@@ -69,6 +69,7 @@ export default function PlacedRocks() {
   const selection = useStore((s) => s.selection)
   const setSelection = useStore((s) => s.setSelection)
   const flash = useStore((s) => s.flash)
+  const breakingId = useStore((s) => s.breakingId)
 
   // Sync placed rocks into rockRegistry for collision.
   // Uses _source: 'placed' tag so Rocks.jsx's effect doesn't clobber
@@ -108,6 +109,7 @@ export default function PlacedRocks() {
           : undefined
         const onClick = (e) => {
           e.stopPropagation()
+          if (breakingId === r.id) return
           if (!canSelect) {
             flash('this rock was placed by someone else')
             return

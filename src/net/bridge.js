@@ -13,7 +13,7 @@ export const bridge = {
   saveIdentity: async (_name, _color, _headColor, _bodyColor, _legColor, _hatId) => {},
 
   // Cosmetic purchase
-  buyCosmetic: async (_type, _id, _colorVal, _cost) => ({ ok: false, error: 'offline' }),
+  buyCosmetic: async (_type, _id, _colorVal) => ({ ok: false, error: 'offline' }),
 
   // Server-gated mutations. Each returns { ok, gold?, error?, ...extras }.
   plant:       async (_tree)               => ({ ok: false, error: 'offline' }),

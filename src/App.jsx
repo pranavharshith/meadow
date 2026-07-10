@@ -73,7 +73,7 @@ export default function App() {
         // we skip this so the ghost isn't interrupted by casual clicks.
         onPointerMissed={() => {
           const st = useStore.getState()
-          if (!st.placementMode) st.clearSelection()
+          if (!st.placementMode && !st.isDraggingCamera) st.clearSelection()
         }}
       >
         {/* warm haze that hides the horizon so the world feels endless.
