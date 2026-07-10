@@ -245,13 +245,6 @@ canvas { display: block; touch-action: none; }
    (.place, top: 74px) and the main command pill. Kept OUT of that pill so
    the two never collide visually or spatially. */
 .cut-pill {
-  position: fixed;
-  /* Top-center, same lane as the placement banner. Selection and placement
-     are mutually exclusive interactions so they don't co-appear. Keeps the
-     bottom strip (chat/hint/buttons) completely untouched. */
-  left: 50%;
-  top: 108px;
-  transform: translate(-50%, -8px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -270,7 +263,7 @@ canvas { display: block; touch-action: none; }
 .cut-pill.show {
   opacity: 1;
   pointer-events: auto;
-  transform: translate(-50%, 0);
+  transform: translateY(0);
 }
 /* Hint is always fully visible — no dimming, no fade. */
 .cut-pill-label {
@@ -562,10 +555,6 @@ canvas { display: block; touch-action: none; }
    never overlaps the bottom hint / chat / buttons. Higher z-index than
    place-banner so a toast fired during placement is still visible. */
 .toast {
-  position: fixed;
-  top: 172px;   /* below the placement banner (top 108 + ~50 tall) */
-  left: 50%;
-  transform: translateX(-50%) translateY(-8px);
   color: #fff;
   font-size: 13px;
   letter-spacing: 0.02em;
@@ -584,7 +573,7 @@ canvas { display: block; touch-action: none; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.show { opacity: 1; transform: translateY(0); }
 
 /* online status pill */
 .status {
@@ -1340,10 +1329,6 @@ canvas { display: block; touch-action: none; }
    spot; its border and status text switch between green (valid) and red
    (invalid) to mirror the ghost's colour in-world. */
 .place-banner {
-  position: fixed;
-  left: 50%;
-  top: 108px;                  /* below the .place landmark label (top 74px) */
-  transform: translate(-50%, -8px);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1364,8 +1349,8 @@ canvas { display: block; touch-action: none; }
   box-shadow: 0 6px 22px rgba(220, 90, 80, 0.28);
 }
 @keyframes place-banner-in {
-  from { opacity: 0; transform: translate(-50%, -18px); }
-  to   { opacity: 1; transform: translate(-50%, -8px); }
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .place-banner-info {
   display: flex;
@@ -1583,10 +1568,6 @@ canvas { display: block; touch-action: none; }
 
 /* Plot Customizer */
 .plot-customizer {
-  position: fixed;
-  left: 50%;
-  top: 108px;
-  transform: translate(-50%, -8px);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1704,4 +1685,16 @@ canvas { display: block; touch-action: none; }
 }
 
 .plot-customizer { pointer-events: auto !important; }
-.plot-customizer { left: 24px !important; transform: none !important; }
+
+.ui-queue {
+  position: fixed;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 12px;
+  z-index: 10;
+  pointer-events: none;
+}

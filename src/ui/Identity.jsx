@@ -17,11 +17,30 @@ export default function Identity({ open, onClose }) {
   const [inputName, setInputName] = useState(name)
   const [email, setEmail] = useState('')
   const [emailNote, setEmailNote] = useState('')
+  const [isChecking, setIsChecking] = useState(false)
+  const [isValid, setIsValid] = useState(true)
 
   // Sync local input from store whenever the panel opens
   useEffect(() => {
     if (open) setInputName(name)
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const check = inputName.trim()
+    if (!check || check.length < 2 || check === name) {
+      setIsValid(check === name || check.length >= 2)
+      return
+    }
+    setIsValid(true)
+    setIsChecking(true)
+    const t = setTimeout(async () => {
+      const { data } = await supabase.rpc('check_name_available', { p_name: check })
+      setIsChecking(false)
+      if (data === false) setIsValid(false)
+      else setIsValid(true)
+    }, 300)
+    return () => clearTimeout(t)
+  }, [inputName, name])
 
   const commitName = () => {
     const cleaned = inputName.trim().slice(0, 18) || 'wanderer'
@@ -60,8 +79,16 @@ export default function Identity({ open, onClose }) {
 
   return (
     <div className={`identity no-look${open ? ' open' : ''}`}>
-      <label>Your name</label>
-      <input value={inputName} maxLength={18} onChange={(e) => setInputName(e.target.value)} onBlur={commitName} placeholder="wanderer" />
+      <label>Your name {isChecking ? '(checking...)' : (!isValid ? '(unavailable)' : '')}</label>
+      <input 
+        value={inputName} 
+        maxLength={18} 
+        className={!isValid && !isChecking ? 'invalid' : ''}
+        onChange={(e) => setInputName(e.target.value)} 
+        onBlur={(e) => { useStore.getState().setInputContext('UI'); if(isValid && !isChecking) commitName(e); }} 
+        onFocus={() => useStore.getState().setInputContext('CHAT')}
+        placeholder="wanderer" 
+      />
       <label>Colour</label>
       <div className="swatches">
         {PALETTE.map((c) => (
@@ -94,6 +121,8 @@ export default function Identity({ open, onClose }) {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              onFocus={() => useStore.getState().setInputContext('CHAT')}
+              onBlur={() => useStore.getState().setInputContext('UI')}
               placeholder="you@email.com"
             />
             <button className="btn small" onClick={saveEmail}>

@@ -171,6 +171,8 @@ export default function Chat() {
           maxLength={160}
           placeholder={scope === 'world' ? 'world · costs 3 gold' : 'region · free'}
           onChange={(e) => setText(e.target.value)}
+          onFocus={() => useStore.getState().setInputContext('CHAT')}
+          onBlur={() => useStore.getState().setInputContext('GAME')}
         />
         <button type="submit">send</button>
       </form>

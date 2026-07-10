@@ -4,15 +4,16 @@ import { TREE_ITEMS, ROCK_ITEMS, PLOT_ITEM, HAT_ITEMS, DYE_ITEMS } from '../cata
 
 // ── Item Card ──────────────────────────────────────────────────────────────
 
-function ItemCard({ item, selected, canAfford, onClick }) {
+function ItemCard({ item, selected, canAfford, isProcessing, onClick }) {
   return (
     <button
-      className={`shop-card${selected ? ' selected' : ''}${!canAfford ? ' cant-afford' : ''}`}
+      className={`shop-card${selected ? ' selected' : ''}${!canAfford ? ' cant-afford' : ''}${isProcessing ? ' loading' : ''}`}
       onClick={onClick}
+      disabled={isProcessing}
       title={item.desc}
     >
-      <div className="shop-card-emoji">{item.emoji}</div>
-      <div className="shop-card-name">{item.name}</div>
+      <div className="shop-card-emoji">{isProcessing ? '⏳' : item.emoji}</div>
+      <div className="shop-card-name">{isProcessing ? 'Buying...' : item.name}</div>
       <div className="shop-card-desc">{item.desc}</div>
       <div className="shop-card-cost">
         {item.cost === 0 ? (
@@ -41,7 +42,7 @@ export default function Shop() {
 
   const [tab, setTab] = useState('trees')
   const [cosmeticSubTab, setCosmeticSubTab] = useState('hats') // 'hats', 'head', 'body', 'legs'
-  const [focusSection, setFocusSection] = useState('tabs') // 'tabs', 'subtabs', 'grid'
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const isPlotTab = tab === 'plots'
   const isCosmeticTab = tab === 'cosmetics'
@@ -70,73 +71,12 @@ export default function Shop() {
 
   useEffect(() => {
     if (!shopOpen) return
-    const onKey = (e) => {
-      if (document.activeElement && document.activeElement.tagName === 'INPUT') return
-      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.code)) return
-      e.preventDefault()
-
-      const isPlotTab = tab === 'plots'
-      const isCosmeticTab = tab === 'cosmetics'
-      const isHatTab = isCosmeticTab && cosmeticSubTab === 'hats'
-      const itemsList = isPlotTab ? [PLOT_ITEM] : (isCosmeticTab ? (isHatTab ? HAT_ITEMS : DYE_ITEMS) : (tab === 'trees' ? TREE_ITEMS : ROCK_ITEMS))
-      const itemType = tab === 'trees' ? 'tree' : tab === 'rocks' ? 'rock' : tab === 'plots' ? 'plot' : (isHatTab ? 'hat' : 'dye')
-      
-      let currentIndex = itemsList.findIndex(i => i.id === selectedItem.id && selectedItem.type === itemType)
-      if (currentIndex === -1) currentIndex = 0
-
-      if (focusSection === 'tabs') {
-        if (e.code === 'ArrowRight' || e.code === 'ArrowLeft') {
-          const tabs = ['trees', 'rocks', 'plots', 'cosmetics']
-          const tIdx = tabs.indexOf(tab)
-          const nextTab = e.code === 'ArrowRight' ? tabs[(tIdx + 1) % tabs.length] : tabs[(tIdx - 1 + tabs.length) % tabs.length]
-          setTab(nextTab)
-          if (nextTab !== 'cosmetics' && focusSection === 'subtabs') setFocusSection('tabs')
-        } else if (e.code === 'ArrowDown') {
-          setFocusSection(tab === 'cosmetics' ? 'subtabs' : 'grid')
-        }
-      } else if (focusSection === 'subtabs') {
-        if (e.code === 'ArrowRight' || e.code === 'ArrowLeft') {
-          const subtabs = ['hats', 'head', 'body', 'legs']
-          const sIdx = subtabs.indexOf(cosmeticSubTab)
-          const nextSub = e.code === 'ArrowRight' ? subtabs[(sIdx + 1) % subtabs.length] : subtabs[(sIdx - 1 + subtabs.length) % subtabs.length]
-          setCosmeticSubTab(nextSub)
-        } else if (e.code === 'ArrowUp') {
-          setFocusSection('tabs')
-        } else if (e.code === 'ArrowDown') {
-          setFocusSection('grid')
-        }
-      } else if (focusSection === 'grid') {
-        if (e.code === 'ArrowRight' || e.code === 'ArrowLeft') {
-          const next = e.code === 'ArrowRight' ? itemsList[(currentIndex + 1) % itemsList.length] : itemsList[(currentIndex - 1 + itemsList.length) % itemsList.length]
-          setSelectedItem({
-            type: itemType, id: next.id, shape: tab === 'trees' ? next.shape : undefined,
-            rockShape: tab === 'rocks' ? next.rockShape : undefined, cost: next.cost, color: next.color,
-          })
-        } else if (e.code === 'ArrowUp') {
-          setFocusSection(tab === 'cosmetics' ? 'subtabs' : 'tabs')
-        } else if (e.code === 'Enter') {
-          const item = itemsList[currentIndex]
-          const cantBuyPlot = itemType === 'plot' && hasMaxPlots
-          const canAfford = (itemType === 'plot' ? (gold >= item.cost && !hasMaxPlots) : (gold >= item.cost))
-          
-          if (cantBuyPlot || !canAfford) return
-          
-          if (itemType === 'hat') {
-            useStore.getState().buyCosmetic('hat', item.id, null, item.cost)
-          } else if (itemType === 'dye') {
-            useStore.getState().buyCosmetic(cosmeticSubTab, null, item.color, item.cost)
-          } else {
-            setShopOpen(false)
-            if (itemType === 'plot') {
-              setTimeout(() => useStore.getState().enterPlacement(), 10)
-            }
-          }
-        }
-      }
+    // Focus the first tab when shop opens if nothing is focused
+    if (document.activeElement === document.body) {
+      const firstTab = document.querySelector('.shop-tab')
+      if (firstTab) firstTab.focus()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [shopOpen, tab, cosmeticSubTab, selectedItem, gold, hasMaxPlots, setSelectedItem, setShopOpen])
+  }, [shopOpen])
 
   if (!shopOpen) return null
 
@@ -156,29 +96,25 @@ export default function Shop() {
         <div className="shop-tabs">
           <button
             className={`shop-tab${tab === 'trees' ? ' active' : ''}`}
-            style={focusSection === 'tabs' && tab === 'trees' ? { outline: '2px solid white' } : {}}
-            onClick={() => { setTab('trees'); setFocusSection('tabs'); }}
+            onClick={() => { setTab('trees'); }}
           >
             🌳 Trees
           </button>
           <button
             className={`shop-tab${tab === 'rocks' ? ' active' : ''}`}
-            style={focusSection === 'tabs' && tab === 'rocks' ? { outline: '2px solid white' } : {}}
-            onClick={() => { setTab('rocks'); setFocusSection('tabs'); }}
+            onClick={() => { setTab('rocks'); }}
           >
             🪨 Rocks
           </button>
           <button
             className={`shop-tab${tab === 'plots' ? ' active' : ''}`}
-            style={focusSection === 'tabs' && tab === 'plots' ? { outline: '2px solid white' } : {}}
-            onClick={() => { setTab('plots'); setFocusSection('tabs'); }}
+            onClick={() => { setTab('plots'); }}
           >
             📌 Plots
           </button>
           <button
             className={`shop-tab${tab === 'cosmetics' ? ' active' : ''}`}
-            style={focusSection === 'tabs' && tab === 'cosmetics' ? { outline: '2px solid white' } : {}}
-            onClick={() => { setTab('cosmetics'); setFocusSection('tabs'); }}
+            onClick={() => { setTab('cosmetics'); }}
           >
             🎩 Style
           </button>
@@ -186,10 +122,10 @@ export default function Shop() {
 
         {tab === 'cosmetics' && (
           <div className="shop-tabs" style={{ background: 'transparent', padding: '0 8px 8px' }}>
-            <button className={`shop-tab${cosmeticSubTab === 'hats' ? ' active' : ''}`} style={focusSection === 'subtabs' && cosmeticSubTab === 'hats' ? { outline: '2px solid white' } : {}} onClick={() => { setCosmeticSubTab('hats'); setFocusSection('subtabs'); }}>Hats</button>
-            <button className={`shop-tab${cosmeticSubTab === 'head' ? ' active' : ''}`} style={focusSection === 'subtabs' && cosmeticSubTab === 'head' ? { outline: '2px solid white' } : {}} onClick={() => { setCosmeticSubTab('head'); setFocusSection('subtabs'); }}>Head Dye</button>
-            <button className={`shop-tab${cosmeticSubTab === 'body' ? ' active' : ''}`} style={focusSection === 'subtabs' && cosmeticSubTab === 'body' ? { outline: '2px solid white' } : {}} onClick={() => { setCosmeticSubTab('body'); setFocusSection('subtabs'); }}>Body Dye</button>
-            <button className={`shop-tab${cosmeticSubTab === 'legs' ? ' active' : ''}`} style={focusSection === 'subtabs' && cosmeticSubTab === 'legs' ? { outline: '2px solid white' } : {}} onClick={() => { setCosmeticSubTab('legs'); setFocusSection('subtabs'); }}>Legs Dye</button>
+            <button className={`shop-tab${cosmeticSubTab === 'hats' ? ' active' : ''}`} onClick={() => { setCosmeticSubTab('hats'); }}>Hats</button>
+            <button className={`shop-tab${cosmeticSubTab === 'head' ? ' active' : ''}`} onClick={() => { setCosmeticSubTab('head'); }}>Head Dye</button>
+            <button className={`shop-tab${cosmeticSubTab === 'body' ? ' active' : ''}`} onClick={() => { setCosmeticSubTab('body'); }}>Body Dye</button>
+            <button className={`shop-tab${cosmeticSubTab === 'legs' ? ' active' : ''}`} onClick={() => { setCosmeticSubTab('legs'); }}>Legs Dye</button>
           </div>
         )}
 
@@ -202,34 +138,39 @@ export default function Shop() {
             const canAfford = (itemType === 'plot' ? (gold >= item.cost && !hasMaxPlots) : (gold >= item.cost))
             
             return (
-              <div key={item.id} style={focusSection === 'grid' && isSelected ? { outline: '2px solid white', borderRadius: '8px' } : {}}>
+              <div key={item.id}>
                 <ItemCard
                   item={item}
                   selected={isSelected}
-                canAfford={canAfford}
-                onClick={() => {
-                  if (cantBuyPlot) return
-                  setSelectedItem({
-                    type: itemType,
-                    id: item.id,
-                    shape: tab === 'trees' ? item.shape : undefined,
-                    rockShape: tab === 'rocks' ? item.rockShape : undefined,
-                    cost: item.cost,
-                    color: item.color,
-                  })
-                  
-                  if (itemType === 'hat') {
-                    useStore.getState().buyCosmetic('hat', item.id, null, item.cost)
-                  } else if (itemType === 'dye') {
-                    useStore.getState().buyCosmetic(cosmeticSubTab, null, item.color, item.cost)
-                  } else {
-                    setShopOpen(false) // Auto-close for placables!
-                    if (itemType === 'plot') {
-                      setTimeout(() => useStore.getState().enterPlacement(), 10)
+                  canAfford={canAfford}
+                  isProcessing={isProcessing && isSelected}
+                  onClick={async () => {
+                    if (cantBuyPlot || isProcessing) return
+                    setSelectedItem({
+                      type: itemType,
+                      id: item.id,
+                      shape: tab === 'trees' ? item.shape : undefined,
+                      rockShape: tab === 'rocks' ? item.rockShape : undefined,
+                      cost: item.cost,
+                      color: item.color,
+                    })
+                    
+                    if (itemType === 'hat') {
+                      setIsProcessing(true)
+                      await useStore.getState().buyCosmetic('hat', item.id, null, item.cost)
+                      setIsProcessing(false)
+                    } else if (itemType === 'dye') {
+                      setIsProcessing(true)
+                      await useStore.getState().buyCosmetic(cosmeticSubTab, null, item.color, item.cost)
+                      setIsProcessing(false)
+                    } else {
+                      setShopOpen(false) // Auto-close for placables!
+                      if (itemType === 'plot') {
+                        setTimeout(() => useStore.getState().enterPlacement(), 10)
+                      }
                     }
-                  }
-                }}
-              />
+                  }}
+                />
               </div>
             )
           })}

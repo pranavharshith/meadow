@@ -38,6 +38,11 @@ alter table public.players add column if not exists last_plant_at     timestampt
 alter table public.players add column if not exists last_water_at     timestamptz;
 alter table public.players add column if not exists last_chat_at      timestamptz;
 alter table public.players add column if not exists last_profile_at   timestamptz;
+alter table public.players add column if not exists blocked_users     uuid[] not null default '{}';
+alter table public.players add column if not exists head_color        text;
+alter table public.players add column if not exists body_color        text;
+alter table public.players add column if not exists leg_color         text;
+alter table public.players add column if not exists hat_id            text;
 
 -- Enforce case-insensitive unique names. Players must pick distinct names.
 -- Multiple players can keep the default "wanderer", but any custom name must be
@@ -126,6 +131,25 @@ begin
 end
 $$;
 
+create or replace function public.check_name_available(p_name text)
+returns boolean
+language plpgsql security definer set search_path = public
+as $$
+declare
+  is_profane boolean;
+  is_taken boolean;
+begin
+  p_name := btrim(p_name);
+  if length(p_name) < 2 then return false; end if;
+  p_name := left(p_name, 18);
+  if public.name_contains_profanity(p_name) then return false; end if;
+  
+  select exists(select 1 from public.players where lower(name) = lower(p_name) and lower(name) <> 'wanderer') into is_taken;
+  return not is_taken;
+end
+$$;
+grant execute on function public.check_name_available(text) to anon, authenticated;
+
 -- Change name / color only. Gold cannot be touched from here.
 -- Enforces: minimum length, profanity filter, 5s cooldown, unique name.
 create or replace function public.update_profile(p_name text, p_color text)
@@ -176,6 +200,33 @@ exception
     raise exception 'name already taken';
 end
 $$;
+
+create or replace function public.buy_cosmetic(p_type text, p_id text, p_color text, p_cost integer)
+returns public.players
+language plpgsql security definer set search_path = public
+as $$
+declare
+  row public.players;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  
+  select * into row from public.players where id = auth.uid();
+  if row.gold < p_cost then raise exception 'not enough gold'; end if;
+  
+  if p_type = 'hat' then
+    update public.players set hat_id = p_id, gold = gold - p_cost where id = auth.uid() returning * into row;
+  elsif p_type = 'head' then
+    update public.players set head_color = p_color, gold = gold - p_cost where id = auth.uid() returning * into row;
+  elsif p_type = 'body' then
+    update public.players set body_color = p_color, gold = gold - p_cost where id = auth.uid() returning * into row;
+  elsif p_type = 'legs' then
+    update public.players set leg_color = p_color, gold = gold - p_cost where id = auth.uid() returning * into row;
+  end if;
+  
+  return row;
+end
+$$;
+grant execute on function public.buy_cosmetic(text, text, text, integer) to authenticated;
 
 -- Plant a tree. Enforces cooldown + spacing. Awards +5 gold.
 -- Returns the updated player row (for gold reconciliation).
@@ -1119,6 +1170,10 @@ begin
     'id', id,
     'name', name,
     'color', color,
+    'head_color', head_color,
+    'body_color', body_color,
+    'leg_color', leg_color,
+    'hat_id', hat_id,
     'created_at', created_at,
     'trees_planted', trees_planted,
     'landmarks_discovered', coalesce(array_length(discovered, 1), 0)
@@ -1134,3 +1189,33 @@ grant execute on function public.accept_friend_request(uuid) to authenticated;
 grant execute on function public.decline_friend_request(uuid) to authenticated;
 grant execute on function public.unfriend(uuid) to authenticated;
 grant execute on function public.get_player_profile(uuid) to authenticated;
+
+-- ============================================================================
+-- MODERATION
+-- ============================================================================
+
+create or replace function public.toggle_block(target_id uuid)
+returns uuid[]
+language plpgsql security definer set search_path = public
+as $$
+declare
+  curr_blocks uuid[];
+  new_blocks uuid[];
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  
+  select blocked_users into curr_blocks from public.players where id = auth.uid();
+  if curr_blocks is null then curr_blocks := '{}'::uuid[]; end if;
+  
+  if target_id = any(curr_blocks) then
+    select array_agg(u) into new_blocks from unnest(curr_blocks) u where u <> target_id;
+    if new_blocks is null then new_blocks := '{}'::uuid[]; end if;
+  else
+    new_blocks := array_append(curr_blocks, target_id);
+  end if;
+  
+  update public.players set blocked_users = new_blocks where id = auth.uid();
+  return new_blocks;
+end
+$$;
+grant execute on function public.toggle_block(uuid) to authenticated;

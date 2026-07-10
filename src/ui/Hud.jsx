@@ -78,10 +78,12 @@ export default function Hud() {
       </div>
 
       <PlaceLabel />
-      <Toast />
-      <PlacementBanner />
-      <PlotCustomizer />
-      <ActionPill selection={selection} onCut={cutSelection} />
+      <div className="ui-queue no-look">
+        <Toast />
+        <PlacementBanner />
+        <PlotCustomizer />
+        <ActionPill selection={selection} onCut={cutSelection} />
+      </div>
 
       {!seen && (
         <button className="hint no-look" onClick={() => setSeen(true)} title="Dismiss hint">

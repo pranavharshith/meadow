@@ -137,9 +137,10 @@ export default function WorldMap() {
   const handleCanvasClick = (e) => {
     const rect = canvasRef.current.getBoundingClientRect()
     // Calculate CSS scaling ratio (logical size / physical size)
-    const scale = MAP_SIZE / rect.width
-    const cx = (e.clientX - rect.left) * scale
-    const cy = (e.clientY - rect.top) * scale
+    const scaleX = canvasRef.current.width / rect.width
+    const scaleY = canvasRef.current.height / rect.height
+    const cx = (e.clientX - rect.left) * scaleX
+    const cy = (e.clientY - rect.top) * scaleY
 
     // check if click is near a landmark
     for (const l of LANDMARKS) {

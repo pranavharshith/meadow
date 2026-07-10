@@ -10,7 +10,7 @@ import {
 import { remotePlayers, netStatus } from './state'
 import { P } from '../player-state'
 import { useStore } from '../store'
-import { isMuted, toggleMute as toggleMuteLocal } from './moderation'
+import { isMuted, setMutesFromServer } from './moderation'
 import { getCaptchaToken } from './captcha'
 
 const POS_HZ = 10
@@ -37,7 +37,7 @@ export default function Net() {
       useStore.getState().setOnline(false)
       // Expose local mute controls even offline (though there's no one to mute)
       bridge.isMuted = isMuted
-      bridge.toggleMute = toggleMuteLocal
+      bridge.toggleMute = async () => {}
       // Offline: claim daily bonus via localStorage path
       useStore.getState().claimDailyBonus()
       return
@@ -376,6 +376,7 @@ export default function Net() {
       }
       if (prof) {
         lastProfileRef.current = { name: prof.name, color: prof.color }
+        setMutesFromServer(prof.blocked_users || [])
         useStore.getState().hydrateProfile({
           gold: prof.gold,
           name: prof.name,
@@ -394,7 +395,12 @@ export default function Net() {
       // ---------- bridge wiring: all mutations go through RPCs ----------
       bridge.online = true
       bridge.isMuted = isMuted
-      bridge.toggleMute = toggleMuteLocal
+      bridge.toggleMute = async (userId) => {
+        const { data, error } = await supabase.rpc('toggle_block', { target_id: userId })
+        if (!error && data) {
+          setMutesFromServer(data)
+        }
+      }
 
       bridge.getProfile = async (id) => {
         const { data, error } = await supabase.rpc('get_player_profile', { p_id: id })
@@ -441,7 +447,6 @@ export default function Net() {
             else if (m.includes('too short'))       flash = 'name must be at least 2 characters'
             else if (m.includes('already taken'))   flash = 'that name is already taken'
             useStore.getState().flash(flash)
-            useStore.setState({ name: lastProfileRef.current.name, color: lastProfileRef.current.color })
           } else if (data) {
             lastProfileRef.current = { name: data.name, color: data.color }
             useStore.getState().hydrateProfile({ 
@@ -465,6 +470,30 @@ export default function Net() {
             }
           }
         }, 400)
+      }
+
+      bridge.buyCosmetic = async (type, id, colorVal, cost) => {
+        const { data, error } = await supabase.rpc('buy_cosmetic', {
+          p_type: type,
+          p_id: id,
+          p_color: colorVal,
+          p_cost: cost
+        })
+        if (error) {
+          console.error('buyCosmetic error', error)
+          return { ok: false, error: error.message }
+        }
+        lastProfileRef.current = { name: data.name, color: data.color }
+        useStore.getState().hydrateProfile({ 
+          name: data.name, 
+          color: data.color,
+          headColor: data.head_color,
+          bodyColor: data.body_color,
+          legColor: data.leg_color,
+          hatId: data.hat_id,
+          gold: data.gold
+        })
+        return { ok: true, gold: data.gold }
       }
 
       bridge.plant = async (tree) => {

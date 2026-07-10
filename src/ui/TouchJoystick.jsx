@@ -17,8 +17,8 @@ import { useStore } from '../store'
 // The component renders nothing when joystickEnabled is false (settings toggle).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEAD_ZONE = 8    // px — ignore tiny touches
 const MAX_DIST  = 52   // px — full-tilt radius
+const DEAD_ZONE = MAX_DIST * 0.20 // 20% deadzone to prevent drift
 
 const LOOK_SENS = 0.0032 // radians per pixel
 const PITCH_MIN = 0.12

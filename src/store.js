@@ -103,11 +103,15 @@ export const useStore = create((set, get) => ({
   socialOpen: false,
   profileModal: null, // { id: string } or null
 
+  // playtime (offline only)
+  playtimeSeconds: saved.playtimeSeconds ?? 0,
+
   // transient UI
   toast: null,
   mapOpen: false,
   navTarget: null,
   waterEvent: null,
+  inputContext: 'GAME', // 'GAME', 'UI', 'CHAT'
   
   // Interactive selection in the world: which user-planted tree / placed rock
   // is currently picked (for cutting or future actions). Null when nothing
@@ -150,9 +154,9 @@ export const useStore = create((set, get) => ({
   setMapOpen: (v) => set({ mapOpen: v }),
   setNavTarget: (target) => set({ navTarget: target }),
   clearNav: () => set({ navTarget: null }),
-  setShopOpen: (v) => set({ shopOpen: v }),
-  setSocialOpen: (v) => set({ socialOpen: v }),
-  setProfileModal: (v) => set({ profileModal: v }),
+  setShopOpen: (v) => set({ shopOpen: v, inputContext: v ? 'UI' : 'GAME' }),
+  setSocialOpen: (v) => set({ socialOpen: v, inputContext: v ? 'UI' : 'GAME' }),
+  setProfileModal: (v) => set({ profileModal: v, inputContext: v ? 'UI' : 'GAME' }),
   setFriends: (friends) => set({ friends }),
   setFriendRequests: (friendRequests) => set({ friendRequests }),
   setSelectedItem: (item) => set({ selectedItem: item }),
@@ -162,35 +166,40 @@ export const useStore = create((set, get) => ({
   setPreviewColor: (color) => set({ previewColor: color }),
   cancelDyeing: () => set({ dyeingTreeId: null, previewColor: null }),
   setJoystickEnabled: (v) => set({ joystickEnabled: v }),
+  setInputContext: (ctx) => set({ inputContext: ctx }),
 
   setName: (name) => {
     const state = get()
     const cleaned = (name || '').trim().slice(0, 18)
     if (cleaned === state.name) return
-    set({ name: cleaned })
+    if (!bridge.online) set({ name: cleaned })
     bridge.saveIdentity(cleaned, state.color, state.headColor, state.bodyColor, state.legColor, state.hatId)
   },
   setColor: (color) => {
     const state = get()
-    set({ color })
+    if (!bridge.online) set({ color })
     bridge.saveIdentity(state.name, color, state.headColor, state.bodyColor, state.legColor, state.hatId)
   },
-  buyCosmetic: (type, id, colorVal, cost) => {
+  buyCosmetic: async (type, id, colorVal, cost) => {
     const state = get()
     if (state.gold < cost) {
       state.flash(`need ${cost} gold`)
-      return
+      return false
     }
-    const updates = {}
-    if (type === 'hat') updates.hatId = id
-    else if (type === 'head') updates.headColor = colorVal
-    else if (type === 'body') updates.bodyColor = colorVal
-    else if (type === 'legs') updates.legColor = colorVal
     
-    set({ ...updates, gold: state.gold - cost })
-    state.flash(`customised avatar · -${cost} gold`)
-    const next = get()
-    bridge.saveIdentity(next.name, next.color, next.headColor, next.bodyColor, next.legColor, next.hatId)
+    if (!bridge.online) {
+      state.flash('must be online to buy')
+      return false
+    }
+    
+    const res = await bridge.buyCosmetic(type, id, colorVal, cost)
+    if (!res.ok) {
+      get().flash(res.error || 'purchase failed')
+      return false
+    }
+    
+    get().flash(`customised avatar · -${cost} gold`)
+    return true
   },
   setChatScope: (chatScope) => set({ chatScope }),
 
@@ -207,20 +216,25 @@ export const useStore = create((set, get) => ({
   setPlayerCount: (playerCount) => set({ playerCount }),
   setRenderedCount: (renderedCount) => set({ renderedCount }),
   // Server is the source of truth for gold + discovered. Overwrites local.
-  hydrateProfile: ({ gold, name, color, headColor, bodyColor, legColor, hatId, discovered, customSpawn, joinDate, treesPlanted }) =>
-    set((s) => ({
-      gold: gold ?? s.gold,
-      name: name ?? s.name,
-      color: color ?? s.color,
-      headColor: headColor ?? s.headColor,
-      bodyColor: bodyColor ?? s.bodyColor,
-      legColor: legColor ?? s.legColor,
-      hatId: hatId ?? s.hatId,
-      discovered: discovered ?? s.discovered,
-      customSpawn: customSpawn ?? s.customSpawn,
-      joinDate: joinDate ?? s.joinDate,
-      treesPlanted: treesPlanted ?? s.treesPlanted,
-    })),
+  hydrateProfile: ({ gold, name, color, headColor, bodyColor, legColor, hatId, discovered, customSpawn, joinDate, treesPlanted, lastWaterAt: serverLastWaterAt }) =>
+    set((s) => {
+      if (serverLastWaterAt !== undefined) {
+        lastWaterAt = new Date(serverLastWaterAt).getTime();
+      }
+      return {
+        gold: gold ?? s.gold,
+        name: name ?? s.name,
+        color: color ?? s.color,
+        headColor: headColor ?? s.headColor,
+        bodyColor: bodyColor ?? s.bodyColor,
+        legColor: legColor ?? s.legColor,
+        hatId: hatId ?? s.hatId,
+        discovered: discovered ?? s.discovered,
+        customSpawn: customSpawn ?? s.customSpawn,
+        joinDate: joinDate ?? s.joinDate,
+        treesPlanted: treesPlanted ?? s.treesPlanted,
+      }
+    }),
   setGold: (gold) => set({ gold }),
   setTrees: (trees) => set({ trees }),
   addTree: (t) =>
@@ -347,9 +361,8 @@ export const useStore = create((set, get) => ({
       shape: sub.shape ?? 0,
       owner: true,
     }
-    const goldBefore = state.gold
     const PLANT_REWARD = 5
-    set((s) => ({ trees: [...s.trees, t], gold: s.gold - cost + PLANT_REWARD }))
+    set((s) => ({ trees: [...s.trees, t], gold: bridge.online ? s.gold : s.gold - cost + PLANT_REWARD }))
     const costStr = cost > 0 ? ` · -${cost} gold` : ''
     state.flash(`planted a sapling${costStr} · +${PLANT_REWARD} gold`)
 
@@ -358,7 +371,6 @@ export const useStore = create((set, get) => ({
       if (!res.ok) {
         set((s) => ({
           trees: s.trees.filter((x) => x.id !== t.id),
-          gold: goldBefore,
         }))
         get().flash(res.error === 'too crowded' ? 'too crowded here' : 'could not plant')
         return
@@ -383,10 +395,9 @@ export const useStore = create((set, get) => ({
       matIdx: (Math.random() * 3) | 0,
       owner: true,
     }
-    const goldBefore = state.gold
     set((s) => ({
       placedRocks: [...s.placedRocks, rock],
-      gold: s.gold - cost,
+      gold: bridge.online ? s.gold : s.gold - cost,
     }))
     state.flash(`placed a rock · -${cost} gold`)
 
@@ -395,7 +406,6 @@ export const useStore = create((set, get) => ({
       if (!res.ok) {
         set((s) => ({
           placedRocks: s.placedRocks.filter((r) => r.id !== rock.id),
-          gold: goldBefore,
         }))
         const map = {
           'rock cooldown': 'wait a moment before placing again',
@@ -500,10 +510,9 @@ export const useStore = create((set, get) => ({
     if (sel.kind === 'rock') {
       const rock = state.placedRocks.find((r) => r.id === sel.id && r.owner)
       if (!rock) { set({ selection: null }); return }
-      const goldBefore = state.gold
       set((s) => ({
         breakingId: rock.id,
-        gold: s.gold + ROCK_REMOVE_REWARD,
+        gold: bridge.online ? s.gold : s.gold + ROCK_REMOVE_REWARD,
         selection: null,
       }))
       state.flash(`removed a rock · +${ROCK_REMOVE_REWARD} gold`)
@@ -519,9 +528,8 @@ export const useStore = create((set, get) => ({
       if (bridge.online) {
         bridge.removeRock(rock.id).then((res) => {
           if (!res.ok) {
-            // Revert: cancel animation and revert gold
+            // Revert: cancel animation
             set((s) => ({
-              gold: goldBefore,
               breakingId: null,
             }))
             get().flash(res.error === 'not your rock' ? 'that rock is not yours' : 'could not remove rock')
@@ -551,8 +559,7 @@ export const useStore = create((set, get) => ({
     const verb = isGrownTree ? 'cut down' : 'uprooted'
 
     // Play the fall animation, clear selection, credit optimistically
-    const goldBefore = state.gold
-    set((s) => ({ cuttingId: tree.id, selection: null, gold: s.gold + reward }))
+    set((s) => ({ cuttingId: tree.id, selection: null, gold: bridge.online ? s.gold : s.gold + reward }))
     state.flash(`${verb} a tree · +${reward} gold`)
 
     // Kick the server RPC in parallel with the animation. Only remove the tree
@@ -571,7 +578,7 @@ export const useStore = create((set, get) => ({
     if (bridge.online) {
       bridge.cut(tree.id).then((res) => {
         if (!res.ok) {
-          set((s) => ({ gold: goldBefore, cuttingId: null }))
+          set((s) => ({ cuttingId: null }))
           const map = {
             'cut cooldown': 'wait a moment before cutting again',
             'not your tree': 'that tree is not yours',
@@ -623,13 +630,12 @@ export const useStore = create((set, get) => ({
     }
     lastWaterAt = now
 
-    const goldBefore = state.gold
     const plantedBefore = best.plantedAt
 
     // Optimistic
     set((s) => ({
       trees: s.trees.map((t) => (t.id === best.id ? { ...t, plantedAt: t.plantedAt - WATER_BOOST } : t)),
-      gold: s.gold + 1,
+      gold: bridge.online ? s.gold : s.gold + 1,
       waterEvent: { x: best.x, z: best.z, at: now },
     }))
     state.flash('watered a sapling · +1 gold')
@@ -639,7 +645,6 @@ export const useStore = create((set, get) => ({
       if (!res.ok) {
         set((s) => ({
           trees: s.trees.map((t) => (t.id === best.id ? { ...t, plantedAt: plantedBefore } : t)),
-          gold: goldBefore,
         }))
         const map = {
           'water cooldown': 'wait a moment before watering again',
@@ -712,10 +717,9 @@ export const useStore = create((set, get) => ({
 
     _pendingDiscover.add(id)
     const lm = LANDMARKS.find((l) => l.id === id)
-    const goldBefore = get().gold
 
     // Optimistic update
-    set((s) => ({ discovered: [...s.discovered, id], gold: s.gold + 20 }))
+    set((s) => ({ discovered: [...s.discovered, id], gold: bridge.online ? s.gold : s.gold + 20 }))
     get().flash(`discovered ${lm ? lm.name : 'a place'} · +20 gold`)
 
     if (bridge.online) {
@@ -724,7 +728,6 @@ export const useStore = create((set, get) => ({
         // Roll back on server rejection
         set((s) => ({
           discovered: s.discovered.filter((x) => x !== id),
-          gold: goldBefore,
         }))
       } else if (typeof res.gold === 'number') {
         set({ gold: res.gold })
@@ -796,21 +799,30 @@ export const useStore = create((set, get) => ({
   },
 
   claimDailyBonus: async () => {
-    // Online: server decides. Offline: use localStorage-tracked date.
+    // Online: server decides. Offline: use playtime.
     if (bridge.online) {
       const res = await bridge.claimDaily()
-      if (res && res.ok && typeof res.gold === 'number') {
-        const prev = get().gold
+      if (res.ok && res.gold) {
         set({ gold: res.gold })
-        if (res.gold > prev) get().flash('welcome back · +10 gold')
+        get().flash('claimed daily bonus! · +10 gold')
       }
-      return
+    } else {
+      // Offline mode: require 24 hours of accumulated playtime (86400 seconds)
+      const state = get()
+      const lastBonusPlaytime = state.lastBonusPlaytime ?? 0
+      if (state.playtimeSeconds - lastBonusPlaytime >= 86400 || !state.lastBonus) {
+        set((s) => ({
+          gold: s.gold + 10,
+          lastBonus: todayStr(),
+          lastBonusPlaytime: s.playtimeSeconds
+        }))
+        state.flash('claimed daily bonus! · +10 gold')
+      } else {
+        const remaining = 86400 - (state.playtimeSeconds - lastBonusPlaytime)
+        const hrs = Math.ceil(remaining / 3600)
+        state.flash(`play ${hrs} more hour(s) to unlock the next daily bonus (offline)`)
+      }
     }
-    const today = todayStr()
-    if (get().lastBonus === today) return
-    const first = get().lastBonus === ''
-    set((s) => ({ lastBonus: today, gold: s.gold + 10 }))
-    get().flash(first ? 'welcome to the meadow · +10 gold' : 'welcome back · +10 gold')
   },
 
   // ── Tree dye ─────────────────────────────────────────────────────────
@@ -864,6 +876,7 @@ useStore.subscribe((s) => {
       particles: s.particles,
       joystickEnabled: s.joystickEnabled,
       customSpawn: s.customSpawn,
+      playtimeSeconds: s.playtimeSeconds,
     }
     if (!s.online) {
       base.gold = s.gold
@@ -878,3 +891,10 @@ useStore.subscribe((s) => {
     /* ignore quota / private mode */
   }
 })
+
+// Periodically update playtime and save to localStorage
+setInterval(() => {
+  if (!bridge.online) {
+    useStore.setState((s) => ({ playtimeSeconds: s.playtimeSeconds + 1 }))
+  }
+}, 1000)

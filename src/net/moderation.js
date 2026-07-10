@@ -1,3 +1,5 @@
+import { bridge } from './bridge'
+
 // Client-side chat moderation.
 //
 // This is intentionally lightweight — it stops accidental slurs / spam and
@@ -36,17 +38,11 @@ export function clientChatCooldown(scope) {
   return true
 }
 
-// --- Mute list ------------------------------------------------------------
+let mutes = new Set()
 
-function loadMutes() {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(MUTE_KEY)) || [])
-  } catch {
-    return new Set()
-  }
+export function setMutesFromServer(serverMutes) {
+  mutes = new Set(serverMutes || [])
 }
-
-let mutes = loadMutes()
 
 export function isMuted(userId) {
   return userId ? mutes.has(userId) : false
@@ -56,15 +52,13 @@ export function setMuted(userId, muted) {
   if (!userId) return
   if (muted) mutes.add(userId)
   else mutes.delete(userId)
-  try {
-    localStorage.setItem(MUTE_KEY, JSON.stringify([...mutes]))
-  } catch {
-    /* ignore quota */
-  }
 }
 
 export function toggleMute(userId) {
   setMuted(userId, !isMuted(userId))
+  if (bridge.online && bridge.toggleMute) {
+    bridge.toggleMute(userId).catch(() => {})
+  }
   return isMuted(userId)
 }
 
