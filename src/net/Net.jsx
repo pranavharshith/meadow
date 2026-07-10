@@ -808,8 +808,7 @@ export default function Net() {
     }
 
     acc.current += dt
-    const currentHz = P.moving || P.running ? 10 : 0.5
-    if (acc.current >= 1 / currentHz) {
+    if (acc.current >= 1 / POS_HZ) {
       acc.current = 0
       // Only send once the channel finished joining; before that, `.send`
       // silently falls back to REST httpSend which triggers a deprecation

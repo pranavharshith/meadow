@@ -362,7 +362,7 @@ export const useStore = create((set, get) => ({
       owner: true,
     }
     const PLANT_REWARD = 5
-    set((s) => ({ trees: [...s.trees, t], gold: bridge.online ? s.gold : s.gold - cost + PLANT_REWARD }))
+    set((s) => ({ trees: [...s.trees, t], gold: s.gold - cost + PLANT_REWARD }))
     const costStr = cost > 0 ? ` · -${cost} gold` : ''
     state.flash(`planted a sapling${costStr} · +${PLANT_REWARD} gold`)
 
@@ -397,7 +397,7 @@ export const useStore = create((set, get) => ({
     }
     set((s) => ({
       placedRocks: [...s.placedRocks, rock],
-      gold: bridge.online ? s.gold : s.gold - cost,
+      gold: s.gold - cost,
     }))
     state.flash(`placed a rock · -${cost} gold`)
 
@@ -512,7 +512,7 @@ export const useStore = create((set, get) => ({
       if (!rock) { set({ selection: null }); return }
       set((s) => ({
         breakingId: rock.id,
-        gold: bridge.online ? s.gold : s.gold + ROCK_REMOVE_REWARD,
+        gold: s.gold + ROCK_REMOVE_REWARD,
         selection: null,
       }))
       state.flash(`removed a rock · +${ROCK_REMOVE_REWARD} gold`)
@@ -559,7 +559,7 @@ export const useStore = create((set, get) => ({
     const verb = isGrownTree ? 'cut down' : 'uprooted'
 
     // Play the fall animation, clear selection, credit optimistically
-    set((s) => ({ cuttingId: tree.id, selection: null, gold: bridge.online ? s.gold : s.gold + reward }))
+    set((s) => ({ cuttingId: tree.id, selection: null, gold: s.gold + reward }))
     state.flash(`${verb} a tree · +${reward} gold`)
 
     // Kick the server RPC in parallel with the animation. Only remove the tree
@@ -635,7 +635,7 @@ export const useStore = create((set, get) => ({
     // Optimistic
     set((s) => ({
       trees: s.trees.map((t) => (t.id === best.id ? { ...t, plantedAt: t.plantedAt - WATER_BOOST } : t)),
-      gold: bridge.online ? s.gold : s.gold + 1,
+      gold: s.gold + 1,
       waterEvent: { x: best.x, z: best.z, at: now },
     }))
     state.flash('watered a sapling · +1 gold')
@@ -718,8 +718,8 @@ export const useStore = create((set, get) => ({
     _pendingDiscover.add(id)
     const lm = LANDMARKS.find((l) => l.id === id)
 
-    // Optimistic update
-    set((s) => ({ discovered: [...s.discovered, id], gold: bridge.online ? s.gold : s.gold + 20 }))
+    // Optimistic
+    set((s) => ({ discovered: [...s.discovered, id], gold: s.gold + 20 }))
     get().flash(`discovered ${lm ? lm.name : 'a place'} · +20 gold`)
 
     if (bridge.online) {
@@ -750,16 +750,9 @@ export const useStore = create((set, get) => ({
       return
     }
 
-    if (bridge.online) {
-      const res = await bridge.teleport(landmarkId)
-      if (!res.ok) {
-        state.flash(res.error === 'not enough gold' ? `need ${TELEPORT_COST} gold` : 'teleport failed')
-        return
-      }
-      if (typeof res.gold === 'number') set({ gold: res.gold })
-    } else {
-      set((s) => ({ gold: s.gold - TELEPORT_COST }))
-    }
+    const originalGold = state.gold
+    set((s) => ({ gold: s.gold - TELEPORT_COST }))
+
     if (lm.id === 'spawn-plaza') {
       const angle = Math.random() * Math.PI * 2
       const r = 4 + Math.random() * 6
@@ -773,6 +766,16 @@ export const useStore = create((set, get) => ({
     P.pos.y = plazaFloorHeight(P.pos.x, P.pos.z) ?? terrainHeight(P.pos.x, P.pos.z)
     set({ navTarget: null })
     state.flash(`arrived at ${lm.name}`)
+
+    if (bridge.online) {
+      const res = await bridge.teleport(landmarkId)
+      if (!res.ok) {
+        set({ gold: originalGold })
+        get().flash(res.error === 'not enough gold' ? `need ${TELEPORT_COST} gold` : 'teleport failed (server rejected)')
+      } else if (typeof res.gold === 'number') {
+        set({ gold: res.gold })
+      }
+    }
   },
 
   setSpawnHere: async () => {
@@ -784,18 +787,21 @@ export const useStore = create((set, get) => ({
     const x = P.pos.x
     const z = P.pos.z
 
+    const originalGold = state.gold
+    const originalSpawn = state.customSpawn
+
+    set((s) => ({ gold: s.gold - SET_SPAWN_COST, customSpawn: { x, z } }))
+    state.flash('spawn point set · -40 gold')
+
     if (bridge.online) {
       const res = await bridge.setSpawn(x, z)
       if (!res.ok) {
-        state.flash(res.error === 'not enough gold' ? `need ${SET_SPAWN_COST} gold` : 'could not set spawn')
-        return
+        set({ gold: originalGold, customSpawn: originalSpawn })
+        get().flash(res.error === 'not enough gold' ? `need ${SET_SPAWN_COST} gold` : 'could not set spawn (server rejected)')
+      } else if (typeof res.gold === 'number') {
+        set({ gold: res.gold })
       }
-      if (typeof res.gold === 'number') set({ gold: res.gold })
-    } else {
-      set((s) => ({ gold: s.gold - SET_SPAWN_COST }))
     }
-    set({ customSpawn: { x, z } })
-    state.flash('spawn point set · -40 gold')
   },
 
   claimDailyBonus: async () => {

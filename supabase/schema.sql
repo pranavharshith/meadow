@@ -43,6 +43,8 @@ alter table public.players add column if not exists head_color        text;
 alter table public.players add column if not exists body_color        text;
 alter table public.players add column if not exists leg_color         text;
 alter table public.players add column if not exists hat_id            text;
+alter table public.players add column if not exists rate_limit_tokens real not null default 5.0;
+alter table public.players add column if not exists last_action_at    timestamptz not null default now();
 
 -- Enforce case-insensitive unique names. Players must pick distinct names.
 -- Multiple players can keep the default "wanderer", but any custom name must be
@@ -96,30 +98,34 @@ revoke insert, update, delete on public.trees   from anon, authenticated;
 create extension if not exists pgcrypto with schema extensions;
 
 -- Global Rate Limiter (Token Bucket)
-create table if not exists public.user_action_logs (
-  id bigserial primary key,
-  user_id uuid not null references auth.users (id) on delete cascade,
-  created_at timestamptz not null default now()
-);
-create index if not exists user_actions_idx on public.user_action_logs (user_id, created_at);
+drop table if exists public.user_action_logs cascade;
 
 create or replace function public.check_rate_limit()
 returns void
 language plpgsql security definer set search_path = public
 as $$
 declare
-  recent_actions int;
+  p public.players;
+  now_ts timestamptz := now();
+  elapsed real;
+  new_tokens real;
 begin
   if auth.uid() is null then return; end if;
   
-  select count(*) into recent_actions from public.user_action_logs
-  where user_id = auth.uid() and created_at > now() - interval '1 second';
-  
-  if recent_actions >= 5 then
+  select * into p from public.players where id = auth.uid();
+  if not found then return; end if;
+
+  elapsed := extract(epoch from (now_ts - p.last_action_at));
+  new_tokens := least(5.0::real, p.rate_limit_tokens + elapsed);
+
+  if new_tokens < 1.0 then
     raise exception '429 Too Many Requests';
   end if;
-  
-  insert into public.user_action_logs (user_id) values (auth.uid());
+
+  update public.players
+    set rate_limit_tokens = new_tokens - 1.0,
+        last_action_at = now_ts
+    where id = auth.uid();
 end;
 $$;
 
@@ -290,6 +296,10 @@ begin
 
   rx := floor(p_x / 120.0)::int;
   rz := floor(p_z / 120.0)::int;
+
+  if (p_x * p_x + p_z * p_z) <= 225.0 then
+    raise exception 'cannot plant in spawn plaza';
+  end if;
 
   perform pg_advisory_xact_lock(rx, rz);
 
@@ -675,6 +685,10 @@ begin
   rx := floor(p_x / 120.0)::int;
   rz := floor(p_z / 120.0)::int;
 
+  if (p_x * p_x + p_z * p_z) <= 225.0 then
+    raise exception 'cannot place in spawn plaza';
+  end if;
+
   perform pg_advisory_xact_lock(rx, rz);
 
   -- Spacing: no rock within 2.0 units of requested spot
@@ -773,6 +787,10 @@ begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
   perform public.check_rate_limit();
 
+  if (p_x * p_x + p_z * p_z) <= 225.0 then
+    raise exception 'cannot set spawn inside the plaza';
+  end if;
+
   update public.players
     set gold = gold - 40,
         custom_spawn_x = p_x,
@@ -814,51 +832,6 @@ create policy "plots readable" on public.plots for select using (true);
 revoke insert, update, delete on public.plots from anon, authenticated;
 
 drop function if exists public.buy_plot(uuid, real, real);
-create or replace function public.buy_plot(p_id uuid, p_x real, p_z real)
-returns integer
-language plpgsql security definer set search_path = public
-as $$
-declare
-  rx int; rz int;
-  crowded int;
-  new_gold int;
-begin
-  if auth.uid() is null then raise exception 'not signed in'; end if;
-  perform public.check_rate_limit();
-
-  perform 1 from public.plots where owner_id = auth.uid();
-  if found then raise exception 'already owned'; end if;
-
-  rx := floor(p_x / 120.0)::int;
-  rz := floor(p_z / 120.0)::int;
-
-  perform pg_advisory_xact_lock(rx, rz);
-
-  select count(*) into crowded
-    from public.plots
-    where region_x = rx and region_z = rz
-      and (x - p_x) * (x - p_x) + (z - p_z) * (z - p_z) < 225.0; -- 15u spacing
-
-  if crowded > 0 then raise exception 'too close to another plot'; end if;
-
-  insert into public.plots (id, owner_id, region_x, region_z, x, z, radius, shape_type, width, depth, placed_at)
-    values (p_id, auth.uid(), rx, rz, p_x, p_z, 10, 0, 20, 20, now());
-
-  update public.players
-    set gold = gold - 250,
-        updated_at = now()
-    where id = auth.uid() and gold >= 250
-    returning gold into new_gold;
-  if new_gold is null then
-    delete from public.plots where id = p_id;
-    raise exception 'not enough gold';
-  end if;
-
-  return new_gold;
-end
-$$;
-
-grant execute on function public.buy_plot(uuid, real, real) to authenticated;
 
 -- ============================================================================
 -- SERVER-SIDE PROFANITY SANITIZATION
@@ -1097,6 +1070,10 @@ begin
   rx := floor(p_x / 120.0)::int;
   rz := floor(p_z / 120.0)::int;
 
+  if (p_x * p_x + p_z * p_z) <= 225.0 then
+    raise exception 'cannot buy a plot in the spawn plaza';
+  end if;
+
   -- Proximity check: ensure centers are at least (p_w + 5) units apart
   select count(*) into crowded
     from public.plots
@@ -1278,3 +1255,36 @@ begin
 end
 $$;
 grant execute on function public.toggle_block(uuid) to authenticated;
+
+-- ============================================================================
+-- RETROACTIVE MIGRATION: Clear Spawn Plaza (Radius 15) and refund gold
+-- ============================================================================
+DO $$
+DECLARE
+  rec record;
+  plot_cost int;
+BEGIN
+  -- Trees (+8 gold for all since age is unknown without parsing timestamps, +8 is generous)
+  FOR rec IN SELECT owner_id FROM public.trees WHERE (x*x + z*z) <= 225.0 LOOP
+    UPDATE public.players SET gold = gold + 8 WHERE id = rec.owner_id;
+  END LOOP;
+  DELETE FROM public.trees WHERE (x*x + z*z) <= 225.0;
+
+  -- Rocks (+10 gold)
+  FOR rec IN SELECT owner_id FROM public.rocks WHERE (x*x + z*z) <= 225.0 LOOP
+    UPDATE public.players SET gold = gold + 10 WHERE id = rec.owner_id;
+  END LOOP;
+  DELETE FROM public.rocks WHERE (x*x + z*z) <= 225.0;
+
+  -- Plots (Calculate original dynamic cost)
+  FOR rec IN SELECT owner_id, shape_type, width, depth FROM public.plots WHERE (x*x + z*z) <= 225.0 LOOP
+    IF rec.shape_type = 0 THEN
+      plot_cost := greatest(1, round(3.14159 * rec.width * rec.width * 0.8)::int);
+    ELSE
+      plot_cost := greatest(1, round((rec.width * 2.0) * (rec.depth * 2.0) * 0.15)::int);
+    END IF;
+    UPDATE public.players SET gold = gold + plot_cost WHERE id = rec.owner_id;
+  END LOOP;
+  DELETE FROM public.plots WHERE (x*x + z*z) <= 225.0;
+END
+$$;

@@ -49,8 +49,8 @@ function ensureContainer() {
  */
 export async function getCaptchaToken() {
   if (!SITE_KEY) {
-    console.error('CRITICAL SECURITY ERROR: VITE_TURNSTILE_SITE_KEY is not set. Captcha is REQUIRED to prevent bot abuse.')
-    throw new Error('Captcha configuration missing')
+    console.warn('VITE_TURNSTILE_SITE_KEY is not set. Proceeding without Captcha.')
+    return null
   }
   try {
     const turnstile = await loadScript()

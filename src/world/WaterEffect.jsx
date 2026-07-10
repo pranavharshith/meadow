@@ -62,8 +62,8 @@ export default function WaterEffect() {
 
     // Check for new event
     const e = useStore.getState().waterEvent
-    if (e && e.id !== lastEventId.current) {
-      lastEventId.current = e.id
+    if (e && e.at !== lastEventId.current) {
+      lastEventId.current = e.at
       // Find inactive
       for (let i = 0; i < POOL_SIZE; i++) {
         if (!pool[i].active) {
