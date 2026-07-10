@@ -22,6 +22,7 @@ create table if not exists public.players (
   color           text        not null default '#a9d98a',
   gold            integer     not null default 0,
   discovered      text[]      not null default '{}',
+  trees_planted   integer     not null default 0,
   last_bonus_date date,
   last_plant_at   timestamptz,
   last_water_at   timestamptz,
@@ -31,6 +32,7 @@ create table if not exists public.players (
 );
 
 alter table public.players add column if not exists discovered        text[]      not null default '{}';
+alter table public.players add column if not exists trees_planted     integer     not null default 0;
 alter table public.players add column if not exists last_bonus_date   date;
 alter table public.players add column if not exists last_plant_at     timestamptz;
 alter table public.players add column if not exists last_water_at     timestamptz;
@@ -205,6 +207,8 @@ begin
   rx := floor(p_x / 120.0)::int;
   rz := floor(p_z / 120.0)::int;
 
+  perform pg_advisory_xact_lock(rx, rz);
+
   -- spacing: no tree within 2.0 units of the requested spot
   select count(*) into crowded
     from public.trees
@@ -217,6 +221,7 @@ begin
 
   update public.players
     set gold = gold + 5,
+        trees_planted = trees_planted + 1,
         last_plant_at = now(),
         updated_at = now()
     where id = auth.uid()
@@ -357,10 +362,12 @@ $$;
 -- return-type change (void → text after sanitize_chat was added).
 drop function if exists public.check_region_chat(text);
 create or replace function public.check_region_chat(p_text text)
-returns void
+returns text
 language plpgsql security definer set search_path = public
 as $$
-declare last_at timestamptz;
+declare 
+  last_at timestamptz;
+  clean_text text;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
   if p_text is null or length(p_text) = 0 or length(p_text) > 160 then
@@ -373,6 +380,9 @@ begin
   end if;
 
   update public.players set last_chat_at = now() where id = auth.uid();
+
+  clean_text := public.sanitize_chat(p_text);
+  return clean_text;
 end
 $$;
 
@@ -572,6 +582,8 @@ begin
   rx := floor(p_x / 120.0)::int;
   rz := floor(p_z / 120.0)::int;
 
+  perform pg_advisory_xact_lock(rx, rz);
+
   -- Spacing: no rock within 2.0 units of requested spot
   select count(*) into crowded
     from public.rocks
@@ -722,6 +734,8 @@ begin
 
   rx := floor(p_x / 120.0)::int;
   rz := floor(p_z / 120.0)::int;
+
+  perform pg_advisory_xact_lock(rx, rz);
 
   select count(*) into crowded
     from public.plots
@@ -1009,3 +1023,114 @@ end;
 $$;
 
 grant execute on function public.buy_custom_plot(uuid, smallint, real, real, real, real) to authenticated;
+
+-- --- friends & profiles ----------------------------------------------------
+
+alter table public.players add column if not exists trees_planted int not null default 0;
+
+-- Note: Assume function public.plant_tree is updated to include:
+-- update public.players set trees_planted = trees_planted + 1 where id = auth.uid();
+
+create table if not exists public.friends (
+  user1_id uuid not null references public.players(id) on delete cascade,
+  user2_id uuid not null references public.players(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user1_id, user2_id),
+  check (user1_id < user2_id) -- Ensures uniqueness and single row per pair
+);
+
+alter table public.friends enable row level security;
+create policy "Friends readable by anyone" on public.friends for select using (true);
+create policy "Users can delete their own friendships" on public.friends for delete using (auth.uid() = user1_id or auth.uid() = user2_id);
+
+create table if not exists public.friend_requests (
+  id uuid primary key default gen_random_uuid(),
+  sender_id uuid not null references public.players(id) on delete cascade,
+  receiver_id uuid not null references public.players(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (sender_id, receiver_id)
+);
+
+alter table public.friend_requests enable row level security;
+create policy "Friend requests readable by involved parties" on public.friend_requests for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
+
+create or replace function public.send_friend_request(p_receiver_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  is_friend int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if auth.uid() = p_receiver_id then raise exception 'cannot friend yourself'; end if;
+  
+  select count(*) into is_friend from public.friends where 
+    (user1_id = least(auth.uid(), p_receiver_id) and user2_id = greatest(auth.uid(), p_receiver_id));
+  if is_friend > 0 then raise exception 'already friends'; end if;
+  
+  insert into public.friend_requests (sender_id, receiver_id) values (auth.uid(), p_receiver_id) on conflict do nothing;
+end;
+$$;
+
+create or replace function public.accept_friend_request(p_sender_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  
+  delete from public.friend_requests where sender_id = p_sender_id and receiver_id = auth.uid();
+  if found then
+    insert into public.friends (user1_id, user2_id) 
+      values (least(auth.uid(), p_sender_id), greatest(auth.uid(), p_sender_id)) 
+      on conflict do nothing;
+  end if;
+end;
+$$;
+
+create or replace function public.decline_friend_request(p_sender_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  delete from public.friend_requests where sender_id = p_sender_id and receiver_id = auth.uid();
+end;
+$$;
+
+create or replace function public.unfriend(p_friend_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  delete from public.friends where user1_id = least(auth.uid(), p_friend_id) and user2_id = greatest(auth.uid(), p_friend_id);
+end;
+$$;
+
+create or replace function public.get_player_profile(p_id uuid)
+returns json
+language plpgsql security definer set search_path = public
+as $$
+declare
+  prof json;
+begin
+  select json_build_object(
+    'id', id,
+    'name', name,
+    'color', color,
+    'created_at', created_at,
+    'trees_planted', trees_planted,
+    'landmarks_discovered', coalesce(array_length(discovered, 1), 0)
+  ) into prof
+  from public.players where id = p_id;
+  
+  return prof;
+end;
+$$;
+
+grant execute on function public.send_friend_request(uuid) to authenticated;
+grant execute on function public.accept_friend_request(uuid) to authenticated;
+grant execute on function public.decline_friend_request(uuid) to authenticated;
+grant execute on function public.unfriend(uuid) to authenticated;
+grant execute on function public.get_player_profile(uuid) to authenticated;

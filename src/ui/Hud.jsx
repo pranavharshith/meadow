@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useStore } from '../store'
 import Minimap from './Minimap'
 import Chat from './Chat'
@@ -12,6 +12,7 @@ import TouchJoystick from './TouchJoystick'
 import PlaceLabel from './PlaceLabel'
 import Status from './Status'
 import Identity from './Identity'
+import Social from './Social'
 import Toast from './Toast'
 import PlacementBanner from './PlacementBanner'
 import ActionPill from './ActionPill'
@@ -31,9 +32,19 @@ export default function Hud() {
   const selection = useStore((s) => s.selection)
   const shopOpen = useStore((s) => s.shopOpen)
   const setShopOpen = useStore((s) => s.setShopOpen)
+  const socialOpen = useStore((s) => s.socialOpen)
+  const setSocialOpen = useStore((s) => s.setSocialOpen)
   const selectedItem = useStore((s) => s.selectedItem)
-  const [seen, setSeen] = useState(false)
+  const profileModal = useStore((s) => s.profileModal)
   const [editing, setEditing] = useState(false)
+  const [seen, setSeen] = useState(false)
+
+  useEffect(() => {
+    if (profileModal === 'me') {
+      setEditing(true)
+      useStore.getState().setProfileModal(null)
+    }
+  }, [profileModal])
 
   const isPlot = selectedItem.type === 'plot'
   const isRock = selectedItem.type === 'rock'
@@ -47,9 +58,12 @@ export default function Hud() {
         <div className="brand">
           <div className="title">a shared garden</div>
           <div className="who no-look">
-            <button className="tag" onClick={() => setEditing((v) => !v)} title="edit name & colour">
+            <button className="tag" onClick={() => setEditing((v) => !v)} title="edit profile & identity">
               <span className="dot" style={{ background: color }} />
               {name}
+            </button>
+            <button className={`tag ${socialOpen ? 'active' : ''}`} onClick={() => setSocialOpen(!socialOpen)} title="Friends & Social" style={{ marginLeft: 4 }}>
+              Social
             </button>
             <div className="gold">
               <span className="coin" /> {gold}
@@ -57,6 +71,7 @@ export default function Hud() {
             <Status />
           </div>
           <Identity open={editing} onClose={() => setEditing(false)} />
+          <Social />
         </div>
         <Minimap />
         <Compass />

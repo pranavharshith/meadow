@@ -10,6 +10,10 @@ export default function Identity({ open, onClose }) {
   const setName = useStore((s) => s.setName)
   const setColor = useStore((s) => s.setColor)
   const flash = useStore((s) => s.flash)
+  const treesPlanted = useStore((s) => s.treesPlanted)
+  const discovered = useStore((s) => s.discovered)
+  const joinDate = useStore((s) => s.joinDate)
+  
   const [inputName, setInputName] = useState(name)
   const [email, setEmail] = useState('')
   const [emailNote, setEmailNote] = useState('')
@@ -69,6 +73,18 @@ export default function Identity({ open, onClose }) {
             aria-label={`colour ${c}`}
           />
         ))}
+      </div>
+      <div style={{ background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', margin: '8px 0' }}>
+        <div style={{ marginBottom: '4px', borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: '2px', fontSize: '0.85em', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.9)' }}>Statistics</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', marginBottom: '2px', color: 'white' }}>
+          <span style={{ color: 'rgba(255,255,255,0.7)' }}>Trees Planted</span><span>{treesPlanted}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', marginBottom: '2px', color: 'white' }}>
+          <span style={{ color: 'rgba(255,255,255,0.7)' }}>Landmarks</span><span>{discovered.length} / 10</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', color: 'white' }}>
+          <span style={{ color: 'rgba(255,255,255,0.7)' }}>Joined</span><span>{joinDate ? new Date(joinDate).toLocaleDateString() : 'Unknown'}</span>
+        </div>
       </div>
       {online && (
         <>

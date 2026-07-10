@@ -28,12 +28,17 @@ export default function Chat() {
       if (e.code === 'Enter' && document.activeElement !== inputRef.current) {
         setOpen(true)
         setTimeout(() => inputRef.current && inputRef.current.focus(), 0)
-      } else if ((e.code === 'Enter' || e.code === 'Escape') && document.activeElement === inputRef.current) {
-        // If Enter is pressed while typing, submit handles the message, but we also blur/close.
-        // If Escape is pressed, we just blur/close.
-        if (e.code === 'Escape') {
-          inputRef.current.blur()
-          setOpen(false)
+      } else if (open) {
+        if ((e.code === 'Enter' || e.code === 'Escape') && document.activeElement === inputRef.current) {
+          if (e.code === 'Escape') {
+            inputRef.current.blur()
+            setOpen(false)
+          }
+        }
+        
+        if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && document.activeElement !== inputRef.current) {
+          e.preventDefault()
+          setChatScope(useStore.getState().chatScope === 'region' ? 'world' : 'region')
         }
       }
     }
@@ -67,8 +72,6 @@ export default function Chat() {
       sendChat(text)
       setText('')
     }
-    inputRef.current.blur()
-    setOpen(false)
   }
 
   // Filter muted, then take the tail. muteBump forces re-eval when mutes change.
@@ -125,7 +128,7 @@ export default function Chat() {
         )}
         {shown.map((m) => (
           <div className="chat-msg" key={m.id}>
-            <span className="chat-name" style={{ color: m.color }}>
+            <span className="chat-name" style={{ color: m.color, cursor: 'pointer' }} onClick={() => useStore.getState().setProfileModal(m.self ? 'me' : m.userId)}>
               {m.name}
             </span>
             <span className="chat-text">{m.text}</span>

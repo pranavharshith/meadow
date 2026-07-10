@@ -59,7 +59,7 @@ function RemoteAvatar({ id }) {
         <AvatarMesh color={rp.color} headColor={rp.headColor} bodyColor={rp.bodyColor} legColor={rp.legColor} hatId={rp.hatId} state={rp} />
       )}
       <Html position={[0, 1.7, 0]} center distanceFactor={12} zIndexRange={[5, 0]} occlude={false}>
-        <div className="nameplate">{name}</div>
+        <div className="nameplate" onDoubleClick={() => useStore.getState().setProfileModal(id)} style={{ cursor: 'pointer', pointerEvents: 'auto' }}>{name}</div>
         {bubble.shown && bubble.text ? <div className="bubble">{bubble.text}</div> : null}
       </Html>
     </group>

@@ -95,6 +95,14 @@ export const useStore = create((set, get) => ({
   shopOpen: false,
   selectedItem: { type: 'tree', id: 'broadleaf', shape: 0, cost: 0 },
 
+  // social & profile
+  joinDate: saved.joinDate ?? null,
+  treesPlanted: saved.treesPlanted ?? 0,
+  friends: [],
+  friendRequests: [],
+  socialOpen: false,
+  profileModal: null, // { id: string } or null
+
   // transient UI
   toast: null,
   mapOpen: false,
@@ -143,6 +151,10 @@ export const useStore = create((set, get) => ({
   setNavTarget: (target) => set({ navTarget: target }),
   clearNav: () => set({ navTarget: null }),
   setShopOpen: (v) => set({ shopOpen: v }),
+  setSocialOpen: (v) => set({ socialOpen: v }),
+  setProfileModal: (v) => set({ profileModal: v }),
+  setFriends: (friends) => set({ friends }),
+  setFriendRequests: (friendRequests) => set({ friendRequests }),
   setSelectedItem: (item) => set({ selectedItem: item }),
   setSelection: (sel) => set({ selection: sel }),
   clearSelection: () => set({ selection: null }),
@@ -195,7 +207,7 @@ export const useStore = create((set, get) => ({
   setPlayerCount: (playerCount) => set({ playerCount }),
   setRenderedCount: (renderedCount) => set({ renderedCount }),
   // Server is the source of truth for gold + discovered. Overwrites local.
-  hydrateProfile: ({ gold, name, color, headColor, bodyColor, legColor, hatId, discovered, customSpawn }) =>
+  hydrateProfile: ({ gold, name, color, headColor, bodyColor, legColor, hatId, discovered, customSpawn, joinDate, treesPlanted }) =>
     set((s) => ({
       gold: gold ?? s.gold,
       name: name ?? s.name,
@@ -206,6 +218,8 @@ export const useStore = create((set, get) => ({
       hatId: hatId ?? s.hatId,
       discovered: discovered ?? s.discovered,
       customSpawn: customSpawn ?? s.customSpawn,
+      joinDate: joinDate ?? s.joinDate,
+      treesPlanted: treesPlanted ?? s.treesPlanted,
     })),
   setGold: (gold) => set({ gold }),
   setTrees: (trees) => set({ trees }),

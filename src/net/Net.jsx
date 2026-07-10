@@ -5,6 +5,7 @@ import { bridge } from './bridge'
 import {
   regionOf, regionChannel, regionChatChannel,
   isDeepInRegion, shardFor,
+  chunkOf, chunkKey, CHUNK_SIZE
 } from './region'
 import { remotePlayers, netStatus } from './state'
 import { P } from '../player-state'
@@ -24,6 +25,7 @@ export default function Net() {
   const chatChannelRef = useRef(null)  // region-wide: chat + head count
   const worldRef = useRef(null)        // global: world chat (server-emitted)
   const regionRef = useRef(null)
+  const currentChunkRef = useRef(null)
   const acc = useRef(0)
   const identityTimer = useRef(null)
   const lastProfileRef = useRef({ name: 'wanderer', color: '#a9d98a' })
@@ -45,34 +47,41 @@ export default function Net() {
 
     // ---------- receivers ----------
     const receivePos = (payload) => {
-      if (!payload || payload.id === meId.current) return
-      if (isMuted(payload.id)) return // still track presence, just don't render
-      let rp = remotePlayers.get(payload.id)
+      if (!payload) return
+      let id, x, z, yaw, emote, name, color, headColor, bodyColor, legColor, hatId;
+      if (Array.isArray(payload)) {
+        [id, x, z, yaw, emote] = payload;
+      } else {
+        ({ id, x, z, yaw, emote, name, color, headColor, bodyColor, legColor, hatId } = payload);
+      }
+      if (id === meId.current) return
+      if (isMuted(id)) return // still track presence, just don't render
+      let rp = remotePlayers.get(id)
       if (!rp) {
         rp = {
-          id: payload.id,
-          name: payload.name || 'wanderer',
-          color: payload.color || '#a9d98a',
-          headColor: payload.headColor || null,
-          bodyColor: payload.bodyColor || null,
-          legColor: payload.legColor || null,
-          hatId: payload.hatId || null,
-          x: payload.x, z: payload.z, yaw: payload.yaw || 0,
-          tx: payload.x, tz: payload.z, tyaw: payload.yaw || 0,
-          emote: null, msg: '', msgUntil: 0,
+          id: id,
+          name: name || 'wanderer',
+          color: color || '#a9d98a',
+          headColor: headColor || null,
+          bodyColor: bodyColor || null,
+          legColor: legColor || null,
+          hatId: hatId || null,
+          x: x, z: z, yaw: yaw || 0,
+          tx: x, tz: z, tyaw: yaw || 0,
+          emote: emote || null, msg: '', msgUntil: 0,
         }
-        remotePlayers.set(payload.id, rp)
+        remotePlayers.set(id, rp)
       }
-      rp.tx = payload.x
-      rp.tz = payload.z
-      rp.tyaw = payload.yaw || 0
-      rp.emote = payload.emote || null
-      if (payload.name) rp.name = payload.name
-      if (payload.color) rp.color = payload.color
-      if (payload.headColor !== undefined) rp.headColor = payload.headColor
-      if (payload.bodyColor !== undefined) rp.bodyColor = payload.bodyColor
-      if (payload.legColor !== undefined) rp.legColor = payload.legColor
-      if (payload.hatId !== undefined) rp.hatId = payload.hatId
+      rp.tx = x
+      rp.tz = z
+      rp.tyaw = yaw || 0
+      rp.emote = emote || null
+      if (name) rp.name = name
+      if (color) rp.color = color
+      if (headColor !== undefined) rp.headColor = headColor
+      if (bodyColor !== undefined) rp.bodyColor = bodyColor
+      if (legColor !== undefined) rp.legColor = legColor
+      if (hatId !== undefined) rp.hatId = hatId
     }
 
     const receiveChat = (payload, scope) => {
@@ -168,95 +177,70 @@ export default function Net() {
       }))
     }
 
-    async function loadRegionTrees(rx, rz) {
-      const { data, error } = await supabase
-        .from('trees')
-        .select('*')
-        .eq('region_x', rx)
-        .eq('region_z', rz)
-        .limit(2000)
-      if (error || disposed) return
-      const trees = (data || []).map((t) => ({
-        id: t.id,
-        x: t.x,
-        z: t.z,
-        variant: t.variant,
-        shape: t.shape || 0,
-        scale: t.scale,
-        dye: t.dye || null,
-        plantedAt: t.planted_at ? new Date(t.planted_at).getTime() : Date.now(),
-        owner: t.owner_id === meId.current,
-      }))
-      useStore.getState().setTrees(trees)
-    }
+    async function loadChunksAround(cx, cz) {
+      const minX = (cx - 1) * CHUNK_SIZE
+      const maxX = (cx + 2) * CHUNK_SIZE
+      const minZ = (cz - 1) * CHUNK_SIZE
+      const maxZ = (cz + 2) * CHUNK_SIZE
 
-    async function loadRegionRocks(rx, rz) {
-      const { data, error } = await supabase
-        .from('rocks')
-        .select('*')
-        .eq('region_x', rx)
-        .eq('region_z', rz)
-        .limit(1000)
-      if (error || disposed) return
-      const rocks = (data || []).map((r) => ({
-        id: r.id,
-        x: r.x,
-        z: r.z,
-        rot: r.rot ?? 0,
-        rockShape: r.rock_shape ?? 2,
-        sx: r.sx ?? 1,
-        sy: r.sy ?? 1,
-        sz: r.sz ?? 1,
-        matIdx: r.mat_idx ?? 0,
-        owner: r.owner_id === meId.current,
-      }))
-      useStore.getState().setRocks(rocks)
-    }
-
-    async function loadRegionPlots(rx, rz) {
-      const { data, error } = await supabase
-        .from('plots')
-        .select('*')
-        .eq('region_x', rx)
-        .eq('region_z', rz)
-        .limit(200)
-      if (error || disposed) return
-      const plots = (data || []).map((p) => ({
-        id: p.id,
-        x: p.x,
-        z: p.z,
-        radius: p.radius ?? 10,
-        shapeType: p.shape_type ?? 0,
-        width: p.width ?? 20,
-        depth: p.depth ?? 20,
-        owner: p.owner_id === meId.current,
-        name: p.players?.name || '',
-      }))
-      useStore.getState().setPlots(plots)
+      Promise.all([
+        supabase.from('trees').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(1000),
+        supabase.from('rocks').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(500),
+        supabase.from('plots').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(100)
+      ]).then(([treesRes, rocksRes, plotsRes]) => {
+        if (disposed) return
+        
+        if (!treesRes.error) {
+          const trees = (treesRes.data || []).map(t => ({
+            id: t.id, x: t.x, z: t.z, variant: t.variant, shape: t.shape || 0,
+            scale: t.scale, dye: t.dye || null,
+            plantedAt: t.planted_at ? new Date(t.planted_at).getTime() : Date.now(),
+            owner: t.owner_id === meId.current,
+          }))
+          useStore.getState().setTrees(trees)
+        }
+        
+        if (!rocksRes.error) {
+          const rocks = (rocksRes.data || []).map(r => ({
+            id: r.id, x: r.x, z: r.z, rot: r.rot ?? 0, rockShape: r.rock_shape ?? 2,
+            sx: r.sx ?? 1, sy: r.sy ?? 1, sz: r.sz ?? 1, matIdx: r.mat_idx ?? 0,
+            owner: r.owner_id === meId.current,
+          }))
+          useStore.getState().setRocks(rocks)
+        }
+        
+        if (!plotsRes.error) {
+          const plots = (plotsRes.data || []).map(p => ({
+            id: p.id, x: p.x, z: p.z, radius: p.radius ?? 10, shapeType: p.shape_type ?? 0,
+            width: p.width ?? 20, depth: p.depth ?? 20, owner: p.owner_id === meId.current,
+            name: p.players?.name || '',
+          }))
+          useStore.getState().setPlots(plots)
+        }
+      })
     }
 
     async function joinRegion(rx, rz) {
-      // Tear down previous region channels
+      // Tear down previous region channels safely (staged lifecycle)
       if (posChannelRef.current) {
+        try { await posChannelRef.current.unsubscribe() } catch {}
         try { await supabase.removeChannel(posChannelRef.current) } catch {}
         posChannelRef.current = null
       }
+      
       if (chatChannelRef.current) {
+        const finalPresence = chatChannelRef.current.presenceState() || {}
+        try { await chatChannelRef.current.unsubscribe() } catch {}
         try { await supabase.removeChannel(chatChannelRef.current) } catch {}
         chatChannelRef.current = null
-      }
-      
-      const oldIds = Array.from(remotePlayers.keys())
-      setTimeout(() => {
-        const activeIds = new Set()
-        if (chatChannelRef.current) {
-          const st = chatChannelRef.current.presenceState()
-          Object.keys(st).forEach(k => activeIds.add(k))
-        }
-        oldIds.forEach((id) => {
+        
+        const activeIds = new Set(Object.keys(finalPresence))
+        for (const id of remotePlayers.keys()) {
           if (!activeIds.has(id)) remotePlayers.delete(id)
-        })
-      }, 3000)
+        }
+      } else {
+        remotePlayers.clear()
+      }
 
 
       const name = useStore.getState().name
@@ -342,9 +326,8 @@ export default function Net() {
 
       regionRef.current = `${rx}:${rz}`
       netStatus.region = regionRef.current
-      loadRegionTrees(rx, rz)
-      loadRegionRocks(rx, rz)
-      loadRegionPlots(rx, rz)
+      // Force initial chunk load if we join a new region
+      currentChunkRef.current = null
     }
     joinRegionRef.current = joinRegion
 
@@ -403,6 +386,8 @@ export default function Net() {
           hatId: prof.hat_id,
           discovered: prof.discovered || [],
           customSpawn: (prof.custom_spawn_x != null ? { x: prof.custom_spawn_x, z: prof.custom_spawn_z } : undefined),
+          joinDate: prof.created_at,
+          treesPlanted: prof.trees_planted,
         })
       }
 
@@ -410,6 +395,32 @@ export default function Net() {
       bridge.online = true
       bridge.isMuted = isMuted
       bridge.toggleMute = toggleMuteLocal
+
+      bridge.getProfile = async (id) => {
+        const { data, error } = await supabase.rpc('get_player_profile', { p_id: id })
+        if (error) return { ok: false, error: error.message }
+        return { ok: true, data }
+      }
+
+      bridge.sendFriendRequest = async (id) => {
+        const { error } = await supabase.rpc('send_friend_request', { p_receiver_id: id })
+        return { ok: !error, error: error?.message }
+      }
+
+      bridge.acceptFriendRequest = async (id) => {
+        const { error } = await supabase.rpc('accept_friend_request', { p_sender_id: id })
+        return { ok: !error, error: error?.message }
+      }
+
+      bridge.declineFriendRequest = async (id) => {
+        const { error } = await supabase.rpc('decline_friend_request', { p_sender_id: id })
+        return { ok: !error, error: error?.message }
+      }
+
+      bridge.unfriend = async (id) => {
+        const { error } = await supabase.rpc('unfriend', { p_friend_id: id })
+        return { ok: !error, error: error?.message }
+      }
 
       bridge.saveIdentity = async (name, color, headColor, bodyColor, legColor, hatId) => {
         clearTimeout(identityTimer.current)
@@ -755,8 +766,17 @@ export default function Net() {
       })
     }
 
+    // Proximity chunk loader checking on every frame (only queries when chunk changes)
+    const { cx, cz } = chunkOf(P.pos.x, P.pos.z)
+    const cKey = chunkKey(cx, cz)
+    if (cKey !== currentChunkRef.current) {
+      currentChunkRef.current = cKey
+      loadChunksAround(cx, cz)
+    }
+
     acc.current += dt
-    if (acc.current >= 1 / POS_HZ) {
+    const currentHz = P.moving || P.running ? 10 : 0.5
+    if (acc.current >= 1 / currentHz) {
       acc.current = 0
       // Only send once the channel finished joining; before that, `.send`
       // silently falls back to REST httpSend which triggers a deprecation
@@ -766,13 +786,13 @@ export default function Net() {
         ch.send({
           type: 'broadcast',
           event: 'pos',
-          payload: {
-            id: meId.current,
-            x: +P.pos.x.toFixed(2),
-            z: +P.pos.z.toFixed(2),
-            yaw: +P.avatarYaw.toFixed(2),
-            emote: P.emote,
-          },
+          payload: [
+            meId.current,
+            +P.pos.x.toFixed(2),
+            +P.pos.z.toFixed(2),
+            +P.avatarYaw.toFixed(2),
+            P.emote || 0
+          ],
         })
       }
     }
