@@ -376,16 +376,24 @@ export default function TreesField() {
     }
 
     // Prune old chunks
+    let registryNeedsCompact = false
     for (const key of chunksRef.current.keys()) {
       if (!newKeys.has(key)) {
         changed = true
+        registryNeedsCompact = true
         chunksRef.current.delete(key)
-        for (let i = treeRegistry.length - 1; i >= 0; i--) {
-          if (treeRegistry[i].chunkKey === key) {
-            treeRegistry.splice(i, 1)
-          }
+      }
+    }
+
+    if (registryNeedsCompact) {
+      let j = 0
+      for (let i = 0; i < treeRegistry.length; i++) {
+        // Keep it if it's NOT a decorative tree, OR if its chunk is still in newKeys
+        if (treeRegistry[i]._source !== 'decorative' || newKeys.has(treeRegistry[i].chunkKey)) {
+          treeRegistry[j++] = treeRegistry[i]
         }
       }
+      treeRegistry.length = j
     }
 
     if (changed) {
@@ -399,12 +407,14 @@ export default function TreesField() {
 
   // Sync planted trees to registry independently
   useEffect(() => {
-    // Remove all old planted trees from registry
-    for (let i = treeRegistry.length - 1; i >= 0; i--) {
-      if (treeRegistry[i]._source === 'planted') {
-        treeRegistry.splice(i, 1)
+    // Remove all old planted trees from registry (O(N) compaction instead of O(N^2) splice)
+    let j = 0
+    for (let i = 0; i < treeRegistry.length; i++) {
+      if (treeRegistry[i]._source !== 'planted') {
+        treeRegistry[j++] = treeRegistry[i]
       }
     }
+    treeRegistry.length = j
     const now = Date.now()
     for (const t of trees) {
       const grown = now - t.plantedAt >= GROW_SECONDS * 1000
@@ -421,33 +431,52 @@ export default function TreesField() {
   const groupRefs = useRef([])
   const distantTrunksRef = useRef()
   const distantLeavesRef = useRef()
-  const dummy = useMemo(() => new THREE.Object3D(), [])
+  const lastCamPos = useRef(new THREE.Vector3(9999, 9999, 9999))
+
+  const matrices = useMemo(() => {
+    const arr = []
+    const dummy = new THREE.Object3D()
+    for (let i = 0; i < decorative.length; i++) {
+      const t = decorative[i]
+      dummy.position.set(t.x, t.y + 1.4 * t.s, t.z)
+      dummy.scale.setScalar(t.s)
+      dummy.rotation.set(0, t.rot, 0)
+      dummy.updateMatrix()
+      const tm = dummy.matrix.clone()
+
+      dummy.position.set(t.x, t.y + 3.4 * t.s, t.z)
+      dummy.scale.set(1.5 * t.s, 1.4 * t.s, 1.5 * t.s)
+      dummy.updateMatrix()
+      const lm = dummy.matrix.clone()
+      
+      arr.push({ tm, lm })
+    }
+    return arr
+  }, [decorative])
 
   useFrame(({ camera }) => {
     if (!distantTrunksRef.current || !distantLeavesRef.current) return
+    
+    // Only update LODs if camera moved significantly (2 units)
+    if (lastCamPos.current.distanceToSquared(camera.position) < 4) return
+    lastCamPos.current.copy(camera.position)
+
     let count = 0
+    const cx = camera.position.x
+    const cz = camera.position.z
+
     for (let i = 0; i < decorative.length; i++) {
       const t = decorative[i]
-      const dist = Math.hypot(t.x - camera.position.x, t.z - camera.position.z)
-      const isNear = dist < 70
+      const distSq = (t.x - cx) ** 2 + (t.z - cz) ** 2
+      const isNear = distSq < 4900 // 70^2
       
       if (groupRefs.current[i]) {
         groupRefs.current[i].visible = isNear
       }
       
       if (!isNear) {
-        // Trunk matrix (Y offset +1.4)
-        dummy.position.set(t.x, t.y + 1.4 * t.s, t.z)
-        dummy.scale.setScalar(t.s)
-        dummy.rotation.set(0, t.rot, 0)
-        dummy.updateMatrix()
-        distantTrunksRef.current.setMatrixAt(count, dummy.matrix)
-
-        // Leaf matrix (Y offset +3.4, and scaled up)
-        dummy.position.set(t.x, t.y + 3.4 * t.s, t.z)
-        dummy.scale.set(1.5 * t.s, 1.4 * t.s, 1.5 * t.s)
-        dummy.updateMatrix()
-        distantLeavesRef.current.setMatrixAt(count, dummy.matrix)
+        distantTrunksRef.current.setMatrixAt(count, matrices[i].tm)
+        distantLeavesRef.current.setMatrixAt(count, matrices[i].lm)
         count++
       }
     }

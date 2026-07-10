@@ -11,7 +11,7 @@ import { ROCK_GEOS, ROCK_MATS } from './rock-assets'
 // Reuse the same geometry definitions as in Rocks.jsx
 // (Geometry and materials now imported from rock-assets.js)
 
-function PlacedRock({ r, owned, isSelected, baseY, onClick, onOver, onOut }) {
+function PlacedRock({ r, owned, isSelected, baseY, isOvergrown, onClick, onOver, onOut }) {
   const breakingId = useStore((s) => s.breakingId)
   const meshRef = useRef()
   const breakStart = useRef(0)
@@ -54,6 +54,12 @@ function PlacedRock({ r, owned, isSelected, baseY, onClick, onOver, onOut }) {
           onClick={onClick}
         />
       </Select>
+      {isOvergrown && (
+        <mesh position={[0, r.sy, 0]}>
+          <sphereGeometry args={[Math.max(r.sx, r.sz) * 1.5, 16, 16]} />
+          <meshBasicMaterial color="#a3ff80" transparent opacity={0.15} blending={THREE.AdditiveBlending} depthWrite={false} />
+        </mesh>
+      )}
     </group>
   )
 }
@@ -86,20 +92,23 @@ export default function PlacedRocks() {
   return (
     <group>
       {placedRocks.map((r) => {
+        const ageDays = (Date.now() - (r.placedAt || Date.now())) / (1000 * 60 * 60 * 24)
+        const isOvergrown = ageDays >= 2
         const owned = !!r.owner
-        const isSelected = owned && selection && selection.kind === 'rock' && selection.id === r.id
+        const canSelect = owned || isOvergrown
+        const isSelected = canSelect && selection && selection.kind === 'rock' && selection.id === r.id
         // Use plaza floor height inside the Meadow Gate so placed rocks
         // sit on the raised stone surface, not the raw terrain below (fix #5)
         const baseY = plazaFloorHeight(r.x, r.z) ?? terrainHeight(r.x, r.z)
-        const onOver = owned
+        const onOver = canSelect
           ? () => { document.body.style.cursor = 'pointer' }
           : undefined
-        const onOut = owned
+        const onOut = canSelect
           ? () => { document.body.style.cursor = '' }
           : undefined
         const onClick = (e) => {
           e.stopPropagation()
-          if (!owned) {
+          if (!canSelect) {
             flash('this rock was placed by someone else')
             return
           }
@@ -113,6 +122,7 @@ export default function PlacedRocks() {
             owned={owned}
             isSelected={isSelected}
             baseY={baseY}
+            isOvergrown={isOvergrown}
             onClick={onClick}
             onOver={onOver}
             onOut={onOut}

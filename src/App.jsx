@@ -57,6 +57,9 @@ export default function App() {
   return (
     <>
       <Canvas
+        onPointerDown={(e) => {
+          if (e.target.tagName === 'CANVAS') document.activeElement?.blur()
+        }}
         shadows
         dpr={[1, 1.75]}
         camera={{ position: [0, 4, 10], fov: 62, near: 0.1, far: 600 }}

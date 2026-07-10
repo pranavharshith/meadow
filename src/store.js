@@ -393,6 +393,7 @@ export const useStore = create((set, get) => ({
       sy: 0.5 + Math.random() * 0.4,
       sz: 0.7 + Math.random() * 0.5,
       matIdx: (Math.random() * 3) | 0,
+      placedAt: Date.now(),
       owner: true,
     }
     set((s) => ({
@@ -508,8 +509,9 @@ export const useStore = create((set, get) => ({
     }
 
     if (sel.kind === 'rock') {
-      const rock = state.placedRocks.find((r) => r.id === sel.id && r.owner)
-      if (!rock) { set({ selection: null }); return }
+      const rock = state.placedRocks.find((r) => r.id === sel.id)
+      if (rock && !rock.owner && (Date.now() - (rock.placedAt || Date.now())) / 86400000 >= 2) return get().releaseSelection()
+      if (!rock || !rock.owner) { set({ selection: null }); return }
       set((s) => ({
         breakingId: rock.id,
         gold: s.gold + ROCK_REMOVE_REWARD,
@@ -543,12 +545,10 @@ export const useStore = create((set, get) => ({
         })
       }
       return
-    }
-
-    // Tree
-    const tree = state.trees.find((t) => t.id === sel.id && t.owner)
-    if (!tree) {
-      set({ selection: null })
+    } else if (sel.kind === 'tree') {
+      const tree = state.trees.find((t) => t.id === sel.id)
+      if (tree && !tree.owner && (Date.now() - (tree.plantedAt || Date.now())) / 86400000 >= 2) return get().releaseSelection()
+      if (!tree || !tree.owner) { set({ selection: null }); return }
       state.flash('that tree is no longer here')
       return
     }
@@ -600,6 +600,54 @@ export const useStore = create((set, get) => ({
   // Kept as a thin alias so anywhere old code / hooks still called it
   // (like existing UI hint text) continues to work — routes to cutSelection.
   cutNearestTree: () => get().cutSelection(),
+
+  releaseSelection: () => {
+    const state = get()
+    if (state.cuttingId || state.breakingId) return
+    const sel = state.selection
+    if (!sel) return
+    
+    // Play the fall/break animation and optimistically add +1 gold
+    const isRock = sel.kind === 'rock'
+    const id = sel.id
+    
+    set((s) => ({
+      ...(isRock ? { breakingId: id } : { cuttingId: id }),
+      selection: null,
+      gold: s.gold + 1
+    }))
+    state.flash(`released to nature · +1 gold`)
+
+    const animStart = performance.now()
+    const doRemove = () => {
+      set((s) => ({
+        ...(isRock 
+            ? { placedRocks: s.placedRocks.filter(r => r.id !== id), breakingId: null }
+            : { trees: s.trees.filter(t => t.id !== id), cuttingId: null }
+        )
+      }))
+    }
+
+    if (bridge.online) {
+      bridge.releaseItem(id, sel.kind).then((res) => {
+        if (!res.ok) {
+          // Revert animation
+          set((s) => ({
+            ...(isRock ? { breakingId: null } : { cuttingId: null }),
+          }))
+          get().flash(res.error || 'could not release item')
+        } else {
+          if (typeof res.gold === 'number') set({ gold: res.gold })
+          const elapsed = performance.now() - animStart
+          const remaining = Math.max(0, (isRock ? 500 : 850) - elapsed)
+          if (remaining > 0) setTimeout(doRemove, remaining)
+          else doRemove()
+        }
+      })
+    } else {
+      setTimeout(doRemove, isRock ? 500 : 850)
+    }
+  },
 
   // Public entry for rock placement. Same flow as plantTree — first press
   // enters placement (with the currently selected rock as subject), second
@@ -723,18 +771,22 @@ export const useStore = create((set, get) => ({
     get().flash(`discovered ${lm ? lm.name : 'a place'} · +20 gold`)
 
     if (bridge.online) {
-      const res = await bridge.discover(id)
-      if (!res.ok) {
-        // Roll back on server rejection
-        set((s) => ({
-          discovered: s.discovered.filter((x) => x !== id),
-        }))
-      } else if (typeof res.gold === 'number') {
-        set({ gold: res.gold })
+      try {
+        const res = await bridge.discover(id)
+        if (!res.ok) {
+          // Roll back on server rejection
+          set((s) => ({
+            discovered: s.discovered.filter((x) => x !== id),
+          }))
+        } else if (typeof res.gold === 'number') {
+          set({ gold: res.gold })
+        }
+      } finally {
+        _pendingDiscover.delete(id)
       }
+    } else {
+      _pendingDiscover.delete(id)
     }
-
-    _pendingDiscover.delete(id)
   },
 
   teleportTo: async (landmarkId) => {
@@ -831,6 +883,16 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  claimOfflineGold: async () => {
+    if (bridge.online) {
+      const res = await bridge.claimOfflineGold()
+      if (res.ok && res.gold && res.gold > 0) {
+        set((s) => ({ gold: s.gold }))
+        get().flash(`nature reclaimed your wild items · +${res.gold} gold!`)
+      }
+    }
+  },
+
   // ── Tree dye ─────────────────────────────────────────────────────────
   dyeTree: async (treeId, color, cost) => {
     const state = get()
@@ -868,34 +930,38 @@ export const useStore = create((set, get) => ({
 
 // Persist to localStorage. Online, trees + gold + rocks live on the server, so
 // we only cache identity + preferences; offline we cache everything.
+let saveTimeout = null
 useStore.subscribe((s) => {
-  try {
-    const base = {
-      color: s.color,
-      name: s.name,
-      viewMode: s.viewMode,
-      fireflies: s.fireflies,
-      muted: s.muted,
-      shadows: s.shadows,
-      grassDensity: s.grassDensity,
-      effects: s.effects,
-      particles: s.particles,
-      joystickEnabled: s.joystickEnabled,
-      customSpawn: s.customSpawn,
-      playtimeSeconds: s.playtimeSeconds,
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(() => {
+    try {
+      const base = {
+        color: s.color,
+        name: s.name,
+        viewMode: s.viewMode,
+        fireflies: s.fireflies,
+        muted: s.muted,
+        shadows: s.shadows,
+        grassDensity: s.grassDensity,
+        effects: s.effects,
+        particles: s.particles,
+        joystickEnabled: s.joystickEnabled,
+        customSpawn: s.customSpawn,
+        playtimeSeconds: s.playtimeSeconds,
+      }
+      if (!s.online) {
+        base.gold = s.gold
+        base.trees = s.trees
+        base.discovered = s.discovered
+        base.lastBonus = s.lastBonus
+        base.placedRocks = s.placedRocks // offline: keep rocks locally
+        base.plots = s.plots // offline: keep plots locally
+      }
+      localStorage.setItem(LS_KEY, JSON.stringify(base))
+    } catch {
+      /* ignore quota / private mode */
     }
-    if (!s.online) {
-      base.gold = s.gold
-      base.trees = s.trees
-      base.discovered = s.discovered
-      base.lastBonus = s.lastBonus
-      base.placedRocks = s.placedRocks // offline: keep rocks locally
-      base.plots = s.plots // offline: keep plots locally
-    }
-    localStorage.setItem(LS_KEY, JSON.stringify(base))
-  } catch {
-    /* ignore quota / private mode */
-  }
+  }, 1000)
 })
 
 // Periodically update playtime and save to localStorage

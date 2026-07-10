@@ -76,7 +76,60 @@ export default function Shop() {
       const firstTab = document.querySelector('.shop-tab')
       if (firstTab) firstTab.focus()
     }
-  }, [shopOpen])
+
+    const onKey = async (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      
+      const tabKeys = ['trees', 'rocks', 'plots', 'cosmetics']
+      const itemType = tab === 'trees' ? 'tree' : tab === 'rocks' ? 'rock' : tab === 'plots' ? 'plot' : (isHatTab ? 'hat' : 'dye')
+
+      if (e.code === 'ArrowRight' || e.code === 'ArrowLeft') {
+        e.preventDefault()
+        const idx = items.findIndex((i) => i.id === currentItem.id)
+        if (idx !== -1) {
+          const nextIdx = e.code === 'ArrowRight' ? (idx + 1) % items.length : (idx - 1 + items.length) % items.length
+          const nextItem = items[nextIdx]
+          setSelectedItem({
+            type: itemType,
+            id: nextItem.id,
+            shape: nextItem.shape,
+            rockShape: nextItem.rockShape,
+            cost: nextItem.cost,
+            color: nextItem.color,
+          })
+        }
+      } else if (e.code === 'ArrowDown' || e.code === 'ArrowUp') {
+        e.preventDefault()
+        const idx = tabKeys.indexOf(tab)
+        const nextTab = e.code === 'ArrowDown' ? tabKeys[(idx + 1) % tabKeys.length] : tabKeys[(idx - 1 + tabKeys.length) % tabKeys.length]
+        setTab(nextTab)
+      } else if (e.code === 'Enter') {
+        e.preventDefault()
+        const cantBuyPlot = itemType === 'plot' && hasMaxPlots
+        const canAfford = (itemType === 'plot' ? (gold >= currentItem.cost && !hasMaxPlots) : (gold >= currentItem.cost))
+        
+        if (!canAfford || cantBuyPlot || isProcessing) return
+        
+        if (itemType === 'hat') {
+          setIsProcessing(true)
+          await useStore.getState().buyCosmetic('hat', currentItem.id, null, currentItem.cost)
+          setIsProcessing(false)
+        } else if (itemType === 'dye') {
+          setIsProcessing(true)
+          await useStore.getState().buyCosmetic(cosmeticSubTab, null, currentItem.color, currentItem.cost)
+          setIsProcessing(false)
+        } else {
+          setShopOpen(false)
+          if (itemType === 'plot') {
+            setTimeout(() => useStore.getState().enterPlacement(), 10)
+          }
+        }
+      }
+    }
+    
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [shopOpen, tab, items, currentItem, hasMaxPlots, gold, isProcessing, cosmeticSubTab, isHatTab])
 
   if (!shopOpen) return null
 

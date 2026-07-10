@@ -21,7 +21,8 @@ export const bridge = {
   cut:         async (_treeId)             => ({ ok: false, error: 'offline' }),
   discover:    async (_landmarkId)         => ({ ok: false, error: 'offline' }),
   claimDaily:  async ()                    => ({ ok: false, error: 'offline' }),
-
+  releaseItem: async (_id, _type)          => ({ ok: false, error: 'offline' }),
+  claimOfflineGold: async ()               => ({ ok: false, error: 'offline' }),
   // Rock mutations (server-persisted, visible to all players in region)
   placeRock:   async (_rock)               => ({ ok: false, error: 'offline' }),
   removeRock:  async (_rockId)             => ({ ok: false, error: 'offline' }),

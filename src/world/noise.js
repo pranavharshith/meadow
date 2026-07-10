@@ -40,8 +40,14 @@ export function valueNoise(x, z) {
   return lerp(lerp(v00, v10, u), lerp(v01, v11, u), v)
 }
 
+const rawCache = new Map()
+
 // Raw noise evaluation
 function rawTerrainHeight(x, z) {
+  const key = `${Math.round(x*10)}:${Math.round(z*10)}`
+  const cached = rawCache.get(key)
+  if (cached !== undefined) return cached
+
   let amp = 1
   let freq = 0.012
   let sum = 0
@@ -53,7 +59,11 @@ function rawTerrainHeight(x, z) {
     freq *= 2
   }
   h /= sum
-  return (h - 0.5) * 15
+  const res = (h - 0.5) * 15
+  
+  if (rawCache.size > 10000) rawCache.clear()
+  rawCache.set(key, res)
+  return res
 }
 
 // Cache the terrain height at the very center for the Spawn Plaza base

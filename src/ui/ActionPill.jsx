@@ -19,15 +19,18 @@ export default function ActionPill({ selection, onCut }) {
   const canDye = selTree && (Date.now() - selTree.plantedAt) / 1000 >= 90
 
   let label = ''
+  let isOvergrown = false
   if (selection) {
     if (selection.kind === 'tree' && selTree) {
       const catalogItem = TREE_ITEMS.find((i) => i.shape === (selTree.shape || 0))
       label = catalogItem ? `${catalogItem.emoji} ${catalogItem.name} selected` : 'tree selected'
+      isOvergrown = (Date.now() - (selTree.plantedAt || Date.now())) / (1000 * 60 * 60 * 24) >= 2
     } else if (selection.kind === 'rock') {
       const rock = placedRocks.find((r) => r.id === selection.id)
       if (rock) {
         const catalogItem = ROCK_ITEMS.find((i) => i.rockShape === (rock.rockShape ?? 2))
         label = catalogItem ? `${catalogItem.emoji} ${catalogItem.name} selected` : 'rock selected'
+        isOvergrown = (Date.now() - (rock.placedAt || Date.now())) / (1000 * 60 * 60 * 24) >= 2
       } else {
         label = 'rock selected'
       }
@@ -88,8 +91,8 @@ export default function ActionPill({ selection, onCut }) {
           Dye
         </button>
       )}
-      <button className="cut-pill-action" onClick={onCut} title={`${selection?.kind === 'rock' ? 'Break' : 'Cut'} selected (X)`}>
-        {selection?.kind === 'rock' ? 'Break' : 'Cut'}
+      <button className="cut-pill-action" onClick={isOvergrown ? useStore.getState().releaseSelection : onCut} title={isOvergrown ? 'Release to nature (X)' : `${selection?.kind === 'rock' ? 'Break' : 'Cut'} selected (X)`}>
+        {isOvergrown ? 'Release' : (selection?.kind === 'rock' ? 'Break' : 'Cut')}
         <span className="cut-pill-key">X</span>
       </button>
     </div>

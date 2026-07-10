@@ -45,6 +45,8 @@ alter table public.players add column if not exists leg_color         text;
 alter table public.players add column if not exists hat_id            text;
 alter table public.players add column if not exists rate_limit_tokens real not null default 5.0;
 alter table public.players add column if not exists last_action_at    timestamptz not null default now();
+alter table public.players add column if not exists chat_rate_limit_tokens real not null default 5.0;
+alter table public.players add column if not exists last_chat_action_at    timestamptz not null default now();
 
 -- Enforce case-insensitive unique names. Players must pick distinct names.
 -- Multiple players can keep the default "wanderer", but any custom name must be
@@ -69,6 +71,7 @@ create table if not exists public.trees (
 alter table public.trees add column if not exists shape smallint not null default 0;
 alter table public.trees add column if not exists dye text;
 create index if not exists trees_region_idx on public.trees (region_x, region_z);
+create index if not exists trees_xz_idx on public.trees (x, z);
 
 alter table public.trees enable row level security;
 
@@ -77,7 +80,7 @@ drop policy if exists "players readable"    on public.players;
 drop policy if exists "players read self"   on public.players;
 drop policy if exists "players insert self" on public.players;
 drop policy if exists "players update self" on public.players;
-create policy "players read self" on public.players for select using (auth.uid() = id);
+create policy "players readable" on public.players for select using (true);
 
 drop policy if exists "trees readable"    on public.trees;
 drop policy if exists "trees insert self" on public.trees;
@@ -125,6 +128,35 @@ begin
   update public.players
     set rate_limit_tokens = new_tokens - 1.0,
         last_action_at = now_ts
+    where id = auth.uid();
+end;
+$$;
+
+create or replace function public.check_chat_rate_limit()
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  p public.players;
+  now_ts timestamptz := now();
+  elapsed real;
+  new_tokens real;
+begin
+  if auth.uid() is null then return; end if;
+  
+  select * into p from public.players where id = auth.uid();
+  if not found then return; end if;
+
+  elapsed := extract(epoch from (now_ts - p.last_chat_action_at));
+  new_tokens := least(5.0::real, p.chat_rate_limit_tokens + elapsed);
+
+  if new_tokens < 1.0 then
+    raise exception '429 Too Many Requests';
+  end if;
+
+  update public.players
+    set chat_rate_limit_tokens = new_tokens - 1.0,
+        last_chat_action_at = now_ts
     where id = auth.uid();
 end;
 $$;
@@ -344,7 +376,6 @@ declare
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
   perform public.check_rate_limit();
-  perform public.check_rate_limit();
 
   select last_water_at into last_at from public.players where id = auth.uid();
   if last_at is not null and now() - last_at < interval '4 seconds' then
@@ -383,19 +414,17 @@ begin
     raise exception 'bad landmark id';
   end if;
 
-  perform 1 from public.players
-    where id = auth.uid() and p_landmark_id = any(discovered);
-  if found then
-    select gold into g from public.players where id = auth.uid();
-    return g;
-  end if;
-
   update public.players
     set discovered = array_append(discovered, p_landmark_id),
         gold = gold + 20,
         updated_at = now()
-    where id = auth.uid()
+    where id = auth.uid() and not (p_landmark_id = any(discovered))
     returning gold into g;
+    
+  if g is null then
+    select gold into g from public.players where id = auth.uid();
+  end if;
+  
   return g;
 end
 $$;
@@ -425,36 +454,6 @@ begin
 end
 $$;
 
--- Gate for world chat: rate-limited, costs 3 gold. Returns new gold total.
--- The actual message is still broadcast client-side over Realtime; this RPC
--- is the trusted gate that debits gold and rate-limits spam.
-create or replace function public.send_world_chat(p_text text)
-returns integer
-language plpgsql security definer set search_path = public
-as $$
-declare g int; last_at timestamptz;
-begin
-  if auth.uid() is null then raise exception 'not signed in'; end if;
-  perform public.check_rate_limit();
-  if p_text is null or length(p_text) = 0 or length(p_text) > 160 then
-    raise exception 'bad text';
-  end if;
-
-  select last_chat_at into last_at from public.players where id = auth.uid();
-  if last_at is not null and now() - last_at < interval '1500 milliseconds' then
-    raise exception 'chat cooldown';
-  end if;
-
-  update public.players
-    set gold = gold - 3,
-        last_chat_at = now(),
-        updated_at = now()
-    where id = auth.uid() and gold >= 3
-    returning gold into g;
-  if g is null then raise exception 'not enough gold'; end if;
-  return g;
-end
-$$;
 
 -- Gate for region chat: rate-limited only (free). No return value needed.
 -- Dropped first so re-running the full schema doesn't trip on a later
@@ -554,66 +553,7 @@ $$;
 
 grant execute on function public.cut_tree(uuid) to authenticated;
 
--- Replace send_world_chat: same rate-limit + gold gate, but the actual chat
--- payload is now emitted by the database via realtime.send() on the 'world'
--- topic. Clients only subscribe; they no longer emit world-chat broadcasts,
--- which closes the "pay for one text, broadcast another" gap.
---
--- Signature stays `text -> integer` so no drop needed.
-create or replace function public.send_world_chat(p_text text)
-returns integer
-language plpgsql security definer set search_path = public, extensions, realtime
-as $$
-declare
-  g        int;
-  last_at  timestamptz;
-  p        public.players;
-  mid      text;
-begin
-  if auth.uid() is null then raise exception 'not signed in'; end if;
-  perform public.check_rate_limit();
-  if p_text is null then raise exception 'bad text'; end if;
 
-  -- Normalize + length gate
-  p_text := btrim(p_text);
-  if length(p_text) = 0 or length(p_text) > 160 then
-    raise exception 'bad text';
-  end if;
-
-  select * into p from public.players where id = auth.uid();
-  if p.last_chat_at is not null and now() - p.last_chat_at < interval '1500 milliseconds' then
-    raise exception 'chat cooldown';
-  end if;
-
-  update public.players
-    set gold = gold - 3,
-        last_chat_at = now(),
-        updated_at = now()
-    where id = auth.uid() and gold >= 3
-    returning gold into g;
-  if g is null then raise exception 'not enough gold'; end if;
-
-  mid := encode(gen_random_bytes(8), 'hex');
-
-  -- Emit the trusted payload. Clients subscribe to channel 'world' and
-  -- listen for event 'chat'. `private := false` keeps the topic public so
-  -- anon-authenticated clients receive it without extra RLS.
-  perform realtime.send(
-    jsonb_build_object(
-      'id',   auth.uid(),
-      'mid',  mid,
-      'name', p.name,
-      'color', p.color,
-      'text', p_text
-    ),
-    'chat',
-    'world',
-    false
-  );
-
-  return g;
-end
-$$;
 
 grant execute on function public.send_world_chat(text) to authenticated;
 
@@ -640,6 +580,7 @@ create table if not exists public.rocks (
 );
 
 create index if not exists rocks_region_idx on public.rocks (region_x, region_z);
+create index if not exists rocks_xz_idx on public.rocks (x, z);
 
 alter table public.rocks enable row level security;
 drop policy if exists "rocks readable" on public.rocks;
@@ -825,6 +766,7 @@ create table if not exists public.plots (
 );
 
 create index if not exists plots_region_idx on public.plots (region_x, region_z);
+create index if not exists plots_xz_idx on public.plots (x, z);
 
 alter table public.plots enable row level security;
 drop policy if exists "plots readable" on public.plots;
@@ -900,7 +842,7 @@ declare
   clean    text;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
-  perform public.check_rate_limit();
+  perform public.check_chat_rate_limit();
   if p_text is null or length(btrim(p_text)) = 0 or length(p_text) > 160 then
     raise exception 'bad text';
   end if;
@@ -930,7 +872,7 @@ declare
   clean    text;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
-  perform public.check_rate_limit();
+  perform public.check_chat_rate_limit();
   if p_text is null then raise exception 'bad text'; end if;
 
   p_text := btrim(p_text);
@@ -1288,3 +1230,82 @@ BEGIN
   DELETE FROM public.plots WHERE (x*x + z*z) <= 225.0;
 END
 $$;
+
+-- ============================================================================
+-- WILD RECLAMATION (Decay of abandoned trees and rocks)
+-- ============================================================================
+alter table public.players add column if not exists offline_gold integer not null default 0;
+
+create or replace function public.release_overgrown_item(p_id uuid, p_type text)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare
+  owner_uid uuid;
+  planted timestamptz;
+  new_gold int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
+  
+  if p_type = 'tree' then
+    select owner_id, planted_at into owner_uid, planted from public.trees where id = p_id;
+  elsif p_type = 'rock' then
+    select owner_id, placed_at into owner_uid, planted from public.rocks where id = p_id;
+  else
+    raise exception 'invalid type';
+  end if;
+  
+  if owner_uid is null then raise exception 'item not found'; end if;
+  if now() - planted < interval '2 days' then raise exception 'item is not overgrown yet'; end if;
+  
+  -- Delete the item
+  if p_type = 'tree' then
+    delete from public.trees where id = p_id;
+  else
+    delete from public.rocks where id = p_id;
+  end if;
+  
+  -- Credit the original owner if it's not the same player (optional but fair)
+  if owner_uid <> auth.uid() then
+    update public.players set offline_gold = offline_gold + 3 where id = owner_uid;
+  else
+    -- If they release their own overgrown item, they still just get the +1 +3 = +4 directly? Let's keep it simple: credit offline gold and they claim it on next load, or just give it directly. Let's just put it in offline_gold so the standard flow handles it.
+    update public.players set offline_gold = offline_gold + 3 where id = owner_uid;
+  end if;
+  
+  -- Credit the active player
+  update public.players
+    set gold = gold + 1,
+        updated_at = now()
+    where id = auth.uid()
+    returning gold into new_gold;
+    
+  return new_gold;
+end;
+$$;
+grant execute on function public.release_overgrown_item(uuid, text) to authenticated;
+
+create or replace function public.claim_offline_gold()
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare
+  pending_gold int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
+  
+  select offline_gold into pending_gold from public.players where id = auth.uid();
+  if pending_gold is null or pending_gold = 0 then return 0; end if;
+  
+  update public.players
+    set gold = gold + pending_gold,
+        offline_gold = 0,
+        updated_at = now()
+    where id = auth.uid();
+    
+  return pending_gold;
+end;
+$$;
+grant execute on function public.claim_offline_gold() to authenticated;

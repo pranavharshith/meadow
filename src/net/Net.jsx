@@ -2,11 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { supabase, ONLINE } from './supabase'
 import { bridge } from './bridge'
-import {
-  regionOf, regionChannel, regionChatChannel,
-  isDeepInRegion, shardFor,
-  chunkOf, chunkKey, CHUNK_SIZE
-} from './region'
+import { REGION, isDeepInRegion, regionOf, regionKey, regionChannel, regionChatChannel, shardFor, chunkOf, chunkKey, chunkChannel, CHUNK_SIZE } from './region'
 import { remotePlayers, netStatus } from './state'
 import { P } from '../player-state'
 import { useStore } from '../store'
@@ -32,6 +28,7 @@ export default function Net() {
   const switchingRef = useRef(false)
   const joinRegionRef = useRef(async () => {})
   const loadChunksRef = useRef(async () => {})
+  const syncChunksRef = useRef(async () => {})
 
   useEffect(() => {
     if (!ONLINE) {
@@ -45,6 +42,7 @@ export default function Net() {
     }
 
     let disposed = false
+    const activeChunkChannels = new Map()
 
     // ---------- receivers ----------
     const receivePos = (payload) => {
@@ -141,6 +139,7 @@ export default function Net() {
         sy: payload.sy ?? 1,
         sz: payload.sz ?? 1,
         matIdx: payload.mat_idx ?? 0,
+        placedAt: payload.placed_at ? new Date(payload.placed_at).getTime() : Date.now(),
         owner: false,
       })
     }
@@ -205,6 +204,7 @@ export default function Net() {
           const rocks = (rocksRes.data || []).map(r => ({
             id: r.id, x: r.x, z: r.z, rot: r.rot ?? 0, rockShape: r.rock_shape ?? 2,
             sx: r.sx ?? 1, sy: r.sy ?? 1, sz: r.sz ?? 1, matIdx: r.mat_idx ?? 0,
+            placedAt: r.placed_at ? new Date(r.placed_at).getTime() : Date.now(),
             owner: r.owner_id === meId.current,
           }))
           useStore.getState().setRocks(rocks)
@@ -222,14 +222,47 @@ export default function Net() {
     }
     loadChunksRef.current = loadChunksAround
 
-    async function joinRegion(rx, rz) {
-      // Tear down previous region channels safely (staged lifecycle)
-      if (posChannelRef.current) {
-        try { await posChannelRef.current.unsubscribe() } catch {}
-        try { await supabase.removeChannel(posChannelRef.current) } catch {}
-        posChannelRef.current = null
+    async function syncChunks(cx, cz) {
+      if (disposed) return
+      const needed = new Set()
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          needed.add(chunkKey(cx + dx, cz + dz))
+        }
+      }
+
+      for (const [key, ch] of activeChunkChannels.entries()) {
+        if (!needed.has(key)) {
+          try { await ch.unsubscribe() } catch {}
+          try { supabase.removeChannel(ch) } catch {}
+          activeChunkChannels.delete(key)
+        }
+      }
+
+      for (const key of needed) {
+        if (!activeChunkChannels.has(key)) {
+          const [ccx, ccz] = key.split(':').map(Number)
+          const ch = supabase.channel(chunkChannel(ccx, ccz), {
+            config: { broadcast: { self: false } },
+          })
+          ch.on('broadcast', { event: 'pos' }, ({ payload }) => receivePos(payload))
+          ch.on('broadcast', { event: 'tree' }, ({ payload }) => receiveTree(payload))
+          ch.on('broadcast', { event: 'cut' }, ({ payload }) => receiveCut(payload))
+          ch.on('broadcast', { event: 'rock' }, ({ payload }) => receiveRock(payload))
+          ch.on('broadcast', { event: 'removerock' }, ({ payload }) => receiveRemoveRock(payload))
+          ch.on('broadcast', { event: 'plot' }, ({ payload }) => receivePlot(payload))
+          ch.on('broadcast', { event: 'removeplot' }, ({ payload }) => receiveRemovePlot(payload))
+          ch.on('broadcast', { event: 'dye' }, ({ payload }) => receiveDye(payload))
+          ch.subscribe()
+          activeChunkChannels.set(key, ch)
+        }
       }
       
+      posChannelRef.current = activeChunkChannels.get(chunkKey(cx, cz))
+    }
+    syncChunksRef.current = syncChunks
+
+    async function joinRegion(rx, rz) {
       if (chatChannelRef.current) {
         const finalPresence = chatChannelRef.current.presenceState() || {}
         try { await chatChannelRef.current.unsubscribe() } catch {}
@@ -244,35 +277,8 @@ export default function Net() {
         remotePlayers.clear()
       }
 
-
       const name = useStore.getState().name
       const color = useStore.getState().color
-      const shard = shardRef.current
-
-      // --- sharded pos/tree channel: presence-lite, position, tree events ---
-      const posCh = supabase.channel(regionChannel(rx, rz, shard), {
-        config: { broadcast: { self: false } },
-      })
-      posCh.on('broadcast', { event: 'pos' }, ({ payload }) => receivePos(payload))
-      posCh.on('broadcast', { event: 'tree' }, ({ payload }) => receiveTree(payload))
-      posCh.on('broadcast', { event: 'cut' }, ({ payload }) => receiveCut(payload))
-      posCh.on('broadcast', { event: 'rock' }, ({ payload }) => receiveRock(payload))
-      posCh.on('broadcast', { event: 'removerock' }, ({ payload }) => receiveRemoveRock(payload))
-      posCh.on('broadcast', { event: 'plot' }, ({ payload }) => receivePlot(payload))
-      posCh.on('broadcast', { event: 'removeplot' }, ({ payload }) => receiveRemovePlot(payload))
-      posCh.on('broadcast', { event: 'dye' }, ({ payload }) => receiveDye(payload))
-      posCh.on('presence', { event: 'leave' }, ({ leftPresences }) => {
-        for (const p of leftPresences || []) {
-          const id = p.id || p.key
-          if (id) remotePlayers.delete(id)
-        }
-      })
-      posCh.subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await posCh.track({ id: meId.current })
-        }
-      })
-      posChannelRef.current = posCh
 
       // --- region-wide chat + authoritative head count (un-sharded) ---
       const chatCh = supabase.channel(regionChatChannel(rx, rz), {
@@ -613,6 +619,28 @@ export default function Net() {
         return { ok: true, gold: data }
       }
 
+      bridge.releaseItem = async (id, type) => {
+        const { data, error } = await supabase.rpc('release_overgrown_item', { p_id: id, p_type: type })
+        if (error) return { ok: false, error: error.message }
+        
+        // Broadcast so same-shard peers see the item vanish
+        const ch = posChannelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
+            type: 'broadcast',
+            event: type === 'tree' ? 'cut' : 'removerock',
+            payload: { id, owner_id: meId.current },
+          })
+        }
+        return { ok: true, gold: data }
+      }
+
+      bridge.claimOfflineGold = async () => {
+        const { data, error } = await supabase.rpc('claim_offline_gold')
+        if (error) return { ok: false, error: error.message }
+        return { ok: true, gold: data }
+      }
+
       bridge.teleport = async (landmarkId) => {
         const { data, error } = await supabase.rpc('teleport_to_landmark', {
           p_landmark_id: landmarkId,
@@ -717,6 +745,7 @@ export default function Net() {
 
       // Online: claim daily bonus via server RPC (authoritative)
       useStore.getState().claimDailyBonus()
+      useStore.getState().claimOfflineGold()
 
       const { rx, rz } = regionOf(P.pos.x, P.pos.z)
       joinRegion(rx, rz)
@@ -752,7 +781,11 @@ export default function Net() {
         const { rx, rz } = regionOf(P.pos.x, P.pos.z)
         if (!switchingRef.current) {
           switchingRef.current = true
-          Promise.resolve(joinRegionRef.current(rx, rz)).finally(() => {
+          const { cx, cz } = chunkOf(P.pos.x, P.pos.z)
+          Promise.all([
+            joinRegionRef.current(rx, rz),
+            syncChunksRef.current(cx, cz)
+          ]).finally(() => {
             switchingRef.current = false
           })
         }
@@ -779,7 +812,8 @@ export default function Net() {
       clearTimeout(identityTimer.current)
       clearInterval(reconnectInterval)
       if (authListener && authListener.subscription) authListener.subscription.unsubscribe()
-      if (posChannelRef.current) supabase.removeChannel(posChannelRef.current)
+      for (const ch of activeChunkChannels.values()) supabase.removeChannel(ch)
+      activeChunkChannels.clear()
       if (chatChannelRef.current) supabase.removeChannel(chatChannelRef.current)
       if (worldRef.current) supabase.removeChannel(worldRef.current)
       remotePlayers.clear()
@@ -805,6 +839,7 @@ export default function Net() {
     if (cKey !== currentChunkRef.current) {
       currentChunkRef.current = cKey
       loadChunksRef.current(cx, cz)
+      syncChunksRef.current(cx, cz)
     }
 
     acc.current += dt

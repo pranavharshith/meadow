@@ -61,3 +61,7 @@ export function chunkOf(x, z) {
 export function chunkKey(cx, cz) {
   return `${cx}:${cz}`
 }
+
+export function chunkChannel(cx, cz) {
+  return `chunk:${cx}:${cz}`
+}
