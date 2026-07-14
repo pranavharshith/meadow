@@ -1,9 +1,11 @@
 import * as THREE from 'three'
 import { useMemo, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
+import { useEffect } from 'react'
 import { terrainHeight } from './noise'
 import { CHUNK } from './chunk'
-import { P } from '../player-state'
+import { P, groundChunks, terrainDeformations } from '../player-state'
+import { useStore } from '../store'
 
 const RINGS = 2 // 5x5 ground chunks around the player
 const SEG = 40 // resolution per chunk
@@ -13,7 +15,7 @@ const HIGH = new THREE.Color('#8bb352')
 
 const DRY = new THREE.Color('#a98f52')
 
-function GroundChunk({ cx, cz }) {
+function GroundChunk({ cx, cz, plots }) {
   const geo = useMemo(() => {
     const g = new THREE.PlaneGeometry(CHUNK, CHUNK, SEG, SEG)
     g.rotateX(-Math.PI / 2)
@@ -55,8 +57,26 @@ function GroundChunk({ cx, cz }) {
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3))
     g.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+
+    // Apply any saved deformation
+    const key = `${cx},${cz}`
+    const saved = terrainDeformations.get(key)
+    if (saved) {
+      g.attributes.position.array.set(saved)
+      g.attributes.position.needsUpdate = true
+      g.computeVertexNormals()
+    }
+
     return g
-  }, [cx, cz])
+  }, [cx, cz, plots])
+
+  useEffect(() => {
+    const key = `${cx},${cz}`
+    groundChunks.set(key, geo)
+    return () => {
+      groundChunks.delete(key)
+    }
+  }, [cx, cz, geo])
 
   return (
     <mesh geometry={geo} receiveShadow>
@@ -70,6 +90,7 @@ function GroundChunk({ cx, cz }) {
 // trees and ground always line up.
 export default function Terrain() {
   const [center, setCenter] = useState({ cx: 0, cz: 0 })
+  const plots = useStore((s) => s.plots)
 
   useFrame(() => {
     const cx = Math.floor(P.pos.x / CHUNK)
@@ -82,7 +103,7 @@ export default function Terrain() {
     for (let dz = -RINGS; dz <= RINGS; dz++) {
       const cx = center.cx + dx
       const cz = center.cz + dz
-      chunks.push(<GroundChunk key={`${cx},${cz}`} cx={cx} cz={cz} />)
+      chunks.push(<GroundChunk key={`${cx},${cz}`} cx={cx} cz={cz} plots={plots} />)
     }
   }
   return <group>{chunks}</group>

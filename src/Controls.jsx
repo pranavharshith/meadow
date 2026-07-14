@@ -58,7 +58,11 @@ export default function Controls() {
         if (next && document.pointerLockElement) document.exitPointerLock()
       }
       else if (e.code === 'KeyV') st.cycleView()
-      else if (e.code === 'KeyM') st.toggleMute()
+      else if (e.code === 'KeyM') {
+        const next = !st.mapOpen
+        st.setMapOpen(next)
+        if (next && document.pointerLockElement) document.exitPointerLock()
+      }
       else if (e.code === 'KeyC') P.emote = P.emote === 'sit' ? null : 'sit'
       else if (e.code === 'KeyF') {
         P.emote = 'wave'

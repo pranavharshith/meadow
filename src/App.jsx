@@ -11,6 +11,7 @@ import Rocks from './world/Rocks'
 import PlacedRocks from './world/PlacedRocks'
 import PlotList from './world/Plots'
 import PlacementPreview from './world/PlacementPreview'
+import CraftedItems from './world/CraftedItems'
 import Birds from './world/Birds'
 import Butterflies from './world/Butterflies'
 import Fireflies from './world/Fireflies'
@@ -96,6 +97,7 @@ export default function App() {
               <PlotList />
             </Suspense>
             <TreesField />
+            <CraftedItems />
             <PlacementPreview />
             <Water />
             <Landmarks />

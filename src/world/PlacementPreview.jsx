@@ -1,9 +1,10 @@
 import { useRef, useMemo } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
-import { P, treeRegistry, rockRegistry, placement } from '../player-state'
+import { P, treeRegistry, rockRegistry, craftedRegistry, placement } from '../player-state'
 import { useStore } from '../store'
 import { ROCK_GEOS } from './rock-assets'
+import { CraftedItemParts } from './CraftedItems'
 import { terrainHeight, PONDS } from './noise'
 import { LANDMARKS } from './places'
 import { STREAM_POINTS, STREAM_WIDTH } from './Water'
@@ -20,8 +21,9 @@ import { plazaFloorHeight, PLAZA_OUTER_RADIUS } from './SpawnPlaza'
 // Rules for "cannot place here":
 //   1. Too close to any tree in `treeRegistry`
 //   2. Too close to any rock in `rockRegistry`
-//   3. On terrain that's too steep (feels physically wrong)
-//   4. Below the water line
+//   3. Too close to any crafted item in `craftedRegistry`
+//   4. On terrain that's too steep (feels physically wrong)
+//   5. Below the water line
 
 const PLACE_DIST = 1.8            // distance in front of the player
 const PLACE_BUFFER = 0.6          // extra clearance between neighbours
@@ -33,6 +35,7 @@ const PLACE_BUFFER = 0.6          // extra clearance between neighbours
 // on real silhouettes rather than physics radii.
 const TREE_RADIUS = 1.5
 const ROCK_RADIUS = 1.1
+const CRAFTED_RADIUS = 0.8
 const PLOT_RADIUS = 10
 const PLOT_LANDMARK_MIN = 20      // min distance from a landmark centre
 const PLOT_PLOT_MIN = 15          // min distance from another plot's centre
@@ -128,20 +131,34 @@ function RockGhost({ rockShape, material }) {
   )
 }
 
-function PlotGhost({ material, subject }) {
+function PlotGhost({ material, subject, groupRef }) {
   const w = subject?.width || 20
   const d = subject?.depth || 20
-  if (subject?.shapeType === 0) {
-    return (
-      <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]} material={material}>
-        <circleGeometry args={[w, 48]} />
-      </mesh>
-    )
-  }
+  
+  const geo = useMemo(() => {
+    const isCircle = subject?.shapeType === 0
+    const g = isCircle ? new THREE.CircleGeometry(w, 48) : new THREE.PlaneGeometry(w * 2, d * 2, 16, 16)
+    g.rotateX(-Math.PI / 2)
+    return g
+  }, [subject, w, d])
+
+  useFrame(() => {
+    if (!groupRef.current) return
+    const pos = geo.attributes.position
+    const cx = groupRef.current.position.x
+    const cz = groupRef.current.position.z
+    const cy = groupRef.current.position.y
+    for (let i = 0; i < pos.count; i++) {
+      const lx = pos.getX(i)
+      const lz = pos.getZ(i)
+      const h = terrainHeight(cx + lx, cz + lz)
+      pos.setY(i, h - cy + 0.1)
+    }
+    pos.needsUpdate = true
+  })
+
   return (
-    <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]} material={material}>
-      <planeGeometry args={[w * 2, d * 2]} />
-    </mesh>
+    <mesh geometry={geo} material={material} />
   )
 }
 
@@ -181,7 +198,7 @@ export default function PlacementPreview() {
     groupRef.current.rotation.y = mode === 'rock' ? P.avatarYaw : 0
 
     // ── Validity ────────────────────────────────────────────────────────
-    const myR = mode === 'rock' ? ROCK_RADIUS : TREE_RADIUS
+    const myR = mode === 'rock' ? ROCK_RADIUS : mode === 'crafted' ? CRAFTED_RADIUS : TREE_RADIUS
     let valid = true
     let reason = ''
 
@@ -337,6 +354,17 @@ export default function PlacementPreview() {
           }
         }
       }
+      if (valid) {
+        for (const c of craftedRegistry) {
+          const other = c.placementR ?? c.r ?? 0.8
+          const d = Math.hypot(c.x - px, c.z - pz)
+          if (d < myR + other + PLACE_BUFFER) {
+            valid = false
+            reason = 'too close to a crafted item'
+            break
+          }
+        }
+      }
     }
 
     // Publish to the shared ref for the store's confirmPlacement().
@@ -354,9 +382,11 @@ export default function PlacementPreview() {
   return (
     <group ref={groupRef}>
       {mode === 'plot' ? (
-        <PlotGhost material={material} subject={subject} />
+        <PlotGhost material={material} subject={subject} groupRef={groupRef} />
       ) : mode === 'rock' ? (
         <RockGhost rockShape={subject.rockShape ?? 2} material={material} />
+      ) : mode === 'crafted' ? (
+        <CraftedItemParts itemId={subject.id} material={material} />
       ) : (
         <TreeGhost shape={subject.shape ?? 0} material={material} />
       )}

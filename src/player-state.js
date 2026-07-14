@@ -50,6 +50,25 @@ export const treeRegistry = []
 // Each entry: { x, z, r }
 export const rockRegistry = []
 
+// Positions of crafted items near the player, used for collision.
+// Each entry: { x, z, r }
+export const craftedRegistry = []
+
+// Dynamic terrain deformations
+export const groundChunks = new Map() // 'cx,cz' -> geometry
+export const terrainDeformations = new Map() // 'cx,cz' -> Float32Array
+export const waterRipples = [] // ring buffer of {x, z, time, intensity}
+export let rippleIndex = 0
+
+export function addRipple(x, z, time, intensity) {
+  if (waterRipples.length < 12) {
+    waterRipples.push({ x, z, time, intensity })
+  } else {
+    waterRipples[rippleIndex] = { x, z, time, intensity }
+    rippleIndex = (rippleIndex + 1) % 12
+  }
+}
+
 // Name of the place the player is currently standing in (landmark) or ''.
 export const place = { name: '' }
 

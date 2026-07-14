@@ -6,19 +6,26 @@ const ALL_TREES = [...TREE_ITEMS, ...EXOTIC_TREE_ITEMS]
 
 // ── Item Card ──────────────────────────────────────────────────────────────
 
-function ItemCard({ item, selected, canAfford, isProcessing, onClick }) {
+function ItemCard({ item, selected, canAfford, isProcessing, status, onClick }) {
+  const isEquipped = status === 'equipped'
+  const isOwned = status === 'owned'
+  
   return (
     <button
-      className={`shop-card${selected ? ' selected' : ''}${!canAfford ? ' cant-afford' : ''}${isProcessing ? ' loading' : ''}`}
+      className={`shop-card${selected ? ' selected' : ''}${(!canAfford && !isOwned && !isEquipped) ? ' cant-afford' : ''}${isProcessing ? ' loading' : ''}`}
       onClick={onClick}
-      disabled={isProcessing}
+      disabled={isProcessing || isEquipped}
       title={item.desc}
     >
       <div className="shop-card-emoji">{isProcessing ? '⏳' : item.emoji}</div>
-      <div className="shop-card-name">{isProcessing ? 'Buying...' : item.name}</div>
+      <div className="shop-card-name">{isProcessing ? 'Equipping...' : item.name}</div>
       <div className="shop-card-desc">{item.desc}</div>
       <div className="shop-card-cost">
-        {item.cost === 0 ? (
+        {isEquipped ? (
+          <span className="shop-free" style={{ color: '#4caf50' }}>equipped</span>
+        ) : isOwned ? (
+          <span className="shop-free">owned</span>
+        ) : item.cost === 0 ? (
           <span className="shop-free">free</span>
         ) : (
           <>
@@ -41,6 +48,12 @@ export default function Shop() {
   const setSelectedItem = useStore((s) => s.setSelectedItem)
   const gold = useStore((s) => s.gold)
   const plots = useStore((s) => s.plots)
+  const ownedCosmetics = useStore((s) => s.ownedCosmetics) || []
+  
+  const hatId = useStore((s) => s.hatId)
+  const headColor = useStore((s) => s.headColor)
+  const bodyColor = useStore((s) => s.bodyColor)
+  const legColor = useStore((s) => s.legColor)
 
   const [tab, setTab] = useState('trees')
   const [cosmeticSubTab, setCosmeticSubTab] = useState('hats') // 'hats', 'head', 'body', 'legs'
@@ -105,6 +118,15 @@ export default function Shop() {
         const idx = tabKeys.indexOf(tab)
         const nextTab = e.code === 'ArrowDown' ? tabKeys[(idx + 1) % tabKeys.length] : tabKeys[(idx - 1 + tabKeys.length) % tabKeys.length]
         setTab(nextTab)
+        
+        // Reset selection to the first item of the new tab to prevent finding `-1`
+        const isNextPlot = nextTab === 'plots'
+        const isNextCosmetic = nextTab === 'cosmetics'
+        const isNextHat = isNextCosmetic && cosmeticSubTab === 'hats'
+        const nextItems = isNextPlot ? [PLOT_ITEM] : (isNextCosmetic ? (isNextHat ? HAT_ITEMS : DYE_ITEMS) : (nextTab === 'trees' ? ALL_TREES : ROCK_ITEMS))
+        const nextItemType = nextTab === 'trees' ? 'tree' : nextTab === 'rocks' ? 'rock' : nextTab === 'plots' ? 'plot' : (isNextHat ? 'hat' : 'dye')
+        setSelectedItem({ type: nextItemType, id: nextItems[0].id, shape: nextItems[0].shape, rockShape: nextItems[0].rockShape, cost: nextItems[0].cost, color: nextItems[0].color })
+        
       } else if (e.code === 'Enter') {
         e.preventDefault()
         const cantBuyPlot = itemType === 'plot' && hasMaxPlots
@@ -122,9 +144,7 @@ export default function Shop() {
           setIsProcessing(false)
         } else {
           setShopOpen(false)
-          if (itemType === 'plot') {
-            setTimeout(() => useStore.getState().enterPlacement(), 10)
-          }
+          setTimeout(() => useStore.getState().enterPlacement(), 10)
         }
       }
     }
@@ -192,6 +212,16 @@ export default function Shop() {
             const cantBuyPlot = itemType === 'plot' && hasMaxPlots
             const canAfford = (itemType === 'plot' ? (gold >= item.cost && !hasMaxPlots) : (gold >= item.cost))
             
+            let status = 'none'
+            if (itemType === 'hat') {
+              if ((item.id === 'none' && !hatId) || hatId === item.id) status = 'equipped'
+              else if (ownedCosmetics.includes(item.id) || item.id === 'none') status = 'owned'
+            } else if (itemType === 'dye') {
+              const activeColor = cosmeticSubTab === 'head' ? headColor : cosmeticSubTab === 'body' ? bodyColor : legColor
+              if (activeColor === item.color) status = 'equipped'
+              else if (ownedCosmetics.includes(item.color)) status = 'owned'
+            }
+            
             return (
               <div key={item.id}>
                 <ItemCard
@@ -199,8 +229,10 @@ export default function Shop() {
                   selected={isSelected}
                   canAfford={canAfford}
                   isProcessing={isProcessing && isSelected}
+                  status={status}
                   onClick={async () => {
-                    if (cantBuyPlot || isProcessing) return
+                    if (cantBuyPlot || isProcessing || status === 'equipped') return
+                    
                     setSelectedItem({
                       type: itemType,
                       id: item.id,
@@ -220,9 +252,7 @@ export default function Shop() {
                       setIsProcessing(false)
                     } else {
                       setShopOpen(false) // Auto-close for placables!
-                      if (itemType === 'plot') {
-                        setTimeout(() => useStore.getState().enterPlacement(), 10)
-                      }
+                      setTimeout(() => useStore.getState().enterPlacement(), 10)
                     }
                   }}
                 />

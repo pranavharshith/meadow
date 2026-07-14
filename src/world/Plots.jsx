@@ -98,16 +98,16 @@ function StoneWall({ x1, z1, x2, z2 }) {
   const mz = (z1 + z2) / 2
   const my = (y1 + y2) / 2
   
-  // We make the stone block extra tall (2 units) and shift it down 1 unit.
+  // We make the stone block extra tall (0.8 units) and shift it down 0.4 units.
   // This ensures the bottom vertices are buried deep underground, so it dynamically 
   // "stretches" into the terrain without showing gaps, matching the exact slope.
   return (
     <mesh
-      position={[mx, my + STONE_H / 2 - 1.0, mz]}
+      position={[mx, my + STONE_H / 2 - 0.4, mz]}
       rotation={[pitch, yaw, 0, 'YXZ']}
       castShadow
     >
-      <boxGeometry args={[0.26, STONE_H + 2.0, len]} />
+      <boxGeometry args={[0.26, STONE_H + 0.8, len]} />
       <meshStandardMaterial color={STONE_B} roughness={0.95} />
     </mesh>
   )

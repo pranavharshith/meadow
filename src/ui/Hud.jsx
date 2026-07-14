@@ -5,8 +5,8 @@ import Chat from './Chat'
 import WorldMap from './WorldMap'
 import Settings from './Settings'
 import Screenshot from './Screenshot'
-import Compass from './Compass'
 import Shop from './Shop'
+import Crafting from './Crafting'
 import { TREE_ITEMS, ROCK_ITEMS, PLOT_ITEM } from '../catalog'
 import TouchJoystick from './TouchJoystick'
 import PlaceLabel from './PlaceLabel'
@@ -23,6 +23,9 @@ const VIEW_LABEL = { third: 'Follow', first: 'First person', top: 'Map', drone: 
 
 export default function Hud() {
   const gold = useStore((s) => s.gold)
+  const friendRequests = useStore((s) => s.friendRequests) || []
+  const wood = useStore((s) => s.wood)
+  const stone = useStore((s) => s.stone)
   const view = useStore((s) => s.viewMode)
   const name = useStore((s) => s.name)
   const color = useStore((s) => s.color)
@@ -40,6 +43,9 @@ export default function Hud() {
   const selection = useStore((s) => s.selection)
   const shopOpen = useStore((s) => s.shopOpen)
   const setShopOpen = useStore((s) => s.setShopOpen)
+  const craftingOpen = useStore((s) => s.craftingOpen)
+  const setCraftingOpen = useStore((s) => s.setCraftingOpen)
+  const teleportFlash = useStore((s) => s.teleportFlash)
   const socialOpen = useStore((s) => s.socialOpen)
   const setSocialOpen = useStore((s) => s.setSocialOpen)
   const selectedItem = useStore((s) => s.selectedItem)
@@ -70,10 +76,17 @@ export default function Hud() {
               <span className="dot" style={{ background: color }} />
               {name}
             </button>
-            <button className={`tag ${socialOpen ? 'active' : ''}`} onClick={() => setSocialOpen(!socialOpen)} title="Friends & Social" style={{ marginLeft: 4 }}>
+            <button className={`tag ${socialOpen ? 'active' : ''}`} onClick={() => setSocialOpen(!socialOpen)} title="Friends & Social" style={{ marginLeft: 4, position: 'relative' }}>
               Social
+              {friendRequests.length > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: 'red', color: 'white', fontSize: 10, borderRadius: '50%', padding: '0 4px' }}>{friendRequests.length}</span>}
             </button>
-            <div className="gold">
+            <div className="gold" title="Wood">
+              🪵 {wood}
+            </div>
+            <div className="gold" title="Stone">
+              🪨 {stone}
+            </div>
+            <div className="gold" title="Gold">
               <span className="coin" /> {gold}
             </div>
             <Status />
@@ -103,7 +116,7 @@ export default function Hud() {
           <span><b>E</b> plant/place</span>
           <span className="hint-wide"><b>R</b> water</span>
           <span className="hint-wide">click item then <b>X</b> cut/break</span>
-          <span className="hint-wide"><b>G</b> shop</span>
+          <span className="hint-wide"><b>Q</b> craft, <b>G</b> shop</span>
           <span className="hint-wide"><b>Enter</b> chat</span>
         </button>
       )}
@@ -115,6 +128,13 @@ export default function Hud() {
           </button>
           <button className="btn plant" onClick={plantTree} title="Plant / Place selected item (E)">
             {plantLabel}
+          </button>
+          <button
+            className={`btn shop-btn${craftingOpen ? ' active' : ''}`}
+            onClick={() => setCraftingOpen(!craftingOpen)}
+            title="Crafting (Q)"
+          >
+            Craft
           </button>
           <button
             className={`btn shop-btn${shopOpen ? ' active' : ''}`}
@@ -130,9 +150,27 @@ export default function Hud() {
 
       <Chat />
       <Shop />
+      <Crafting />
       <WorldMap />
       <NavIndicator />
       <TouchJoystick />
+      
+      {/* Teleport Animation Overlay */}
+      <div 
+        className="no-look" 
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'white',
+          opacity: teleportFlash ? 1 : 0,
+          pointerEvents: 'none',
+          transition: teleportFlash ? 'opacity 0.1s ease-in' : 'opacity 0.5s ease-out',
+          zIndex: 9999
+        }} 
+      />
     </div>
   )
 }

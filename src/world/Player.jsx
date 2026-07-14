@@ -3,9 +3,32 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
 import { plazaFloorHeight } from './SpawnPlaza'
-import { P, look, keys, treeRegistry, rockRegistry } from '../player-state'
+import { P, look, keys, treeRegistry, rockRegistry, addRipple } from '../player-state'
 import { useStore } from '../store'
 import AvatarMesh from './AvatarMesh'
+import { deformTerrain } from './deform'
+import { PONDS } from './noise'
+import { STREAM_POINTS, STREAM_WIDTH } from './Water'
+
+function isOverWater(x, z) {
+  for (const p of PONDS) {
+    if (Math.hypot(p.x - x, p.z - z) < p.r + 0.2) return true
+  }
+  const halfW = STREAM_WIDTH * 0.5 + 0.2
+  for (let i = 0; i < STREAM_POINTS.length - 1; i++) {
+    const a = STREAM_POINTS[i]
+    const b = STREAM_POINTS[i + 1]
+    const dx = b.x - a.x
+    const dz = b.z - a.z
+    const len2 = dx * dx + dz * dz
+    if (len2 <= 1e-6) continue
+    let t = ((x - a.x) * dx + (z - a.z) * dz) / len2
+    if (t < 0) t = 0
+    else if (t > 1) t = 1
+    if (Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t)) < halfW) return true
+  }
+  return false
+}
 
 const UP = new THREE.Vector3(0, 1, 0)
 const WALK = 4.2
@@ -71,6 +94,7 @@ export default function Player() {
   const right = useMemo(() => new THREE.Vector3(), [])
   const move = useMemo(() => new THREE.Vector3(), [])
   const velocity = useMemo(() => new THREE.Vector3(), [])
+  const lastDeformDist = useRef(0)
 
   useFrame(({ clock }, dt) => {
     const step = Math.min(dt, 0.05)
@@ -122,10 +146,45 @@ export default function Player() {
     if (P.moving) {
       let nx = P.pos.x + velocity.x * step
       let nz = P.pos.z + velocity.z * step
+
+      const inPlaza = plazaFloorHeight(nx, nz) !== null
+      if (!inPlaza) {
+        const e = 0.5
+        const hx = terrainHeight(nx + e, nz) - terrainHeight(nx - e, nz)
+        const hz = terrainHeight(nx, nz + e) - terrainHeight(nx, nz - e)
+        const gradX = hx / (2 * e)
+        const gradZ = hz / (2 * e)
+        const slope = Math.hypot(gradX, gradZ)
+        const MAX_SLOPE = 1.5
+        if (slope > MAX_SLOPE) {
+          const slide = (slope - MAX_SLOPE) * 20.0
+          nx -= (gradX / slope) * slide * step
+          nz -= (gradZ / slope) * slide * step
+        }
+      }
+
       ;[nx, nz] = pushOut(nx, nz)
+      
+      const dx = nx - P.pos.x
+      const dz = nz - P.pos.z
+      const distMoved = Math.hypot(dx, dz)
+      
       P.pos.x = nx
       P.pos.z = nz
       P.avatarYaw = Math.atan2(velocity.x, velocity.z)
+      
+      lastDeformDist.current += distMoved
+      if (lastDeformDist.current > 0.8) {
+        lastDeformDist.current = 0
+        if (isOverWater(nx, nz)) {
+          // Send a ripple event to the shader
+          // We pass clock.elapsedTime and an intensity factor based on speed
+          const intensity = Math.min(1.0, velocity.length() / WALK)
+          addRipple(nx, nz, clock.elapsedTime, intensity)
+        } else if (!inPlaza) {
+          deformTerrain(nx, nz)
+        }
+      }
     }
     // Ground the player on whichever surface is highest at their XZ:
     // inside the Meadow Gate plaza the raised step geometry sits above raw

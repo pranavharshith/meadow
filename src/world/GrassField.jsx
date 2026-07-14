@@ -14,7 +14,7 @@ const BLADES_HALF = 1700
 const FLOWERS_PER_CHUNK = 60
 const FLOWER_PALETTE = ['#ffffff', '#fff2b0', '#ffd1e8', '#e6d4ff', '#fff7d6', '#ffb3c1']
 
-function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCount }) {
+function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCount, plots }) {
   const grassRef = useRef()
   const flowerRef = useRef()
   const bladesData = useRef([])
@@ -35,6 +35,21 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
     grassRef.current.boundingSphere = bound
     flowerRef.current.boundingSphere = bound.clone()
 
+    const isInPlot = (x, z) => {
+      if (!plots) return false
+      for (let i = 0; i < plots.length; i++) {
+        const p = plots[i]
+        const w = p.width ?? p.radius ?? 10
+        const d = p.depth ?? p.radius ?? 10
+        if (p.shapeType === 1) {
+          if (Math.abs(x - p.x) <= w && Math.abs(z - p.z) <= d) return true
+        } else {
+          if (Math.hypot(x - p.x, z - p.z) <= w) return true
+        }
+      }
+      return false
+    }
+
     const rngG = mulberry32(seedFor(cx, cz) ^ 0xa1)
     for (let i = 0; i < bladeCount; i++) {
       const x    = cx * CHUNK + rngG() * CHUNK
@@ -47,8 +62,8 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
       const scX  = 0.8 + rngG() * 0.4
       const scY  = 0.7 + rngG() * 0.9 + lush * 0.8
 
-      // Suppress blades inside the Meadow Gate plaza stone floor (fix #9)
-      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS) {
+      // Suppress blades inside the Meadow Gate plaza stone floor and inside plots (fix #9)
+      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS || isInPlot(x, z)) {
         d.position.set(0, -9999, 0)
         d.scale.setScalar(0.0001)
         d.updateMatrix()
@@ -72,7 +87,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
       const z = cz * CHUNK + rngF() * CHUNK
       if (clusterField(x, z) < 0.6) continue
 
-      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS) {
+      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS || isInPlot(x, z)) {
         d.position.set(0, -9999, 0)
         d.scale.setScalar(0.0001)
         d.updateMatrix()
@@ -95,7 +110,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
     grassRef.current.instanceMatrix.needsUpdate = true
     flowerRef.current.instanceMatrix.needsUpdate = true
     if (flowerRef.current.instanceColor) flowerRef.current.instanceColor.needsUpdate = true
-  }, [cx, cz, bladeCount])
+  }, [cx, cz, bladeCount, plots])
 
   // Dynamic Frustum Culling (Fix 5.5)
   const frustum = useMemo(() => new THREE.Frustum(), [])
@@ -146,6 +161,7 @@ export default function GrassField() {
   // relative to the user's chosen density; never overrides "off".
   const [autoTier, setAutoTier] = useState(0)
   const grassDensity = useStore((s) => s.grassDensity)
+  const plots = useStore((s) => s.plots)
 
   // Running frametime EMA for auto-scaling. Kept in refs so the frame loop
   // doesn't cause re-renders.
@@ -261,6 +277,7 @@ export default function GrassField() {
           flowerGeo={flowerGeo}
           flowerMat={flowerMat}
           bladeCount={bladeCount}
+          plots={plots}
         />
       )
     }

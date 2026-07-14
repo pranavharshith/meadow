@@ -1363,3 +1363,62 @@ begin
 end;
 $$;
 grant execute on function public.claim_offline_gold() to authenticated;
+
+-- ============================================================================
+-- WORLD TREE
+-- ============================================================================
+
+create table if not exists public.world_tree (
+  id int primary key,
+  total_wood int not null default 0
+);
+insert into public.world_tree (id, total_wood) values (1, 0) on conflict do nothing;
+alter table public.world_tree enable row level security;
+create policy "World tree readable by everyone" on public.world_tree for select using (true);
+
+create table if not exists public.world_tree_donors (
+  user_id uuid primary key,
+  reached_at timestamptz not null default now()
+);
+alter table public.world_tree_donors enable row level security;
+create policy "Donors readable by everyone" on public.world_tree_donors for select using (true);
+
+alter table public.players add column if not exists wood_donated int not null default 0;
+
+create or replace function public.donate_to_world_tree(amount int)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  player_wood int;
+  new_donated int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  perform public.check_rate_limit();
+  if amount <= 0 then raise exception 'invalid amount'; end if;
+
+  select wood into player_wood from public.players where id = auth.uid();
+  if player_wood < amount then raise exception 'not enough wood'; end if;
+
+  update public.players 
+    set wood = wood - amount, 
+        wood_donated = wood_donated + amount,
+        updated_at = now()
+    where id = auth.uid() 
+    returning wood_donated into new_donated;
+
+  update public.world_tree set total_wood = total_wood + amount where id = 1;
+
+  if new_donated >= 500 then
+    insert into public.world_tree_donors (user_id) values (auth.uid()) on conflict do nothing;
+  end if;
+end;
+$$;
+grant execute on function public.donate_to_world_tree(int) to authenticated;
+
+begin;
+  drop publication if exists supabase_realtime;
+  create publication supabase_realtime;
+commit;
+alter publication supabase_realtime add table public.world_tree;
+alter publication supabase_realtime add table public.world_tree_donors;

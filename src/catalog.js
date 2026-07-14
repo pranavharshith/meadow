@@ -69,6 +69,7 @@ export const DYE_ITEMS = [
 ]
 
 export const HAT_ITEMS = [
+  { id: 'none',      name: 'No Hat',         cost: 0,   emoji: '👤', desc: 'Remove your hat' },
   { id: 'wizard',    name: 'Wizard Hat',     cost: 150, emoji: '🧙‍♂️', desc: 'A pointed, magical hat' },
   { id: 'tophat',    name: 'Top Hat',        cost: 200, emoji: '🎩', desc: 'Dapper and tall cylinder' },
   { id: 'crown',     name: 'Gold Crown',     cost: 500, emoji: '👑', desc: 'Fit for royalty' },

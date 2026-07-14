@@ -177,6 +177,33 @@ export default function Net() {
       }))
     }
 
+    const receiveCraftedItem = (payload) => {
+      if (!payload || payload.owner_id === meId.current) return
+      useStore.getState().addCraftedItem({
+        id: payload.id,
+        x: payload.x,
+        z: payload.z,
+        rot: payload.rot ?? 0,
+        itemId: payload.item_id,
+        placedAt: payload.placed_at ? new Date(payload.placed_at).getTime() : Date.now(),
+        owner: false,
+      })
+    }
+
+    const receiveRemoveCraftedItem = (payload) => {
+      if (!payload || !payload.id || payload.owner_id === meId.current) return
+      useStore.getState().removeCraftedItemLocal(payload.id)
+    }
+
+    const receiveCutProcedural = (payload) => {
+      if (!payload || !payload.id || payload.user_id === meId.current) return
+      useStore.getState().addCutResource(payload.id, {
+        type: payload.type,
+        chunk_key: payload.chunk_key,
+        cut_at: payload.cut_at || new Date().toISOString()
+      })
+    }
+
     async function loadChunksAround(cx, cz) {
       const minX = (cx - 1) * CHUNK_SIZE
       const maxX = (cx + 2) * CHUNK_SIZE
@@ -186,8 +213,10 @@ export default function Net() {
       Promise.all([
         supabase.from('trees').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(1000),
         supabase.from('rocks').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(500),
-        supabase.from('plots').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(100)
-      ]).then(([treesRes, rocksRes, plotsRes]) => {
+        supabase.from('plots').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(100),
+        supabase.from('crafted_items').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(500),
+        supabase.from('cut_resources').select('*') // we filter this client-side or use a more precise query if needed. 
+      ]).then(([treesRes, rocksRes, plotsRes, craftedRes, cutsRes]) => {
         if (disposed) return
         
         if (!treesRes.error) {
@@ -217,6 +246,29 @@ export default function Net() {
             name: p.players?.name || '',
           }))
           useStore.getState().setPlots(plots)
+        }
+        
+        if (!craftedRes.error) {
+          const items = (craftedRes.data || []).map(i => ({
+            id: i.id, x: i.x, z: i.z, rot: i.rot ?? 0, itemId: i.item_id,
+            placedAt: i.placed_at ? new Date(i.placed_at).getTime() : Date.now(),
+            owner: i.owner_id === meId.current,
+          }))
+          useStore.getState().setCraftedItems(items)
+        }
+        
+        if (!cutsRes.error) {
+          const needed = new Set()
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+              needed.add(chunkKey(cx + dx, cz + dz))
+            }
+          }
+          const cutsObj = {}
+          for (const c of (cutsRes.data || [])) {
+            if (needed.has(c.chunk_key)) cutsObj[c.id] = c
+          }
+          useStore.getState().setCutResources(cutsObj)
         }
       })
     }
@@ -253,6 +305,9 @@ export default function Net() {
           ch.on('broadcast', { event: 'plot' }, ({ payload }) => receivePlot(payload))
           ch.on('broadcast', { event: 'removeplot' }, ({ payload }) => receiveRemovePlot(payload))
           ch.on('broadcast', { event: 'dye' }, ({ payload }) => receiveDye(payload))
+          ch.on('broadcast', { event: 'crafted' }, ({ payload }) => receiveCraftedItem(payload))
+          ch.on('broadcast', { event: 'removecrafted' }, ({ payload }) => receiveRemoveCraftedItem(payload))
+          ch.on('broadcast', { event: 'cutprocedural' }, ({ payload }) => receiveCutProcedural(payload))
           ch.subscribe()
           activeChunkChannels.set(key, ch)
         }
@@ -319,6 +374,15 @@ export default function Net() {
           }
         }
       })
+      chatCh.on('presence', { event: 'sync' }, () => {
+        const state = chatCh.presenceState()
+        const onlineSet = new Set()
+        for (const id in state) {
+          state[id].forEach(p => { if (p.id) onlineSet.add(p.id) })
+        }
+        useStore.getState().setOnlineUserIds(onlineSet)
+      })
+
       chatCh.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await chatCh.track({ 
@@ -398,9 +462,51 @@ export default function Net() {
           customSpawn: (prof.custom_spawn_x != null ? { x: prof.custom_spawn_x, z: prof.custom_spawn_z } : undefined),
           joinDate: prof.created_at,
           treesPlanted: prof.trees_planted,
+          ownedCosmetics: prof.owned_cosmetics || [],
           lastSeen: Date.now()
         })
       }
+
+      // ---------- Social Hydration & Realtime Sync ----------
+      const fetchSocialData = async () => {
+        const { data, error } = await supabase.rpc('get_social_data')
+        if (!error && data) {
+          const st = useStore.getState()
+          st.setFriends(data.friends || [])
+          st.setFriendRequests(data.requests || [])
+        }
+      }
+      
+      await fetchSocialData()
+
+      const friendsCh = supabase.channel(`friends:${user.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'friends' }, fetchSocialData)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'friend_requests' }, fetchSocialData)
+        .subscribe()
+
+      // ---------- World Tree Hydration & Sync ----------
+      const fetchWorldTree = async () => {
+        const { data: wt } = await supabase.from('world_tree').select('total_wood').eq('id', 1).single()
+        if (wt) useStore.getState().setWorldTreeWood(wt.total_wood)
+        
+        const { data: donors } = await supabase.from('world_tree_donors').select('user_id')
+        if (donors) useStore.getState().setWorldTreeDonors(donors.map(d => d.user_id))
+      }
+      await fetchWorldTree()
+
+      const wtCh = supabase.channel('world_tree_sync')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'world_tree' }, (payload) => {
+          if (payload.new && payload.new.total_wood !== undefined) {
+            useStore.getState().setWorldTreeWood(payload.new.total_wood)
+          }
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'world_tree_donors' }, (payload) => {
+          if (payload.new && payload.new.user_id) {
+            useStore.getState().addWorldTreeDonor(payload.new.user_id)
+          }
+        })
+        .subscribe()
+
 
       // ---------- bridge wiring: all mutations go through RPCs ----------
       bridge.online = true
@@ -423,6 +529,16 @@ export default function Net() {
         return { ok: !error, error: error?.message }
       }
 
+      bridge.sendFriendRequestByName = async (name) => {
+        const { data, error } = await supabase.rpc('send_friend_request_by_name', { p_target_name: name })
+        if (error) return { ok: false, error: error.message }
+        if (data === 'SUCCESS') return { ok: true }
+        if (data === 'PLAYER_NOT_FOUND') return { ok: false, error: 'Player not found.' }
+        if (data === 'CANNOT_ADD_SELF') return { ok: false, error: 'You cannot add yourself.' }
+        if (data === 'ALREADY_FRIENDS') return { ok: false, error: 'Already friends.' }
+        return { ok: false, error: data }
+      }
+
       bridge.acceptFriendRequest = async (id) => {
         const { error } = await supabase.rpc('accept_friend_request', { p_sender_id: id })
         return { ok: !error, error: error?.message }
@@ -439,47 +555,45 @@ export default function Net() {
       }
 
       bridge.saveIdentity = async (name, color, headColor, bodyColor, legColor, hatId) => {
-        clearTimeout(identityTimer.current)
-        identityTimer.current = setTimeout(async () => {
-          const { data, error } = await supabase.rpc('update_profile', {
-            p_name: name,
-            p_color: color,
-            p_head_color: headColor,
-            p_body_color: bodyColor,
-            p_leg_color: legColor,
-            p_hat_id: hatId,
+        const { data, error } = await supabase.rpc('update_profile', {
+          p_name: name,
+          p_color: color,
+          p_head_color: headColor,
+          p_body_color: bodyColor,
+          p_leg_color: legColor,
+          p_hat_id: hatId,
+        })
+        if (error) {
+          const m = error.message.toLowerCase()
+          let flash = 'could not update profile'
+          if (m.includes('profanity'))           flash = 'name contains inappropriate language'
+          else if (m.includes('too fast'))        flash = 'please wait before changing your name'
+          else if (m.includes('too short'))       flash = 'name must be at least 2 characters'
+          else if (m.includes('already taken'))   flash = 'that name is already taken'
+          useStore.getState().flash(flash)
+        } else if (data) {
+          lastProfileRef.current = { name: data.name, color: data.color }
+          useStore.getState().hydrateProfile({ 
+            name: data.name, 
+            color: data.color,
+            headColor: data.head_color,
+            bodyColor: data.body_color,
+            legColor: data.leg_color,
+            hatId: data.hat_id
           })
-          if (error) {
-            const m = error.message.toLowerCase()
-            let flash = 'could not update profile'
-            if (m.includes('profanity'))           flash = 'name contains inappropriate language'
-            else if (m.includes('too fast'))        flash = 'please wait before changing your name'
-            else if (m.includes('too short'))       flash = 'name must be at least 2 characters'
-            else if (m.includes('already taken'))   flash = 'that name is already taken'
-            useStore.getState().flash(flash)
-          } else if (data) {
-            lastProfileRef.current = { name: data.name, color: data.color }
-            useStore.getState().hydrateProfile({ 
-              name: data.name, 
+          if (chatChannelRef.current && chatChannelRef.current.state === 'joined') {
+            chatChannelRef.current.track({
+              id: meId.current,
+              name: data.name,
               color: data.color,
               headColor: data.head_color,
               bodyColor: data.body_color,
               legColor: data.leg_color,
               hatId: data.hat_id
-            })
-            if (chatChannelRef.current && chatChannelRef.current.state === 'joined') {
-              chatChannelRef.current.track({
-                id: meId.current,
-                name: data.name,
-                color: data.color,
-                headColor: data.head_color,
-                bodyColor: data.body_color,
-                legColor: data.leg_color,
-                hatId: data.hat_id
-              }).catch(() => {})
-            }
+            }).catch(() => {})
           }
-        }, 400)
+        }
+        return { ok: !error, error }
       }
 
       bridge.buyCosmetic = async (type, id, colorVal) => {
@@ -500,7 +614,8 @@ export default function Net() {
           bodyColor: data.body_color,
           legColor: data.leg_color,
           hatId: data.hat_id,
-          gold: data.gold
+          gold: data.gold,
+          ownedCosmetics: data.owned_cosmetics || []
         })
         return { ok: true, gold: data.gold }
       }
@@ -640,6 +755,66 @@ export default function Net() {
         return { ok: true, gold: data }
       }
 
+      bridge.cutProceduralResource = async (id, type, chunkKey) => {
+        const { data, error } = await supabase.rpc('cut_procedural_resource', { p_id: id, p_type: type, p_chunk_key: chunkKey })
+        if (error) return { ok: false, error: error.message }
+        
+        const ch = posChannelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
+            type: 'broadcast',
+            event: 'cutprocedural',
+            payload: { id, type, chunk_key: chunkKey, user_id: meId.current },
+          })
+        }
+        return { ok: true, wood: data.wood, stone: data.stone }
+      }
+
+      bridge.placeCraftedItem = async (item, costWood = 0, costStone = 0) => {
+        const { data, error } = await supabase.rpc('place_crafted_item', {
+          p_id: item.id,
+          p_item_id: item.itemId,
+          p_x: item.x,
+          p_z: item.z,
+          p_rot: item.rot ?? 0,
+          p_cost_wood: costWood,
+          p_cost_stone: costStone,
+        })
+        if (error) return { ok: false, error: error.message }
+        
+        const ch = posChannelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
+            type: 'broadcast',
+            event: 'crafted',
+            payload: {
+              id: item.id,
+              owner_id: meId.current,
+              item_id: item.itemId,
+              x: item.x,
+              z: item.z,
+              rot: item.rot ?? 0,
+            },
+          })
+        }
+        return { ok: true, wood: data.wood, stone: data.stone }
+      }
+
+      bridge.removeCraftedItem = async (itemId) => {
+        const { data, error } = await supabase.rpc('remove_crafted_item', { p_id: itemId })
+        if (error) return { ok: false, error: error.message }
+        
+        const ch = posChannelRef.current
+        if (ch && ch.state === 'joined') {
+          ch.send({
+            type: 'broadcast',
+            event: 'removecrafted',
+            payload: { id: itemId, owner_id: meId.current },
+          })
+        }
+        return { ok: true, wood: data.wood, stone: data.stone }
+      }
+
       bridge.teleport = async (landmarkId) => {
         const { data, error } = await supabase.rpc('teleport_to_landmark', {
           p_landmark_id: landmarkId,
@@ -734,6 +909,12 @@ export default function Net() {
           target.send({ type: 'broadcast', event: 'chat', payload })
         }
         return { ok: true, text: cleanText || text }
+      }
+
+      bridge.donateToWorldTree = async (amount) => {
+        const { error } = await supabase.rpc('donate_to_world_tree', { amount })
+        if (error) return { ok: false, error: error.message }
+        return { ok: true }
       }
 
       subscribeWorld()

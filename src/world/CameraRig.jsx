@@ -103,8 +103,15 @@ export default function CameraRig() {
       pos.y = posFloorY + 0.6
     }
 
-    curPos.lerp(pos, k)
-    curTarget.lerp(target, k)
+    // Teleport Snap Check: if the camera target suddenly jumps a massive distance
+    // (e.g. > 10 units in one frame), bypass the lerp and snap instantly.
+    if (curPos.distanceToSquared(pos) > 100) {
+      curPos.copy(pos)
+      curTarget.copy(target)
+    } else {
+      curPos.lerp(pos, k)
+      curTarget.lerp(target, k)
+    }
 
     
     // Post-lerp collision check: prevent camera from dipping under terrain or plaza structures

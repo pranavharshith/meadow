@@ -58,6 +58,18 @@ const _pendingDiscover = new Set()
 export const PALETTE = PASTELS
 
 export const useStore = create((set, get) => ({
+  // UI / HUD
+  showNav: saved.showNav ?? true,
+  hasCompletedWelcome: saved.hasCompletedWelcome ?? !!saved.name,
+  isUpdatingName: false,
+
+  completeWelcome: () => {
+    set({ hasCompletedWelcome: true })
+    const st = loadSave()
+    st.hasCompletedWelcome = true
+    localStorage.setItem(LS_KEY, JSON.stringify(st))
+  },
+
   // camera + a/v
   viewMode: saved.viewMode ?? 'third',
   muted: saved.muted ?? false,
@@ -74,6 +86,8 @@ export const useStore = create((set, get) => ({
 
   // progression (server-owned when online; localStorage fallback offline)
   gold: saved.gold ?? 0,
+  wood: saved.wood ?? 0,
+  stone: saved.stone ?? 0,
   color: saved.color ?? randomColor(),
   headColor: saved.headColor ?? null,
   bodyColor: saved.bodyColor ?? null,
@@ -92,8 +106,15 @@ export const useStore = create((set, get) => ({
   // personal plots (server-owned when online; localStorage for offline)
   plots: saved.plots ?? [],
 
-  // shop
+  // crafted items
+  craftedItems: saved.craftedItems ?? [],
+  cutResources: saved.cutResources ?? {},
+
+  // shop & crafting
   shopOpen: false,
+  craftingOpen: false,
+  isProcessingTeleport: false,
+  teleportFlash: false,
   selectedItem: { type: 'tree', id: 'broadleaf', shape: 0, cost: 0 },
 
   // social & profile
@@ -101,11 +122,24 @@ export const useStore = create((set, get) => ({
   treesPlanted: saved.treesPlanted ?? 0,
   friends: [],
   friendRequests: [],
+  ownedCosmetics: [],
+  onlineUserIds: new Set(),
   socialOpen: false,
   profileModal: null, // { id: string } or null
 
   // playtime (offline only)
   playtimeSeconds: saved.playtimeSeconds ?? 0,
+
+  // world tree
+  worldTreeWood: 0,
+  worldTreeDonors: new Set(),
+  setWorldTreeWood: (val) => set({ worldTreeWood: val }),
+  addWorldTreeDonor: (id) => set(s => {
+    const next = new Set(s.worldTreeDonors)
+    next.add(id)
+    return { worldTreeDonors: next }
+  }),
+  setWorldTreeDonors: (arr) => set({ worldTreeDonors: new Set(arr) }),
 
   // transient UI
   toast: null,
@@ -159,10 +193,12 @@ export const useStore = create((set, get) => ({
   setNavTarget: (target) => set({ navTarget: target }),
   clearNav: () => set({ navTarget: null }),
   setShopOpen: (v) => set({ shopOpen: v, inputContext: v ? 'UI' : 'GAME' }),
+  setCraftingOpen: (v) => set({ craftingOpen: v, inputContext: v ? 'UI' : 'GAME' }),
   setSocialOpen: (v) => set({ socialOpen: v, inputContext: v ? 'UI' : 'GAME' }),
   setProfileModal: (v) => set({ profileModal: v, inputContext: v ? 'UI' : 'GAME' }),
   setFriends: (friends) => set({ friends }),
   setFriendRequests: (friendRequests) => set({ friendRequests }),
+  setOnlineUserIds: (onlineUserIds) => set({ onlineUserIds }),
   setSelectedItem: (item) => set({ selectedItem: item }),
   setSelection: (sel) => set({ selection: sel }),
   clearSelection: () => set({ selection: null }),
@@ -172,16 +208,42 @@ export const useStore = create((set, get) => ({
   setInputContext: (ctx) => set({ inputContext: ctx }),
   setIsDraggingCamera: (v) => set({ isDraggingCamera: v }),
 
-  setName: (name) => {
+  setName: async (name) => {
     const state = get()
     const cleaned = (name || '').trim().slice(0, 18)
     if (cleaned === state.name) return
-    if (!bridge.online) set({ name: cleaned })
-    bridge.saveIdentity(cleaned, state.color, state.headColor, state.bodyColor, state.legColor, state.hatId)
+    
+    if (!bridge.online) {
+      set({ name: cleaned })
+      return
+    }
+
+    const previousName = state.name
+    // Optimistic Update
+    set({ name: cleaned, isUpdatingName: true })
+
+    try {
+      // Execute immediately using bridge.saveIdentity
+      const { error } = await bridge.saveIdentity(cleaned, state.color, state.headColor, state.bodyColor, state.legColor, state.hatId)
+      if (error) throw error
+      
+      // We don't have supabaseClient here, but if the trigger fires, bridge.saveIdentity will hydrate it.
+      // Wait, bridge.saveIdentity doesn't return the overridden name because update_profile doesn't return the overridden name if it was a trigger?
+      // Actually update_profile returns the player row, so hydrateProfile inside saveIdentity will automatically fix it.
+    } catch (error) {
+      // Rollback (flash is handled by saveIdentity already if it was an error)
+      set({ name: previousName })
+    } finally {
+      set({ isUpdatingName: false })
+    }
   },
   setColor: (color) => {
     const state = get()
-    if (!bridge.online) set({ color })
+    if (!bridge.online) {
+      set({ color })
+      return
+    }
+    set({ color })
     bridge.saveIdentity(state.name, color, state.headColor, state.bodyColor, state.legColor, state.hatId)
   },
   buyCosmetic: async (type, id, colorVal) => {
@@ -216,13 +278,15 @@ export const useStore = create((set, get) => ({
   setPlayerCount: (playerCount) => set({ playerCount }),
   setRenderedCount: (renderedCount) => set({ renderedCount }),
   // Server is the source of truth for gold + discovered. Overwrites local.
-  hydrateProfile: ({ gold, name, color, headColor, bodyColor, legColor, hatId, discovered, customSpawn, joinDate, treesPlanted, lastWaterAt: serverLastWaterAt }) =>
+  hydrateProfile: ({ gold, wood, stone, name, color, headColor, bodyColor, legColor, hatId, discovered, customSpawn, joinDate, treesPlanted, ownedCosmetics, lastWaterAt: serverLastWaterAt }) =>
     set((s) => {
       if (serverLastWaterAt !== undefined) {
         lastWaterAt = new Date(serverLastWaterAt).getTime();
       }
       return {
         gold: gold ?? s.gold,
+        wood: wood ?? s.wood,
+        stone: stone ?? s.stone,
         name: name ?? s.name,
         color: color ?? s.color,
         headColor: headColor ?? s.headColor,
@@ -233,6 +297,7 @@ export const useStore = create((set, get) => ({
         customSpawn: customSpawn ?? s.customSpawn,
         joinDate: joinDate ?? s.joinDate,
         treesPlanted: treesPlanted ?? s.treesPlanted,
+        ownedCosmetics: ownedCosmetics ?? s.ownedCosmetics,
       }
     }),
   setGold: (gold) => set({ gold }),
@@ -252,6 +317,17 @@ export const useStore = create((set, get) => ({
   addPlot: (p) =>
     set((s) => (s.plots.some((x) => x.id === p.id) ? {} : { plots: [...s.plots, p] })),
   removePlotLocal: (id) => set((s) => ({ plots: s.plots.filter((p) => p.id !== id) })),
+
+  // --- Crafted Items server sync ---
+  setCraftedItems: (items) => set({ craftedItems: items }),
+  addCraftedItem: (i) =>
+    set((s) => (s.craftedItems.some((x) => x.id === i.id) ? {} : { craftedItems: [...s.craftedItems, i] })),
+  removeCraftedItemLocal: (id) => set((s) => ({ craftedItems: s.craftedItems.filter((i) => i.id !== id) })),
+
+  // --- Cut Resources server sync ---
+  setCutResources: (cuts) => set({ cutResources: cuts }),
+  addCutResource: (key, cut) =>
+    set((s) => ({ cutResources: { ...s.cutResources, [key]: cut } })),
 
   addChatMessage: (m) =>
     set((s) => ({ chat: [...s.chat, m].slice(-CHAT_MAX) })),
@@ -514,10 +590,10 @@ export const useStore = create((set, get) => ({
       if (!rock || !rock.owner) { set({ selection: null }); return }
       set((s) => ({
         breakingId: rock.id,
-        gold: s.gold + ROCK_REMOVE_REWARD,
+        stone: s.stone + ROCK_REMOVE_REWARD,
         selection: null,
       }))
-      state.flash(`removed a rock · +${ROCK_REMOVE_REWARD} gold`)
+      state.flash(`removed a rock · +${ROCK_REMOVE_REWARD} stone`)
 
       const breakStart = performance.now()
       const doRemoveRock = () => {
@@ -536,7 +612,7 @@ export const useStore = create((set, get) => ({
             }))
             get().flash(res.error === 'not your rock' ? 'that rock is not yours' : 'could not remove rock')
           } else {
-            if (typeof res.gold === 'number') set({ gold: res.gold })
+            if (typeof res.stone === 'number') set({ stone: res.stone })
             const elapsed = performance.now() - breakStart
             const remaining = Math.max(0, 500 - elapsed)
             if (remaining > 0) setTimeout(doRemoveRock, remaining)
@@ -566,8 +642,8 @@ export const useStore = create((set, get) => ({
       const verb = isGrownTree ? 'cut down' : 'uprooted'
 
       // Play the fall animation, clear selection, credit optimistically
-      set((s) => ({ cuttingId: tree.id, selection: null, gold: s.gold + reward }))
-      state.flash(`${verb} a tree · +${reward} gold`)
+      set((s) => ({ cuttingId: tree.id, selection: null, wood: s.wood + reward }))
+      state.flash(`${verb} a tree · +${reward} wood`)
 
       // Kick the server RPC in parallel with the animation
       const cutStart = performance.now()
@@ -590,7 +666,7 @@ export const useStore = create((set, get) => ({
             get().flash(map[res.error] || `could not cut: ${res.error || 'unknown'}`)
             return
           }
-          if (typeof res.gold === 'number') set({ gold: res.gold })
+          if (typeof res.wood === 'number') set({ wood: res.wood })
           const elapsed = performance.now() - cutStart
           const remaining = Math.max(0, 850 - elapsed)
           setTimeout(doRemove, remaining)
@@ -604,6 +680,42 @@ export const useStore = create((set, get) => ({
   // Kept as a thin alias so anywhere old code / hooks still called it
   // (like existing UI hint text) continues to work — routes to cutSelection.
   cutNearestTree: () => get().cutSelection(),
+
+  cutProcedural: (chunkKey, localIndex, kind, idStr) => {
+    const state = get()
+    if (state.cutResources[idStr]) return // Already cut
+
+    const reward = kind === 'tree' ? 3 : 2
+    
+    // Optimistic
+    set((s) => ({
+      cutResources: { ...s.cutResources, [idStr]: { cut_at: new Date().toISOString(), type: kind, chunk_key: chunkKey } },
+      wood: kind === 'tree' ? s.wood + reward : s.wood,
+      stone: kind === 'rock' ? s.stone + reward : s.stone
+    }))
+    state.flash(`harvested ${kind} · +${reward} ${kind === 'tree' ? 'wood' : 'stone'}`)
+
+    if (bridge.online) {
+      bridge.cutProceduralResource(idStr, kind, chunkKey).then((res) => {
+        if (!res.ok) {
+          // Rollback
+          set((s) => {
+            const nextCuts = { ...s.cutResources }
+            delete nextCuts[idStr]
+            return {
+              cutResources: nextCuts,
+              wood: kind === 'tree' ? s.wood - reward : s.wood,
+              stone: kind === 'rock' ? s.stone - reward : s.stone
+            }
+          })
+          get().flash(res.error || `could not harvest ${kind}`)
+        } else {
+          if (typeof res.wood === 'number') set({ wood: res.wood })
+          if (typeof res.stone === 'number') set({ stone: res.stone })
+        }
+      })
+    }
+  },
 
   releaseSelection: () => {
     const state = get()
@@ -795,6 +907,8 @@ export const useStore = create((set, get) => ({
 
   teleportTo: async (landmarkId) => {
     const state = get()
+    if (state.isProcessingTeleport) return
+    
     if (!state.discovered.includes(landmarkId)) {
       state.flash('discover this place first')
       return
@@ -806,8 +920,15 @@ export const useStore = create((set, get) => ({
       return
     }
 
+    set({ isProcessingTeleport: true, teleportFlash: true })
     const originalGold = state.gold
     set((s) => ({ gold: s.gold - TELEPORT_COST }))
+    
+    // Play sound and wait for screen to fade to white
+    const snd = new Audio('/sound/plop.mp3')
+    snd.volume = 0.5
+    snd.play().catch(() => {})
+    await new Promise(r => setTimeout(r, 200))
 
     if (lm.id === 'spawn-plaza') {
       const angle = Math.random() * Math.PI * 2
@@ -820,7 +941,7 @@ export const useStore = create((set, get) => ({
     }
     // FIX #1 — set Y immediately so the player doesn't snap/fall for one frame
     P.pos.y = plazaFloorHeight(P.pos.x, P.pos.z) ?? terrainHeight(P.pos.x, P.pos.z)
-    set({ navTarget: null })
+    set({ navTarget: null, teleportFlash: false })
     state.flash(`arrived at ${lm.name}`)
 
     if (bridge.online) {
@@ -832,10 +953,13 @@ export const useStore = create((set, get) => ({
         set({ gold: res.gold })
       }
     }
+    set({ isProcessingTeleport: false })
   },
 
   setSpawnHere: async () => {
     const state = get()
+    if (state.isProcessingTeleport) return
+    
     if (state.gold < SET_SPAWN_COST) {
       state.flash(`need ${SET_SPAWN_COST} gold to set a spawn point`)
       return
@@ -846,6 +970,7 @@ export const useStore = create((set, get) => ({
     const originalGold = state.gold
     const originalSpawn = state.customSpawn
 
+    set({ isProcessingTeleport: true })
     set((s) => ({ gold: s.gold - SET_SPAWN_COST, customSpawn: { x, z } }))
     state.flash('spawn point set · -40 gold')
 
@@ -858,6 +983,7 @@ export const useStore = create((set, get) => ({
         set({ gold: res.gold })
       }
     }
+    set({ isProcessingTeleport: false })
   },
 
   claimDailyBonus: async () => {
@@ -956,11 +1082,15 @@ useStore.subscribe((s) => {
       }
       if (!s.online) {
         base.gold = s.gold
+        base.wood = s.wood
+        base.stone = s.stone
         base.trees = s.trees
         base.discovered = s.discovered
         base.lastBonus = s.lastBonus
         base.placedRocks = s.placedRocks // offline: keep rocks locally
         base.plots = s.plots // offline: keep plots locally
+        base.craftedItems = s.craftedItems
+        base.cutResources = s.cutResources
       }
       localStorage.setItem(LS_KEY, JSON.stringify(base))
     } catch {

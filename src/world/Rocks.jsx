@@ -47,14 +47,14 @@ export default function Rocks() {
             const sink = 0.15 + rng() * 0.25
             const shape = (rng() * 3) | 0
             const matIdx = (rng() * 3) | 0
-            const r = { x, z, y: terrainHeight(x, z), rot, sx, sy, sz, sink, shape, matIdx, chunkKey: key }
+            const r = { localId: i, x, z, y: terrainHeight(x, z), rot, sx, sy, sz, sink, shape, matIdx, chunkKey: key }
             arr.push(r)
             
             const placementR = Math.max(sx, sz)
             if (sy >= 0.55) {
-              rockRegistry.push({ x, z, r: Math.max(sx, sz) * 0.5 + 0.3, placementR, _source: 'decorative', chunkKey: key })
+              rockRegistry.push({ x, z, r: Math.max(sx, sz) * 0.5 + 0.3, placementR, _source: 'decorative', chunkKey: key, idStr: `${key}_${i}_rock` })
             } else {
-              rockRegistry.push({ x, z, placementR, _source: 'decorative', chunkKey: key })
+              rockRegistry.push({ x, z, placementR, _source: 'decorative', chunkKey: key, idStr: `${key}_${i}_rock` })
             }
           }
           chunksRef.current.set(key, arr)
@@ -84,35 +84,35 @@ export default function Rocks() {
     }
   }, [center.cx, center.cz])
 
-  // Clicking a natural/world-generated rock should tell the player it
-  // can't be removed, and stop the click from bubbling to the canvas
-  // (which would otherwise clear their real selection).
-  const flash = useStore((s) => s.flash)
-  const onDecorativeClick = (e) => {
+  const cutResources = useStore((s) => s.cutResources)
+  const cutProcedural = useStore((s) => s.cutProcedural)
+
+  const onDecorativeClick = (r, e) => {
     e.stopPropagation()
-    flash('this rock has been here forever — you can only remove rocks you placed')
+    const idStr = `${r.chunkKey}_${r.localId}_rock`
+    cutProcedural(r.chunkKey, r.localId, 'rock', idStr)
   }
 
   return (
     <group>
-      {allRocks.map((r, i) => (
+      {allRocks.map((r, i) => {
+        const idStr = `${r.chunkKey}_${r.localId}_rock`
+        if (cutResources[idStr]) return null
+        return (
         <mesh
-          key={i}
+          key={idStr}
           geometry={ROCK_GEOS[r.shape ?? 2]}
           material={ROCK_MATS[r.matIdx ?? 0]}
-          // Sit the rock ON the terrain instead of embedding its centre.
-          // Geometry radius is 1, so after scaling by sy the mesh spans ±sy
-          // vertically around its origin. `sy - sink` places the mesh centre
-          // above ground, and the `- sink` slightly buries the bottom edge,
-          // giving a natural embedded look without the "half-underground" bug.
           position={[r.x, r.y + r.sy - r.sink, r.z]}
           rotation={[0, r.rot, 0]}
           scale={[r.sx, r.sy, r.sz]}
           castShadow
           receiveShadow
-          onClick={onDecorativeClick}
+          onClick={(e) => onDecorativeClick(r, e)}
+          onPointerOver={() => { document.body.style.cursor = 'pointer' }}
+          onPointerOut={() => { document.body.style.cursor = '' }}
         />
-      ))}
+      )})}
     </group>
   )
 }

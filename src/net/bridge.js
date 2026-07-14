@@ -23,9 +23,14 @@ export const bridge = {
   claimDaily:  async ()                    => ({ ok: false, error: 'offline' }),
   releaseItem: async (_id, _type)          => ({ ok: false, error: 'offline' }),
   claimOfflineGold: async ()               => ({ ok: false, error: 'offline' }),
+  cutProceduralResource: async (_id, _type, _chunkKey) => ({ ok: false, error: 'offline' }),
   // Rock mutations (server-persisted, visible to all players in region)
   placeRock:   async (_rock)               => ({ ok: false, error: 'offline' }),
   removeRock:  async (_rockId)             => ({ ok: false, error: 'offline' }),
+  
+  // Crafted Item mutations
+  placeCraftedItem: async (_item, _costWood, _costStone) => ({ ok: false, error: 'offline' }),
+  removeCraftedItem: async (_itemId)       => ({ ok: false, error: 'offline' }),
 
   // Gold-sink gated mutations. Each returns { ok, gold?, error? }.
   teleport:    async (_landmarkId)         => ({ ok: false, error: 'offline' }),
@@ -39,6 +44,9 @@ export const bridge = {
 
   // Chat: gate + broadcast in one call. Returns { ok, gold?, error?, text? }.
   sendChat:    noopAsync,
+
+  // World Tree collaborative goal
+  donateToWorldTree: async (_amount)      => ({ ok: false, error: 'offline' }),
 
   // Local mute list — always available (offline too). Populated by Net.jsx
   // from localStorage so it survives reloads.

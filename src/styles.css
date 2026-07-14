@@ -736,6 +736,7 @@ canvas { display: block; touch-action: none; }
 .chat-msg:hover .chat-mute,
 .chat-msg:hover .chat-nav { opacity: 0.7; }
 .chat-name { font-weight: 700; margin-right: 6px; }
+.chat-badge { margin-right: 4px; font-size: 1.1em; cursor: help; }
 .chat-mute {
   background: none; border: none; color: rgba(255,255,255,0.6);
   cursor: pointer; font-size: 12px; padding: 0 4px; margin-left: 4px;

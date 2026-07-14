@@ -126,12 +126,15 @@ export default function Chat() {
             {online ? 'say hello to the meadow' : 'offline — others appear when connected'}
           </div>
         )}
-        {shown.map((m) => (
-          <div className="chat-msg" key={m.id}>
-            <span className="chat-name" style={{ color: m.color, cursor: 'pointer' }} onClick={() => useStore.getState().setProfileModal(m.self ? 'me' : m.userId)}>
-              {m.name}
-            </span>
-            <span className="chat-text">{m.text}</span>
+        {shown.map((m) => {
+          const hasBadge = useStore.getState().worldTreeDonors.has(m.userId)
+          return (
+            <div className="chat-msg" key={m.id}>
+              <span className="chat-name" style={{ color: m.color, cursor: 'pointer' }} onClick={() => useStore.getState().setProfileModal(m.self ? 'me' : m.userId)}>
+                {hasBadge && <span className="chat-badge" title="World Tree Donor">🌳</span>}
+                {m.name}
+              </span>
+              <span className="chat-text">{m.text}</span>
             {m.userId && !m.self && (
               <>
                 <button

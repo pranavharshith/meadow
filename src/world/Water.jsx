@@ -35,13 +35,47 @@ function createWaterMaterial() {
   })
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 }
-    shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader
+    shader.uniforms.uRipples = { value: new Array(12).fill(new THREE.Vector4(0,0,0,0)) }
+    shader.vertexShader = `
+      uniform float uTime;
+      uniform vec4 uRipples[12]; // x, z, startTime, intensity
+      ${shader.vertexShader}
+    `
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
        vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
-       transformed.y += sin(wp.x * 0.5 + uTime * 1.2) * 0.05;
-       transformed.y += cos(wp.z * 0.4 + uTime * 0.9) * 0.04;`
+       
+       // Base ambient ripples
+       float baseRipples = sin(wp.x * 0.5 + uTime * 1.2) * 0.05 + cos(wp.z * 0.4 + uTime * 0.9) * 0.04;
+       float dy = baseRipples;
+
+       // Dynamic step ripples
+       for(int i=0; i<12; i++) {
+         vec4 r = uRipples[i];
+         if (r.w > 0.0) {
+           float dx = wp.x - r.x;
+           float dz = wp.z - r.y;
+           float dist = sqrt(dx*dx + dz*dz);
+           float age = uTime - r.z;
+           
+           // Ripple spreads at 3.0 units per second
+           float spread = age * 3.0;
+           float distFromRing = abs(dist - spread);
+           
+           // Only affect vertices near the expanding ring
+           if (distFromRing < 1.5 && age > 0.0 && age < 4.0) {
+             // Fade out based on age and distance from center
+             float fade = (1.0 - (age / 4.0)) * smoothstep(1.5, 0.0, distFromRing);
+             // Wave function
+             float wave = sin((dist - age * 3.0) * 8.0) * 0.15;
+             dy += wave * fade * r.w;
+           }
+         }
+       }
+       
+       transformed.y += dy;
+      `
     )
     mat.userData.shader = shader
   }
@@ -110,13 +144,29 @@ function buildStreamGeo() {
   return geo
 }
 
+import { useStore } from '../store'
+import { waterRipples } from '../player-state'
+
+const RIPPLE_VECS = new Array(12).fill(0).map(() => new THREE.Vector4())
+
 export default function Water() {
+  const plots = useStore((s) => s.plots)
   const mat = useMemo(() => createWaterMaterial(), [])
-  const streamGeo = useMemo(() => buildStreamGeo(), [])
+  const streamGeo = useMemo(() => buildStreamGeo(), [plots])
 
   useFrame(({ clock }) => {
     if (mat.userData.shader) {
       mat.userData.shader.uniforms.uTime.value = clock.elapsedTime
+      
+      for (let i = 0; i < 12; i++) {
+        const r = waterRipples[i]
+        if (r) {
+          RIPPLE_VECS[i].set(r.x, r.z, r.time, r.intensity)
+        } else {
+          RIPPLE_VECS[i].set(0, 0, 0, 0)
+        }
+      }
+      mat.userData.shader.uniforms.uRipples.value = RIPPLE_VECS
     }
   })
 

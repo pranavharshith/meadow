@@ -213,8 +213,14 @@ export function generateTreeGeometries(seedStr, options = DEFAULT_OPTIONS) {
         leafVertexCount++
       }
       
-      for (let i = 0; i < indexAttr.count; i++) {
-        leaves.indices.push(startV + indexAttr.getX(i))
+      if (indexAttr) {
+        for (let i = 0; i < indexAttr.count; i++) {
+          leaves.indices.push(startV + indexAttr.getX(i))
+        }
+      } else {
+        for (let i = 0; i < posAttr.count; i++) {
+          leaves.indices.push(startV + i)
+        }
       }
       
     } else if (branch.level < options.branch.levels - 1) {

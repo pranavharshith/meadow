@@ -19,9 +19,14 @@ export default function Social() {
   const [remoteProf, setRemoteProf] = useState(null)
   const [loading, setLoading] = useState(false)
   
-  const friends = useStore((s) => s.friends) || []
+  const [searchName, setSearchName] = useState('')
+  const [searchStatus, setSearchStatus] = useState('')
+
+  const onlineUserIds = useStore((s) => s.onlineUserIds)
+  const friendsRaw = useStore((s) => s.friends) || []
   const requests = useStore((s) => s.friendRequests) || []
   
+  const friends = friendsRaw.map(f => ({ ...f, online: onlineUserIds.has(f.id) }))
   const onlineFriends = friends.filter(f => f.online)
   const offlineFriends = friends.filter(f => !f.online)
 
@@ -170,6 +175,27 @@ export default function Social() {
       ) : (
         <>
           <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+            <input 
+              type="text" 
+              placeholder="Add friend by name..." 
+              value={searchName}
+              onChange={(e) => { setSearchName(e.target.value); setSearchStatus(''); }}
+              onFocus={() => useStore.getState().setInputContext('CHAT')}
+              onBlur={() => useStore.getState().setInputContext('GAME')}
+              style={{ flex: 1, padding: '4px 8px', borderRadius: 4, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'white' }}
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter' && searchName.trim()) {
+                  setSearchStatus('Sending...')
+                  const res = await bridge.sendFriendRequestByName(searchName.trim())
+                  setSearchStatus(res.ok ? 'Sent!' : res.error)
+                  if (res.ok) setTimeout(() => { setSearchName(''); setSearchStatus(''); }, 2000)
+                }
+              }}
+            />
+          </div>
+          {searchStatus && <div style={{ fontSize: 10, color: searchStatus === 'Sent!' ? '#4caf50' : '#ff5252', marginBottom: 8, textAlign: 'center' }}>{searchStatus}</div>}
+
+          <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
             <button className={`btn small ${tab === 'online' ? 'active' : ''}`} style={{ flex: 1, outline: focusSection === 'tabs' && tab === 'online' ? '2px solid white' : 'none' }} onClick={() => setTab('online')}>Online</button>
             <button className={`btn small ${tab === 'offline' ? 'active' : ''}`} style={{ flex: 1, outline: focusSection === 'tabs' && tab === 'offline' ? '2px solid white' : 'none' }} onClick={() => setTab('offline')}>Offline</button>
             <button className={`btn small ${tab === 'pending' ? 'active' : ''}`} style={{ flex: 1, outline: focusSection === 'tabs' && tab === 'pending' ? '2px solid white' : 'none', position: 'relative' }} onClick={() => setTab('pending')}>
@@ -200,9 +226,14 @@ export default function Social() {
                       <button className="btn small" style={{ padding: '0 6px', background: 'rgba(255,255,255,0.1)' }} onClick={() => bridge.declineFriendRequest(item.sender_id).then(r => useStore.getState().flash(r.ok ? 'Declined' : r.error))}>✕</button>
                     </div>
                   ) : (
-                    <button className="btn small" onClick={() => useStore.getState().flash(tab === 'online' ? 'Whisper coming soon' : 'Offline')}>
-                      {tab === 'online' ? 'Chat' : '...'}
-                    </button>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn small" onClick={() => useStore.getState().flash(tab === 'online' ? 'Whisper coming soon' : 'Offline')}>
+                        {tab === 'online' ? 'Chat' : '...'}
+                      </button>
+                      <button className="btn small" style={{ background: 'rgba(255,50,50,0.2)' }} onClick={() => bridge.unfriend(item.id).then(r => useStore.getState().flash(r.ok ? 'Removed friend.' : r.error))}>
+                        Remove
+                      </button>
+                    </div>
                   )}
                 </div>
               ))

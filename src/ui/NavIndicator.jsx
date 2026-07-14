@@ -10,6 +10,8 @@ export default function NavIndicator() {
   const gold = useStore((s) => s.gold)
   const clearNav = useStore((s) => s.clearNav)
   const teleportTo = useStore((s) => s.teleportTo)
+  const setMapOpen = useStore((s) => s.setMapOpen)
+  const isProcessingTeleport = useStore((s) => s.isProcessingTeleport)
   const arrowRef = useRef()
 
   useEffect(() => {
@@ -39,15 +41,18 @@ export default function NavIndicator() {
 
   return (
     <div className="nav-indicator no-look">
-      <button className="nav-name-btn" onClick={clearNav} title="cancel navigation">
+      <button className="nav-name-btn" onClick={() => setMapOpen(true)} title="open map">
         <span className="nav-arrow" ref={arrowRef} style={{ display: 'inline-block', transition: 'transform 0.1s linear' }}>↑</span>
-        <span className="nav-name">{navTarget.name}</span>
-        <span className="nav-cancel">x</span>
+        <span className="nav-name">{navTarget.name || 'waypoint'}</span>
+      </button>
+      <button className="nav-cancel-btn" onClick={clearNav} title="cancel navigation" style={{ background: 'none', border: 'none', color: '#ff5b5b', cursor: 'pointer', padding: '0 8px', fontSize: '1.2rem' }}>
+        ×
       </button>
       {isLandmarkDiscovered && (
         <button
-          className={`nav-teleport${canTeleport ? '' : ' disabled'}`}
+          className={`nav-teleport${canTeleport && !isProcessingTeleport ? '' : ' disabled'}`}
           onClick={() => canTeleport && teleportTo(navTarget.id)}
+          disabled={isProcessingTeleport}
           title={canTeleport ? `teleport for ${TELEPORT_COST} gold` : `need ${TELEPORT_COST} gold`}
         >
           ✨ {TELEPORT_COST}g

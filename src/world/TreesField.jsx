@@ -395,7 +395,7 @@ export default function TreesField() {
             const t = {
               localId: i,
               x, z,
-              y: terrainHeight(x, z),
+              y: plazaFloorHeight(x, z) !== null ? plazaFloorHeight(x, z) : terrainHeight(x, z),
               s: 1.4 + rng() * 1.2,
               rot: rng() * Math.PI * 2,
               variant: (rng() * 3) | 0,
@@ -409,7 +409,8 @@ export default function TreesField() {
               placementR: 0.6 + t.s * 0.4,
               mature: true,
               chunkKey: key,
-              _source: 'decorative'
+              _source: 'decorative',
+              idStr: `${key}_${i}_tree`
             })
           }
           chunksRef.current.set(key, arr)
@@ -447,6 +448,8 @@ export default function TreesField() {
       dirtyLOD.current = true
     }
   }, [center.cx, center.cz])
+
+  const cutResources = useStore((s) => s.cutResources)
 
   // Sync planted trees to registry independently
   useEffect(() => {
@@ -543,6 +546,12 @@ export default function TreesField() {
 
     for (let i = 0; i < decorative.length; i++) {
       const t = decorative[i]
+      const idStr = `${t.chunkKey}_${t.localId}_tree`
+      if (cutResources[idStr]) {
+        if (groupRefs.current[i]) groupRefs.current[i].visible = false
+        continue
+      }
+      
       const distSq = (t.x - cx) ** 2 + (t.z - cz) ** 2
       const isNear = distSq < 4900 // 70^2
       
@@ -582,14 +591,11 @@ export default function TreesField() {
     distLeaf2.current.instanceMatrix.needsUpdate = true
   })
 
-  // Clicking a decorative (world-generated) tree tells the player it can't
-  // be removed. Without this, a click on such a tree falls through to
-  // Canvas onPointerMissed and silently clears their real selection —
-  // confusing. This handler both stops that AND gives useful feedback.
-  const flash = useStore((s) => s.flash)
-  const onDecorativeClick = (e) => {
+  const cutProcedural = useStore((s) => s.cutProcedural)
+  const onDecorativeClick = (t, e) => {
     e.stopPropagation()
-    flash('this tree grew here on its own — you can only remove trees you planted')
+    const idStr = `${t.chunkKey}_${t.localId}_tree`
+    cutProcedural(t.chunkKey, t.localId, 'tree', idStr)
   }
 
   return (
@@ -602,18 +608,23 @@ export default function TreesField() {
       
       <instancedMesh ref={distTrunk2} args={[bushyTrunkGeo, distantTrunkMat, 1000]} frustumCulled={false} />
       <instancedMesh ref={distLeaf2} args={[bushyLeafGeo, distantLeafMat, 1000]} frustumCulled={false} />
-      {decorative.map((t, i) => (
+      {decorative.map((t, i) => {
+        const idStr = `${t.chunkKey}_${t.localId}_tree`
+        if (cutResources[idStr]) return null
+        return (
         <group
-          key={`${t.chunkKey}-${t.localId}`}
+          key={idStr}
           ref={(el) => (groupRefs.current[i] = el)}
           position={[t.x, t.y, t.z]}
           scale={t.s}
           rotation={[0, t.rot, 0]}
-          onClick={onDecorativeClick}
+          onClick={(e) => onDecorativeClick(t, e)}
+          onPointerOver={() => { document.body.style.cursor = 'pointer' }}
+          onPointerOut={() => { document.body.style.cursor = '' }}
         >
           <TreeParts variant={t.variant} shape={t.shape} />
         </group>
-      ))}
+      )})}
       <PlantedTrees trees={trees} />
     </group>
   )

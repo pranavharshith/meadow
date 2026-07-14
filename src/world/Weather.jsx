@@ -34,6 +34,34 @@ function softTexture() {
   return new THREE.CanvasTexture(c)
 }
 
+function rainbowTexture() {
+  const c = document.createElement('canvas')
+  c.width = 512
+  c.height = 256
+  const ctx = c.getContext('2d')
+  
+  const cx = 256
+  const cy = 256
+  const rOuter = 240
+  const rInner = 190
+  
+  const g = ctx.createRadialGradient(cx, cy, rInner, cx, cy, rOuter)
+  // Transparent edges, vibrant center
+  g.addColorStop(0.0, 'rgba(148, 0, 211, 0)')
+  g.addColorStop(0.1, 'rgba(148, 0, 211, 0.7)')
+  g.addColorStop(0.25, 'rgba(0, 0, 255, 0.7)')
+  g.addColorStop(0.4, 'rgba(0, 255, 0, 0.7)')
+  g.addColorStop(0.55, 'rgba(255, 255, 0, 0.7)')
+  g.addColorStop(0.7, 'rgba(255, 127, 0, 0.7)')
+  g.addColorStop(0.85, 'rgba(255, 0, 0, 0.7)')
+  g.addColorStop(1.0, 'rgba(255, 0, 0, 0)')
+  
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 512, 256)
+  
+  return new THREE.CanvasTexture(c)
+}
+
 export default function Weather() {
   const cloudRef = useRef()
   const cloudMats = useRef([])
@@ -43,8 +71,10 @@ export default function Weather() {
   // weather timeline: dry stretch, then a rain pass, repeating with variation
   const timer = useRef(20 + Math.random() * 40)
   const raining = useRef(false)
+  const rainbowTime = useRef(0)
 
   const tex = useMemo(softTexture, [])
+  const rbTex = useMemo(rainbowTexture, [])
 
   const clouds = useMemo(() => {
     const arr = []
@@ -107,6 +137,9 @@ export default function Weather() {
     return { rainGeo: g, dropTopY: topY, rainCount: RAIN_DROPS }
   }, [])
 
+  const rainbowRef = useRef()
+  const rainbowMatRef = useRef()
+
   useFrame((_, dt) => {
     const step = Math.min(dt, 0.05)
 
@@ -120,9 +153,38 @@ export default function Weather() {
     // Frame-rate-independent lerp with τ ≈ 1.8 s. Fast enough to feel
     // responsive, slow enough to feel gentle.
     const k = 1 - Math.exp(-step / 1.8)
+    const prevWetness = wetness.value
     wetness.value += (target - wetness.value) * k
 
     if (rainMatRef.current) rainMatRef.current.opacity = wetness.value * 0.55
+
+    // --- rainbow logic ----------------------------------------------------
+    if (raining.current) {
+      rainbowTime.current = 0
+    } else if (prevWetness > 0.05 || rainbowTime.current > 0) {
+      rainbowTime.current += step
+    }
+
+    let rOpacity = 0
+    if (rainbowTime.current > 0 && rainbowTime.current < 25) {
+      if (rainbowTime.current < 3) rOpacity = rainbowTime.current / 3
+      else if (rainbowTime.current > 20) rOpacity = (25 - rainbowTime.current) / 5
+      else rOpacity = 1
+    }
+    rOpacity *= 0.65 // max opacity
+
+    if (rainbowMatRef.current) {
+      rainbowMatRef.current.opacity += (rOpacity - rainbowMatRef.current.opacity) * (1 - Math.exp(-step / 0.5))
+      if (rainbowMatRef.current.opacity <= 0.001) {
+        rainbowRef.current.visible = false
+      } else {
+        rainbowRef.current.visible = true
+      }
+    }
+    if (rainbowRef.current) {
+      // Position the rainbow in the northern sky relative to player
+      rainbowRef.current.position.set(P.pos.x, 35, P.pos.z - 140)
+    }
 
     // --- clouds drift + darken slightly when it rains ---------------------
     const cg = cloudRef.current
@@ -222,6 +284,19 @@ export default function Weather() {
           toneMapped={false}
         />
       </lineSegments>
+
+      <mesh ref={rainbowRef} visible={false}>
+        <planeGeometry args={[220, 110]} />
+        <meshBasicMaterial
+          ref={rainbowMatRef}
+          map={rbTex}
+          transparent
+          opacity={0}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+        />
+      </mesh>
     </group>
   )
 }
