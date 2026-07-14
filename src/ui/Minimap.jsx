@@ -89,14 +89,27 @@ export default function Minimap() {
   }, [])
 
   const setMapOpen = useStore((s) => s.setMapOpen)
+  const mapOpen = useStore((s) => s.mapOpen)
+
+  const openMap = () => setMapOpen(true)
 
   return (
-    <canvas
-      ref={ref}
-      width={SIZE}
-      height={SIZE}
-      className="minimap no-look"
-      onDoubleClick={() => setMapOpen(true)}
-    />
+    <button
+      type="button"
+      className="minimap-btn no-look"
+      onClick={openMap}
+      onDoubleClick={openMap}
+      aria-label="Open world map"
+      aria-expanded={mapOpen}
+      title="Open world map (M)"
+    >
+      <canvas
+        ref={ref}
+        width={SIZE}
+        height={SIZE}
+        className="minimap"
+        aria-hidden="true"
+      />
+    </button>
   )
 }

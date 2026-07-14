@@ -27,8 +27,9 @@ export default function Controls() {
       }
 
       // Ignore gameplay hotkeys and WASD if UI overlay is open, but allow toggles
-      if (st.inputContext === 'UI' || st.shopOpen || st.mapOpen) {
-        if (e.code !== 'Escape' && e.code !== 'KeyG' && e.code !== 'KeyM' && e.code !== 'KeyV') {
+      // Create hub / map / social UI — only allow toggle hotkeys
+      if (st.inputContext === 'UI' || st.createOpen || st.mapOpen) {
+        if (e.code !== 'Escape' && e.code !== 'KeyG' && e.code !== 'KeyQ' && e.code !== 'KeyM' && e.code !== 'KeyV') {
           return
         }
       }
@@ -53,9 +54,19 @@ export default function Controls() {
         else st.clearSelection()
       }
       else if (e.code === 'KeyG') {
-        const next = !st.shopOpen
-        st.setShopOpen(next)
-        if (next && document.pointerLockElement) document.exitPointerLock()
+        // Toggle Create hub (nature tabs). If already open on craft, switch to trees.
+        if (st.createOpen && st.createTab !== 'craft') st.setCreateOpen(false)
+        else {
+          st.setCreateOpen(true, 'trees')
+          if (document.pointerLockElement) document.exitPointerLock()
+        }
+      }
+      else if (e.code === 'KeyQ') {
+        if (st.createOpen && st.createTab === 'craft') st.setCreateOpen(false)
+        else {
+          st.setCreateOpen(true, 'craft')
+          if (document.pointerLockElement) document.exitPointerLock()
+        }
       }
       else if (e.code === 'KeyV') st.cycleView()
       else if (e.code === 'KeyM') {

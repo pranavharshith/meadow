@@ -23,6 +23,7 @@ export default function Net() {
   const regionRef = useRef(null)
   const currentChunkRef = useRef(null)
   const acc = useRef(0)
+  const posRpcAcc = useRef(0)
   const identityTimer = useRef(null)
   const lastProfileRef = useRef({ name: 'wanderer', color: '#a9d98a' })
   const switchingRef = useRef(false)
@@ -32,12 +33,13 @@ export default function Net() {
 
   useEffect(() => {
     if (!ONLINE) {
-      useStore.getState().setOnline(false)
+      useStore.getState().goOffline('Offline mode — no Supabase keys configured')
       // Expose local mute controls even offline (though there's no one to mute)
       bridge.isMuted = isMuted
       bridge.toggleMute = async () => {}
       // Offline: claim daily bonus via localStorage path
-      useStore.getState().claimDailyBonus()
+      // Quiet auto-claim: celebrate only when gold actually rises (B7)
+      useStore.getState().claimDailyBonus({ quiet: true })
       return
     }
 
@@ -45,6 +47,11 @@ export default function Net() {
     const activeChunkChannels = new Map()
 
     // ---------- receivers ----------
+    // Basic payload guards against obviously forged Realtime spam (#9).
+    const isUuid = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+    const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 100000
+    const isHexColor = (v) => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)
+
     const receivePos = (payload) => {
       if (!payload) return
       let id, x, z, yaw, emote, name, color, headColor, bodyColor, legColor, hatId;
@@ -54,29 +61,31 @@ export default function Net() {
         ({ id, x, z, yaw, emote, name, color, headColor, bodyColor, legColor, hatId } = payload);
       }
       if (id === meId.current) return
+      if (!isUuid(id) && typeof id !== 'string') return
+      if (!isFiniteNum(+x) || !isFiniteNum(+z)) return
       if (isMuted(id)) return // still track presence, just don't render
       let rp = remotePlayers.get(id)
       if (!rp) {
         rp = {
           id: id,
-          name: name || 'wanderer',
-          color: color || '#a9d98a',
+          name: (typeof name === 'string' ? name.slice(0, 18) : null) || 'wanderer',
+          color: isHexColor(color) ? color : '#a9d98a',
           headColor: headColor || null,
           bodyColor: bodyColor || null,
           legColor: legColor || null,
           hatId: hatId || null,
-          x: x, z: z, yaw: yaw || 0,
-          tx: x, tz: z, tyaw: yaw || 0,
+          x: +x, z: +z, yaw: yaw || 0,
+          tx: +x, tz: +z, tyaw: yaw || 0,
           emote: emote || null, msg: '', msgUntil: 0,
         }
         remotePlayers.set(id, rp)
       }
-      rp.tx = x
-      rp.tz = z
+      rp.tx = +x
+      rp.tz = +z
       rp.tyaw = yaw || 0
       rp.emote = emote || null
-      if (name) rp.name = name
-      if (color) rp.color = color
+      if (typeof name === 'string' && name) rp.name = name.slice(0, 18)
+      if (isHexColor(color)) rp.color = color
       if (headColor !== undefined) rp.headColor = headColor
       if (bodyColor !== undefined) rp.bodyColor = bodyColor
       if (legColor !== undefined) rp.legColor = legColor
@@ -86,12 +95,19 @@ export default function Net() {
     const receiveChat = (payload, scope) => {
       if (!payload) return
       if (payload.id === meId.current) return
+      // Prefer UUID ids from server-emitted chat (#8)
+      if (payload.id && !isUuid(payload.id) && typeof payload.id !== 'string') return
+      if (typeof payload.text !== 'string' || payload.text.length > 160) return
       if (isMuted(payload.id)) return // silently drop
+
+      const safeName = typeof payload.name === 'string' ? payload.name.slice(0, 18) : 'wanderer'
+      const safeColor = isHexColor(payload.color) ? payload.color : '#a9d98a'
+      const safeText = payload.text.slice(0, 160)
 
       if (scope === 'region' && payload.id) {
         const rp = remotePlayers.get(payload.id)
         if (rp) {
-          rp.msg = payload.text
+          rp.msg = safeText
           rp.msgUntil = performance.now() + 6000
         }
       }
@@ -99,19 +115,20 @@ export default function Net() {
         id: payload.mid || Math.random().toString(36).slice(2),
         userId: payload.id,
         scope,
-        name: payload.name,
-        color: payload.color,
-        text: payload.text,
+        name: safeName,
+        color: safeColor,
+        text: safeText,
         at: Date.now(),
       })
     }
 
     const receiveTree = (payload) => {
       if (!payload || payload.owner_id === meId.current) return
+      if (!payload.id || !isFiniteNum(+payload.x) || !isFiniteNum(+payload.z)) return
       useStore.getState().addTree({
         id: payload.id,
-        x: payload.x,
-        z: payload.z,
+        x: +payload.x,
+        z: +payload.z,
         variant: payload.variant,
         shape: payload.shape || 0,
         scale: payload.scale,
@@ -129,10 +146,11 @@ export default function Net() {
     // A remote peer placed a rock. Add it to the local scene.
     const receiveRock = (payload) => {
       if (!payload || payload.owner_id === meId.current) return
+      if (!payload.id || !isFiniteNum(+payload.x) || !isFiniteNum(+payload.z)) return
       useStore.getState().addRock({
         id: payload.id,
-        x: payload.x,
-        z: payload.z,
+        x: +payload.x,
+        z: +payload.z,
         rot: payload.rot ?? 0,
         rockShape: payload.rock_shape ?? 2,
         sx: payload.sx ?? 1,
@@ -152,16 +170,17 @@ export default function Net() {
 
     const receivePlot = (payload) => {
       if (!payload || payload.owner_id === meId.current) return
+      if (!payload.id || !isFiniteNum(+payload.x) || !isFiniteNum(+payload.z)) return
       useStore.getState().addPlot({
         id: payload.id,
-        x: payload.x,
-        z: payload.z,
+        x: +payload.x,
+        z: +payload.z,
         radius: payload.radius ?? 10,
         shapeType: payload.shape_type ?? 0,
         width: payload.width ?? 20,
         depth: payload.depth ?? 20,
         owner: false,
-        name: payload.name || '',
+        name: typeof payload.name === 'string' ? payload.name.slice(0, 18) : '',
       })
     }
 
@@ -172,6 +191,7 @@ export default function Net() {
 
     const receiveDye = (payload) => {
       if (!payload || !payload.id || payload.owner_id === meId.current) return
+      if (payload.color && !isHexColor(payload.color)) return
       useStore.getState().set((s) => ({
         trees: s.trees.map((t) => t.id === payload.id ? { ...t, dye: payload.color } : t),
       }))
@@ -179,10 +199,12 @@ export default function Net() {
 
     const receiveCraftedItem = (payload) => {
       if (!payload || payload.owner_id === meId.current) return
+      if (!payload.id || !isFiniteNum(+payload.x) || !isFiniteNum(+payload.z)) return
+      if (typeof payload.item_id !== 'string') return
       useStore.getState().addCraftedItem({
         id: payload.id,
-        x: payload.x,
-        z: payload.z,
+        x: +payload.x,
+        z: +payload.z,
         rot: payload.rot ?? 0,
         itemId: payload.item_id,
         placedAt: payload.placed_at ? new Date(payload.placed_at).getTime() : Date.now(),
@@ -197,6 +219,7 @@ export default function Net() {
 
     const receiveCutProcedural = (payload) => {
       if (!payload || !payload.id || payload.user_id === meId.current) return
+      if (typeof payload.id !== 'string' || payload.id.length > 64) return
       useStore.getState().addCutResource(payload.id, {
         type: payload.type,
         chunk_key: payload.chunk_key,
@@ -205,72 +228,73 @@ export default function Net() {
     }
 
     async function loadChunksAround(cx, cz) {
-      const minX = (cx - 1) * CHUNK_SIZE
-      const maxX = (cx + 2) * CHUNK_SIZE
-      const minZ = (cz - 1) * CHUNK_SIZE
-      const maxZ = (cz + 2) * CHUNK_SIZE
-
-      Promise.all([
-        supabase.from('trees').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(1000),
-        supabase.from('rocks').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(500),
-        supabase.from('plots').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(100),
-        supabase.from('crafted_items').select('*').gte('x', minX).lt('x', maxX).gte('z', minZ).lt('z', maxZ).limit(500),
-        supabase.from('cut_resources').select('*') // we filter this client-side or use a more precise query if needed. 
-      ]).then(([treesRes, rocksRes, plotsRes, craftedRes, cutsRes]) => {
-        if (disposed) return
-        
-        if (!treesRes.error) {
-          const trees = (treesRes.data || []).map(t => ({
-            id: t.id, x: t.x, z: t.z, variant: t.variant, shape: t.shape || 0,
-            scale: t.scale, dye: t.dye || null,
-            plantedAt: t.planted_at ? new Date(t.planted_at).getTime() : Date.now(),
-            owner: t.owner_id === meId.current,
-          }))
-          useStore.getState().setTrees(trees)
-        }
-        
-        if (!rocksRes.error) {
-          const rocks = (rocksRes.data || []).map(r => ({
-            id: r.id, x: r.x, z: r.z, rot: r.rot ?? 0, rockShape: r.rock_shape ?? 2,
-            sx: r.sx ?? 1, sy: r.sy ?? 1, sz: r.sz ?? 1, matIdx: r.mat_idx ?? 0,
-            placedAt: r.placed_at ? new Date(r.placed_at).getTime() : Date.now(),
-            owner: r.owner_id === meId.current,
-          }))
-          useStore.getState().setRocks(rocks)
-        }
-        
-        if (!plotsRes.error) {
-          const plots = (plotsRes.data || []).map(p => ({
-            id: p.id, x: p.x, z: p.z, radius: p.radius ?? 10, shapeType: p.shape_type ?? 0,
-            width: p.width ?? 20, depth: p.depth ?? 20, owner: p.owner_id === meId.current,
-            name: p.players?.name || '',
-          }))
-          useStore.getState().setPlots(plots)
-        }
-        
-        if (!craftedRes.error) {
-          const items = (craftedRes.data || []).map(i => ({
-            id: i.id, x: i.x, z: i.z, rot: i.rot ?? 0, itemId: i.item_id,
-            placedAt: i.placed_at ? new Date(i.placed_at).getTime() : Date.now(),
-            owner: i.owner_id === meId.current,
-          }))
-          useStore.getState().setCraftedItems(items)
-        }
-        
-        if (!cutsRes.error) {
-          const needed = new Set()
-          for (let dx = -1; dx <= 1; dx++) {
-            for (let dz = -1; dz <= 1; dz++) {
-              needed.add(chunkKey(cx + dx, cz + dz))
-            }
-          }
-          const cutsObj = {}
-          for (const c of (cutsRes.data || [])) {
-            if (needed.has(c.chunk_key)) cutsObj[c.id] = c
-          }
-          useStore.getState().setCutResources(cutsObj)
-        }
+      // Scoped world load via SECURITY DEFINER RPC (no open table SELECT) — audit #8
+      const { data, error } = await supabase.rpc('get_nearby_world', {
+        p_cx: cx,
+        p_cz: cz,
       })
+      if (disposed || error || !data) {
+        if (error && import.meta.env.DEV) console.warn('[net] get_nearby_world', error.message)
+        return
+      }
+
+      const trees = (data.trees || []).map((t) => ({
+        id: t.id,
+        x: t.x,
+        z: t.z,
+        variant: t.variant,
+        shape: t.shape || 0,
+        scale: t.scale,
+        dye: t.dye || null,
+        plantedAt: t.planted_at ? new Date(t.planted_at).getTime() : Date.now(),
+        owner: t.owner_id === meId.current,
+      }))
+      useStore.getState().setTrees(trees)
+
+      const rocks = (data.rocks || []).map((r) => ({
+        id: r.id,
+        x: r.x,
+        z: r.z,
+        rot: r.rot ?? 0,
+        rockShape: r.rock_shape ?? 2,
+        sx: r.sx ?? 1,
+        sy: r.sy ?? 1,
+        sz: r.sz ?? 1,
+        matIdx: r.mat_idx ?? 0,
+        placedAt: r.placed_at ? new Date(r.placed_at).getTime() : Date.now(),
+        owner: r.owner_id === meId.current,
+      }))
+      useStore.getState().setRocks(rocks)
+
+      const plots = (data.plots || []).map((p) => ({
+        id: p.id,
+        x: p.x,
+        z: p.z,
+        radius: p.radius ?? 10,
+        shapeType: p.shape_type ?? 0,
+        width: p.width ?? 20,
+        depth: p.depth ?? 20,
+        owner: p.owner_id === meId.current,
+        name: p.owner_name || '',
+      }))
+      useStore.getState().setPlots(plots)
+
+      const items = (data.crafted_items || []).map((i) => ({
+        id: i.id,
+        x: i.x,
+        z: i.z,
+        rot: i.rot ?? 0,
+        itemId: i.item_id,
+        placedAt: i.placed_at ? new Date(i.placed_at).getTime() : Date.now(),
+        owner: i.owner_id === meId.current,
+      }))
+      useStore.getState().setCraftedItems(items)
+
+      const cutsObj = {}
+      for (const c of data.cut_resources || []) {
+        cutsObj[c.id] = c
+      }
+      useStore.getState().setCutResources(cutsObj)
     }
     loadChunksRef.current = loadChunksAround
 
@@ -419,20 +443,47 @@ export default function Net() {
 
     // ---------- init ----------
     async function init() {
+      const st = useStore.getState()
+      st.setConnecting(true)
+      st.setConnectionNote(null)
+      st.flash('Connecting to the shared meadow…', 'warn')
+
       // anonymous identity (persisted by supabase-js in localStorage)
       let { data: sess } = await supabase.auth.getSession()
       if (!sess.session) {
-        // Captcha token is strictly enforced; an exception here halts boot
-        const captchaToken = await getCaptchaToken()
-        const { data, error } = await supabase.auth.signInAnonymously({ options: { captchaToken } })
+        // #7 Captcha: production fails closed if Turnstile is missing/fails
+        let captchaToken = null
+        try {
+          captchaToken = await getCaptchaToken()
+        } catch (err) {
+          if (import.meta.env.DEV) console.warn('captcha required', err?.message || err)
+          const msg = 'Could not connect — captcha failed or missing'
+          useStore.getState().goOffline(msg)
+          useStore.getState().flash(msg, 'error')
+          return
+        }
+        const { data, error } = await supabase.auth.signInAnonymously({
+          options: captchaToken ? { captchaToken } : undefined,
+        })
         if (error) {
-          useStore.getState().setOnline(false)
+          const msg = error.message?.toLowerCase().includes('captcha')
+            ? 'Could not connect — captcha rejected'
+            : 'Could not connect — sign-in failed'
+          useStore.getState().goOffline(msg)
+          useStore.getState().flash(msg, 'error')
           return
         }
         sess = data
       }
       const user = (await supabase.auth.getUser()).data.user
-      if (!user || disposed) return
+      if (!user || disposed) {
+        if (!disposed) {
+          const msg = 'Could not connect — no user session'
+          useStore.getState().goOffline(msg)
+          useStore.getState().flash(msg, 'error')
+        }
+        return
+      }
       meId.current = user.id
       shardRef.current = shardFor(user.id)
 
@@ -443,8 +494,13 @@ export default function Net() {
         p_color: s0.color,
       })
       if (profErr) {
-        console.warn('ensure_profile failed', profErr.message)
-        useStore.getState().setOnline(false)
+        if (import.meta.env.DEV) console.warn('ensure_profile failed', profErr.message)
+        const ban = (profErr.message || '').toLowerCase().includes('banned')
+        const msg = ban
+          ? 'Could not connect — this account is restricted'
+          : 'Could not connect — profile load failed'
+        useStore.getState().goOffline(msg)
+        useStore.getState().flash(msg, 'error')
         return
       }
       if (prof) {
@@ -526,7 +582,14 @@ export default function Net() {
 
       bridge.sendFriendRequest = async (id) => {
         const { error } = await supabase.rpc('send_friend_request', { p_receiver_id: id })
-        return { ok: !error, error: error?.message }
+        if (!error) return { ok: true }
+        const m = (error.message || '').toLowerCase()
+        let msg = error.message
+        if (m.includes('too fast')) msg = 'Wait a few seconds before another request.'
+        else if (m.includes('too many pending')) msg = 'Too many pending requests — wait for replies.'
+        else if (m.includes('already')) msg = 'Request already sent or already friends.'
+        else if (m.includes('banned')) msg = 'Account restricted.'
+        return { ok: false, error: msg }
       }
 
       bridge.sendFriendRequestByName = async (name) => {
@@ -536,7 +599,26 @@ export default function Net() {
         if (data === 'PLAYER_NOT_FOUND') return { ok: false, error: 'Player not found.' }
         if (data === 'CANNOT_ADD_SELF') return { ok: false, error: 'You cannot add yourself.' }
         if (data === 'ALREADY_FRIENDS') return { ok: false, error: 'Already friends.' }
+        if (data === 'TOO_FAST') return { ok: false, error: 'Wait a few seconds before another request.' }
+        if (data === 'TOO_MANY_PENDING') return { ok: false, error: 'Too many pending requests — wait for replies.' }
+        if (data === 'ALREADY_SENT') return { ok: false, error: 'Request already sent.' }
         return { ok: false, error: data }
+      }
+
+      bridge.reportPlayer = async (userId, reason, context) => {
+        const { error } = await supabase.rpc('report_player', {
+          p_target_id: userId,
+          p_reason: reason,
+          p_context: context || null,
+        })
+        if (!error) return { ok: true }
+        const m = (error.message || '').toLowerCase()
+        let msg = error.message
+        if (m.includes('rate limit')) msg = 'Too many reports — try again later.'
+        else if (m.includes('already reported')) msg = 'You already reported this player recently.'
+        else if (m.includes('bad reason')) msg = 'Please give a short reason (3–200 characters).'
+        else if (m.includes('banned')) msg = 'Account restricted.'
+        return { ok: false, error: msg }
       }
 
       bridge.acceptFriendRequest = async (id) => {
@@ -603,7 +685,7 @@ export default function Net() {
           p_color: colorVal
         })
         if (error) {
-          console.error('buyCosmetic error', error)
+          if (import.meta.env.DEV) console.error('buyCosmetic error', error)
           return { ok: false, error: error.message }
         }
         lastProfileRef.current = { name: data.name, color: data.color }
@@ -630,19 +712,7 @@ export default function Net() {
           p_scale: tree.scale,
         })
         if (error) return { ok: false, error: error.message }
-        // broadcast so nearby players see it immediately (only if joined).
-        const ch = posChannelRef.current
-        if (ch && ch.state === 'joined') {
-          ch.send({
-            type: 'broadcast',
-            event: 'tree',
-            payload: {
-              ...tree,
-              owner_id: meId.current,
-              planted_at: new Date(tree.plantedAt).toISOString(),
-            },
-          })
-        }
+        // Server emits chunk 'tree' broadcast (#9). No client forge path.
         return { ok: true, gold: data ? data.gold : undefined }
       }
 
@@ -655,19 +725,16 @@ export default function Net() {
       bridge.cut = async (treeId) => {
         const { data, error } = await supabase.rpc('cut_tree', { p_tree_id: treeId })
         if (error) return { ok: false, error: error.message }
-        // Tell same-shard peers to drop this tree from their local state.
-        const ch = posChannelRef.current
-        if (ch && ch.state === 'joined') {
-          ch.send({
-            type: 'broadcast',
-            event: 'cut',
-            payload: { id: treeId, owner_id: meId.current },
-          })
+        // Server emits chunk 'cut' broadcast (#9).
+        // cut_tree may return player row (wood) or legacy gold scalar
+        if (data && typeof data === 'object') {
+          return { ok: true, gold: data.gold, wood: data.wood, stone: data.stone }
         }
-        return { ok: true, gold: data } // scalar integer
+        return { ok: true, gold: data }
       }
 
-      bridge.placeRock = async (rock, cost = 5) => {
+      bridge.placeRock = async (rock, _cost = 5) => {
+        // Server derives cost from rock_shape (#1). Client cost ignored.
         const { data, error } = await supabase.rpc('place_rock', {
           p_id:        rock.id,
           p_x:         rock.x,
@@ -678,45 +745,16 @@ export default function Net() {
           p_sy:        rock.sy ?? 1,
           p_sz:        rock.sz ?? 1,
           p_mat_idx:   rock.matIdx ?? 0,
-          p_cost:      cost,
         })
         if (error) return { ok: false, error: error.message }
-        // Broadcast so same-shard peers see the rock immediately.
-        const ch = posChannelRef.current
-        if (ch && ch.state === 'joined') {
-          ch.send({
-            type: 'broadcast',
-            event: 'rock',
-            payload: {
-              id:         rock.id,
-              owner_id:   meId.current,
-              x:          rock.x,
-              z:          rock.z,
-              rot:        rock.rot ?? 0,
-              rock_shape: rock.rockShape ?? 2,
-              sx:         rock.sx ?? 1,
-              sy:         rock.sy ?? 1,
-              sz:         rock.sz ?? 1,
-              mat_idx:    rock.matIdx ?? 0,
-            },
-          })
-        }
-        return { ok: true, gold: data } // scalar integer
+        return { ok: true, gold: data }
       }
 
       bridge.removeRock = async (rockId) => {
         const { data, error } = await supabase.rpc('remove_rock', { p_rock_id: rockId })
         if (error) return { ok: false, error: error.message }
-        // Tell same-shard peers to drop this rock from their scene.
-        const ch = posChannelRef.current
-        if (ch && ch.state === 'joined') {
-          ch.send({
-            type: 'broadcast',
-            event: 'removerock',
-            payload: { id: rockId, owner_id: meId.current },
-          })
-        }
-        return { ok: true, gold: data } // scalar integer
+        // Server returns new stone total (not gold) — audit #5
+        return { ok: true, stone: data }
       }
 
       bridge.discover = async (landmarkId) => {
@@ -736,16 +774,6 @@ export default function Net() {
       bridge.releaseItem = async (id, type) => {
         const { data, error } = await supabase.rpc('release_overgrown_item', { p_id: id, p_type: type })
         if (error) return { ok: false, error: error.message }
-        
-        // Broadcast so same-shard peers see the item vanish
-        const ch = posChannelRef.current
-        if (ch && ch.state === 'joined') {
-          ch.send({
-            type: 'broadcast',
-            event: type === 'tree' ? 'cut' : 'removerock',
-            payload: { id, owner_id: meId.current },
-          })
-        }
         return { ok: true, gold: data }
       }
 
@@ -755,22 +783,19 @@ export default function Net() {
         return { ok: true, gold: data }
       }
 
-      bridge.cutProceduralResource = async (id, type, chunkKey) => {
-        const { data, error } = await supabase.rpc('cut_procedural_resource', { p_id: id, p_type: type, p_chunk_key: chunkKey })
+      bridge.cutProceduralResource = async (id, type, chunkKeyArg) => {
+        const { data, error } = await supabase.rpc('cut_procedural_resource', {
+          p_id: id,
+          p_type: type,
+          p_chunk_key: chunkKeyArg,
+        })
         if (error) return { ok: false, error: error.message }
-        
-        const ch = posChannelRef.current
-        if (ch && ch.state === 'joined') {
-          ch.send({
-            type: 'broadcast',
-            event: 'cutprocedural',
-            payload: { id, type, chunk_key: chunkKey, user_id: meId.current },
-          })
-        }
-        return { ok: true, wood: data.wood, stone: data.stone }
+        // Server emits cutprocedural (#9)
+        return { ok: true, wood: data?.wood, stone: data?.stone }
       }
 
       bridge.placeCraftedItem = async (item, costWood = 0, costStone = 0) => {
+        // Server ignores client costs and uses item_id catalog (#2)
         const { data, error } = await supabase.rpc('place_crafted_item', {
           p_id: item.id,
           p_item_id: item.itemId,
@@ -781,38 +806,13 @@ export default function Net() {
           p_cost_stone: costStone,
         })
         if (error) return { ok: false, error: error.message }
-        
-        const ch = posChannelRef.current
-        if (ch && ch.state === 'joined') {
-          ch.send({
-            type: 'broadcast',
-            event: 'crafted',
-            payload: {
-              id: item.id,
-              owner_id: meId.current,
-              item_id: item.itemId,
-              x: item.x,
-              z: item.z,
-              rot: item.rot ?? 0,
-            },
-          })
-        }
-        return { ok: true, wood: data.wood, stone: data.stone }
+        return { ok: true, wood: data?.wood, stone: data?.stone }
       }
 
       bridge.removeCraftedItem = async (itemId) => {
         const { data, error } = await supabase.rpc('remove_crafted_item', { p_id: itemId })
         if (error) return { ok: false, error: error.message }
-        
-        const ch = posChannelRef.current
-        if (ch && ch.state === 'joined') {
-          ch.send({
-            type: 'broadcast',
-            event: 'removecrafted',
-            payload: { id: itemId, owner_id: meId.current },
-          })
-        }
-        return { ok: true, wood: data.wood, stone: data.stone }
+        return { ok: true, wood: data?.wood, stone: data?.stone }
       }
 
       bridge.teleport = async (landmarkId) => {
@@ -838,31 +838,11 @@ export default function Net() {
           p_x:     Number(plot.x),
           p_z:     Number(plot.z),
         }
-        console.log('[buyCustomPlot] sending:', params)
         const { data, error } = await supabase.rpc('buy_custom_plot', params)
         if (error) {
           return { ok: false, error: error.message }
         }
-        // Broadcast so region peers see the plot immediately.
-        const posCh = posChannelRef.current
-        if (posCh && posCh.state === 'joined') {
-          posCh
-            .send({
-              type: 'broadcast',
-              event: 'plot',
-              payload: {
-                id: plot.id,
-                owner_id: meId.current,
-                x: plot.x,
-                z: plot.z,
-                radius: plot.width,
-                shape_type: plot.shapeType,
-                width: plot.width,
-                depth: plot.depth,
-                name: useStore.getState().name,
-              },
-            })
-        }
+        // Server emits chunk 'plot' broadcast (#9).
         return { ok: true, gold: data }
       }
 
@@ -873,6 +853,8 @@ export default function Net() {
           p_cost: cost,
         })
         if (error) return { ok: false, error: error.message }
+        // Dye still client-broadcast (no server emit helper for dye yet);
+        // color is validated receive-side to hex only.
         const ch = posChannelRef.current
         if (ch && ch.state === 'joined') {
           ch.send({
@@ -892,22 +874,9 @@ export default function Net() {
           if (error) return { ok: false, error: error.message }
           return { ok: true, gold: data }
         }
-        // Region chat: server rate-limits + sanitizes, returns the clean text.
-        // Client then broadcasts the sanitized version so all shards get it.
-        const { data: cleanText, error } = await supabase.rpc('check_region_chat', { p_text: text })
+        // Region chat: fully server-emitted (#8). Client is receive-only.
+        const { data: cleanText, error } = await supabase.rpc('send_region_chat', { p_text: text })
         if (error) return { ok: false, error: error.message }
-        const s = useStore.getState()
-        const payload = {
-          id:   meId.current,
-          mid:  Math.random().toString(36).slice(2),
-          name: s.name,
-          color: s.color,
-          text: cleanText || text, // use server-sanitized version
-        }
-        const target = chatChannelRef.current
-        if (target && target.state === 'joined') {
-          target.send({ type: 'broadcast', event: 'chat', payload })
-        }
         return { ok: true, text: cleanText || text }
       }
 
@@ -920,18 +889,32 @@ export default function Net() {
       subscribeWorld()
 
       useStore.getState().setOnline(true)
+      useStore.getState().setConnectionNote(null)
+      useStore.getState().setConnecting(false)
       netStatus.online = true
       netStatus.ready = true
+      useStore.getState().flash('Connected — welcome to the meadow', 'success')
 
-      // Online: claim daily bonus via server RPC (authoritative)
-      useStore.getState().claimDailyBonus()
+      // Seed server position immediately so proximity RPCs work (#6)
+      supabase.rpc('update_position', {
+        p_x: +P.pos.x.toFixed(2),
+        p_z: +P.pos.z.toFixed(2),
+      }).catch(() => {})
+
+      // Online: quiet auto-claim (toast only when newly claimed)
+      useStore.getState().claimDailyBonus({ quiet: true })
       useStore.getState().claimOfflineGold()
 
       const { rx, rz } = regionOf(P.pos.x, P.pos.z)
       joinRegion(rx, rz)
     }
 
-    init()
+    init().catch((err) => {
+      if (import.meta.env.DEV) console.warn('net init failed', err)
+      const msg = 'Could not connect — network error'
+      useStore.getState().goOffline(msg)
+      useStore.getState().flash(msg, 'error')
+    })
 
     // --- Reconnection handling ---
     const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
@@ -953,11 +936,15 @@ export default function Net() {
       if (!isConnected && netStatus.online) {
         netStatus.online = false
         useStore.getState().setConnectionStatus('reconnecting')
+        useStore.getState().setConnectionNote('Connection lost — trying again…')
         useStore.getState().setOnline(false)
+        useStore.getState().flash('Connection lost — reconnecting…', 'warn')
       } else if (isConnected && !netStatus.online && netStatus.ready) {
         netStatus.online = true
         useStore.getState().setConnectionStatus('connected')
+        useStore.getState().setConnectionNote(null)
         useStore.getState().setOnline(true)
+        useStore.getState().flash('Reconnected to the meadow', 'success')
         const { rx, rz } = regionOf(P.pos.x, P.pos.z)
         if (!switchingRef.current) {
           switchingRef.current = true
@@ -1000,7 +987,7 @@ export default function Net() {
     }
   }, [])
 
-  // position broadcast + region switching
+  // position broadcast + region switching + server position heartbeat (#6)
   useFrame((_, dt) => {
     if (!netStatus.online || !posChannelRef.current) return
 
@@ -1042,6 +1029,16 @@ export default function Net() {
           ],
         })
       }
+    }
+
+    // Trustworthy last position for proximity RPCs (#6)
+    posRpcAcc.current += dt
+    if (posRpcAcc.current >= 0.5 && ONLINE && supabase) {
+      posRpcAcc.current = 0
+      supabase.rpc('update_position', {
+        p_x: +P.pos.x.toFixed(2),
+        p_z: +P.pos.z.toFixed(2),
+      }).then(() => {}).catch(() => {})
     }
   })
 

@@ -7,28 +7,7 @@ import { P, look, keys, treeRegistry, rockRegistry, addRipple } from '../player-
 import { useStore } from '../store'
 import AvatarMesh from './AvatarMesh'
 import { deformTerrain } from './deform'
-import { PONDS } from './noise'
-import { STREAM_POINTS, STREAM_WIDTH } from './Water'
-
-function isOverWater(x, z) {
-  for (const p of PONDS) {
-    if (Math.hypot(p.x - x, p.z - z) < p.r + 0.2) return true
-  }
-  const halfW = STREAM_WIDTH * 0.5 + 0.2
-  for (let i = 0; i < STREAM_POINTS.length - 1; i++) {
-    const a = STREAM_POINTS[i]
-    const b = STREAM_POINTS[i + 1]
-    const dx = b.x - a.x
-    const dz = b.z - a.z
-    const len2 = dx * dx + dz * dz
-    if (len2 <= 1e-6) continue
-    let t = ((x - a.x) * dx + (z - a.z) * dz) / len2
-    if (t < 0) t = 0
-    else if (t > 1) t = 1
-    if (Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t)) < halfW) return true
-  }
-  return false
-}
+import { isOverWater } from './water-path'
 
 const UP = new THREE.Vector3(0, 1, 0)
 const WALK = 4.2
@@ -105,7 +84,7 @@ export default function Player() {
     const waving = P.emote === 'wave'
 
     const st = useStore.getState()
-    const blockMove = st.shopOpen || st.mapOpen
+    const blockMove = st.createOpen || st.mapOpen
 
     let ix = 0
     let iy = 0

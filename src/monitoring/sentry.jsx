@@ -56,12 +56,15 @@ class LocalErrorBoundary extends Component {
 
 export function AppErrorBoundary({ children }) {
   const fallbackUI = (
-    <div className="fatal-error">
+    <div className="fatal-error" role="alert">
       <div className="fatal-error-title">The meadow hit a snag.</div>
-      <p style={{ marginTop: '10px', fontSize: '14px', color: '#ffaaaa' }}>
-        Check the browser console for details and relay the error to the AI!
+      <p className="fatal-error-body">
+        Something went wrong loading the garden. Try reloading the page.
+        If it keeps happening, check your connection and try again later.
       </p>
-      <button style={{ marginTop: '20px' }} onClick={() => window.location.reload()}>Reload</button>
+      <button type="button" className="fatal-error-reload" onClick={() => window.location.reload()}>
+        Reload garden
+      </button>
     </div>
   )
 

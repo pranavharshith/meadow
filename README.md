@@ -17,14 +17,15 @@ Opens at `http://localhost:5173`. Runs fully offline by default — no account o
 |---|---|
 | WASD / Arrow keys | Walk |
 | Drag | Look around |
-| E | Plant selected item / confirm placement |
+| E | Plant / place selected item · confirm placement |
 | R | Water nearest sapling |
 | X | Cut selected tree or rock |
-| G | Open nature shop |
+| **G** | **Create** hub (trees, rocks, land, style) |
+| **Q** | **Create** hub · craft tab |
 | V | Cycle camera (third / first / top) |
 | C | Sit / stand |
 | F | Wave |
-| M | Toggle sound |
+| M | Toggle world map |
 | Esc | Cancel placement / deselect |
 
 ## Online Mode
@@ -33,7 +34,7 @@ The game runs single-player offline out of the box. To enable the shared multi-p
 
 1. Create a Supabase project at [supabase.com](https://supabase.com)
 2. Enable **Anonymous sign-ins** in Auth > Providers
-3. Run the SQL from `supabase/schema.sql` in the SQL editor
+3. Run `supabase/schema/01` → `04` in order in the SQL editor (see Database schema below)
 4. Copy `.env.example` to `.env` and fill in:
 
 ```env
@@ -42,6 +43,17 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
 When these are set, the game starts in online mode — player positions, trees, rocks, and chat are shared with everyone in the same region.
+
+### Database schema
+
+Apply the modular SQL in the Supabase SQL editor **in order**:
+
+1. `supabase/schema/01_core.sql`
+2. `supabase/schema/02_world.sql`
+3. `supabase/schema/03_social.sql`
+4. `supabase/schema/04_security.sql`
+
+These four files are the only source of truth (see `supabase/README.md`). Legacy `schema.sql` / `migrations/*` live under `archive/supabase-legacy/`.
 
 ### Optional: Cloudflare Turnstile
 
@@ -110,21 +122,21 @@ src/
 │   ├── mossy-material.js Moss shader
 │   └── places.js      Landmark definitions
 └── ui/               HTML overlay components
-    ├── Hud.jsx       Main HUD layout
-    ├── Shop.jsx      Tree/rock catalog
-    ├── Chat.jsx      Region + world chat
-    ├── Minimap.jsx   Top-down radar
-    ├── WorldMap.jsx  Full-screen map
-    ├── Identity.jsx  Name/color editor + email link
-    ├── Settings.jsx  Graphics/sound toggles
-    ├── Compass.jsx   Cardinal direction
-    ├── NavIndicator.jsx Active nav target
+    ├── Hud.jsx           Main HUD layout
+    ├── CreateHub.jsx     Create hub (trees · craft · land · style)
+    ├── Chat.jsx          Region + world chat
+    ├── Minimap.jsx       Top-down radar
+    ├── WorldMap.jsx      Full-screen map + teleport
+    ├── Identity.jsx      Name/color editor + email link
+    ├── Settings.jsx      Graphics + daily bonus
+    ├── Compass.jsx       Cardinal direction
+    ├── NavIndicator.jsx  Active nav target
     ├── PlacementBanner.jsx Placement mode UI
-    ├── CutAction.jsx Cut confirmation pill
-    ├── PlaceLabel.jsx Current landmark name
-    ├── Toast.jsx     Transient notifications
-    ├── Status.jsx    Online/offline indicator
-    ├── Screenshot.jsx Camera capture + share
+    ├── ActionPill.jsx    Cut / dye selection
+    ├── PlaceLabel.jsx    Current landmark name
+    ├── Toast.jsx         Transient notifications
+    ├── Status.jsx        Online/offline indicator
+    ├── Screenshot.jsx    Camera capture + share
     └── TouchJoystick.jsx Mobile dual-zone controls
 ```
 
@@ -167,4 +179,22 @@ All variables are optional. Without them the game runs fully offline.
 ```bash
 npm run build     # outputs to dist/
 npm run preview   # preview the build
+```
+
+## Security headers (P3)
+
+Production hosts should send CSP and related headers. Config is provided as:
+
+- `vercel.json` — Vercel
+- `public/_headers` — Netlify / Cloudflare Pages style
+- `vite.config.js` — `vite dev` / `vite preview`
+
+Database setup uses the four modular files under `supabase/schema/` (see above). Friend-request limits, player reports, and admin ban live in `03_social.sql` + `04_security.sql`.
+
+### Admin ban
+
+Set `app_metadata.role = "admin"` on a Supabase Auth user, then call:
+
+```sql
+select public.admin_set_ban('<player-uuid>', true, 'reason');
 ```

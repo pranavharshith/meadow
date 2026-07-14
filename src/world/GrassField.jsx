@@ -1,13 +1,19 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { useMemo, useRef, useState, useLayoutEffect } from 'react'
+import { useMemo, useRef, useState, useLayoutEffect, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { terrainHeight, mulberry32, clusterField } from './noise'
+import {
+  terrainHeight,
+  mulberry32,
+  clusterField,
+  PLAZA_GRASS_CLEAR_R,
+  syncTerrainPlots,
+  plotSignatureForChunk,
+} from './noise'
 import { CHUNK, seedFor } from './chunk'
 import { windTime, windStrength } from '../wind'
 import { P } from '../player-state'
 import { useStore } from '../store'
-import { PLAZA_OUTER_RADIUS } from './SpawnPlaza'
 
 const BLADES_FULL = 3400
 const BLADES_HALF = 1700
@@ -63,7 +69,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
       const scY  = 0.7 + rngG() * 0.9 + lush * 0.8
 
       // Suppress blades inside the Meadow Gate plaza stone floor and inside plots (fix #9)
-      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS || isInPlot(x, z)) {
+      if (Math.hypot(x, z) < PLAZA_GRASS_CLEAR_R || isInPlot(x, z)) {
         d.position.set(0, -9999, 0)
         d.scale.setScalar(0.0001)
         d.updateMatrix()
@@ -87,7 +93,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
       const z = cz * CHUNK + rngF() * CHUNK
       if (clusterField(x, z) < 0.6) continue
 
-      if (Math.hypot(x, z) < PLAZA_OUTER_RADIUS || isInPlot(x, z)) {
+      if (Math.hypot(x, z) < PLAZA_GRASS_CLEAR_R || isInPlot(x, z)) {
         d.position.set(0, -9999, 0)
         d.scale.setScalar(0.0001)
         d.updateMatrix()
@@ -162,6 +168,11 @@ export default function GrassField() {
   const [autoTier, setAutoTier] = useState(0)
   const grassDensity = useStore((s) => s.grassDensity)
   const plots = useStore((s) => s.plots)
+
+  // Keep plot flatten cache warm for grass heights (C1)
+  useEffect(() => {
+    syncTerrainPlots(plots)
+  }, [plots])
 
   // Running frametime EMA for auto-scaling. Kept in refs so the frame loop
   // doesn't cause re-renders.
@@ -267,9 +278,10 @@ export default function GrassField() {
     for (let dz = -1; dz <= 1; dz++) {
       const cx = center.cx + dx
       const cz = center.cz + dz
+      const plotSig = plotSignatureForChunk(cx, cz, CHUNK)
       chunks.push(
         <GrassChunk
-          key={`${cx},${cz},${grassDensity}`}
+          key={`${cx},${cz},${grassDensity},${bladeCount},${plotSig}`}
           cx={cx}
           cz={cz}
           bladeGeo={bladeGeo}

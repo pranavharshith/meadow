@@ -1,6 +1,37 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Security headers for `vite preview` / local static serve.
+// Production: also set via vercel.json and public/_headers.
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+  // Relaxed enough for Vite HMR + Three.js + Supabase + Turnstile + Sentry
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://*.sentry.io https://browser.sentry-cdn.com",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "font-src 'self' data:",
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.sentry.io https://challenges.cloudflare.com ws://localhost:* http://localhost:*",
+    "frame-src https://challenges.cloudflare.com",
+    "worker-src 'self' blob:",
+    "media-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; '),
+}
+
 export default defineConfig({
   plugins: [react()],
+  preview: {
+    headers: SECURITY_HEADERS,
+  },
+  server: {
+    headers: SECURITY_HEADERS,
+  },
 })

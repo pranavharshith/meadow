@@ -5,9 +5,14 @@ import { P, treeRegistry, rockRegistry, craftedRegistry, placement } from '../pl
 import { useStore } from '../store'
 import { ROCK_GEOS } from './rock-assets'
 import { CraftedItemParts } from './CraftedItems'
-import { terrainHeight, PONDS } from './noise'
+import { terrainHeight } from './noise'
 import { LANDMARKS } from './places'
-import { STREAM_POINTS, STREAM_WIDTH } from './Water'
+import {
+  isOverWater as pointInWater,
+  STREAM_SAMPLE_POINTS,
+  STREAM_WIDTH,
+  PONDS,
+} from './water-path'
 import { plazaFloorHeight, PLAZA_OUTER_RADIUS } from './SpawnPlaza'
 
 // Placement preview:
@@ -40,31 +45,10 @@ const PLOT_RADIUS = 10
 const PLOT_LANDMARK_MIN = 20      // min distance from a landmark centre
 const PLOT_PLOT_MIN = 15          // min distance from another plot's centre
 const SLOPE_LIMIT = 1.8           // max height delta across a 1-unit probe
-const WATER_MARGIN = 0.4          // extra padding around ponds/streams
+const WATER_MARGIN = 0.4
 
-// True if (x,z) sits over one of the ponds or the winding stream.
 function isOverWater(x, z) {
-  for (const p of PONDS) {
-    if (Math.hypot(p.x - x, p.z - z) < p.r + WATER_MARGIN) return true
-  }
-  // Stream: check distance from each line segment between consecutive points
-  const halfW = STREAM_WIDTH * 0.5 + WATER_MARGIN
-  for (let i = 0; i < STREAM_POINTS.length - 1; i++) {
-    const a = STREAM_POINTS[i]
-    const b = STREAM_POINTS[i + 1]
-    const dx = b.x - a.x
-    const dz = b.z - a.z
-    const len2 = dx * dx + dz * dz
-    if (len2 <= 1e-6) continue
-    // Project (x,z) onto segment ab, clamp to [0,1]
-    let t = ((x - a.x) * dx + (z - a.z) * dz) / len2
-    if (t < 0) t = 0
-    else if (t > 1) t = 1
-    const cx = a.x + dx * t
-    const cz = a.z + dz * t
-    if (Math.hypot(x - cx, z - cz) < halfW) return true
-  }
-  return false
+  return pointInWater(x, z, WATER_MARGIN)
 }
 
 const COLOR_OK = new THREE.Color('#7ee38a')
@@ -252,7 +236,7 @@ export default function PlacementPreview() {
         valid = false
         reason = `need ${cost} gold`
       }
-      // Water: crude bounds check
+      // Water: ponds + dense stream samples (shared path — C3)
       if (valid) {
         for (const p of PONDS) {
           if (checkDist(p.x, p.z, p.r + WATER_MARGIN)) {
@@ -262,9 +246,9 @@ export default function PlacementPreview() {
           }
         }
         if (valid) {
-          for (let i = 0; i < STREAM_POINTS.length - 1; i++) {
-            const a = STREAM_POINTS[i]
-            if (checkDist(a.x, a.z, STREAM_WIDTH * 0.5 + WATER_MARGIN)) {
+          for (let i = 0; i < STREAM_SAMPLE_POINTS.length; i += 2) {
+            const a = STREAM_SAMPLE_POINTS[i]
+            if (checkDist(a.x, a.z, STREAM_WIDTH * 0.5 + WATER_MARGIN + 1.2)) {
               valid = false
               reason = 'plot would overlap water'
               break

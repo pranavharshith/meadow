@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { terrainHeight, mulberry32, clusterField } from './noise'
+import { terrainHeight, mulberry32, clusterField, plotSignatureForChunk } from './noise'
 import { CHUNK, seedFor } from './chunk'
 import { P, rockRegistry } from '../player-state'
 import { ROCK_GEOS, ROCK_MATS } from './rock-assets'
@@ -9,6 +9,7 @@ import { useStore } from '../store'
 
 export default function Rocks() {
   const [center, setCenter] = useState({ cx: 0, cz: 0 })
+  const plots = useStore((s) => s.plots)
 
   useFrame(() => {
     const cx = Math.floor(P.pos.x / CHUNK)
@@ -17,9 +18,10 @@ export default function Rocks() {
   })
 
   const chunksRef = useRef(new Map())
+  const plotSigRef = useRef(new Map())
   const [allRocks, setAllRocks] = useState([])
 
-  // Delta chunk loader
+  // Delta chunk loader — regen when nearby plots change (C5)
   useEffect(() => {
     let changed = false
     const newKeys = new Set()
@@ -31,8 +33,17 @@ export default function Rocks() {
         const key = `${cx},${cz}`
         newKeys.add(key)
 
+        const sig = plotSignatureForChunk(cx, cz, CHUNK)
+        if (chunksRef.current.has(key) && plotSigRef.current.get(key) !== sig) {
+          chunksRef.current.delete(key)
+          for (let i = rockRegistry.length - 1; i >= 0; i--) {
+            if (rockRegistry[i].chunkKey === key) rockRegistry.splice(i, 1)
+          }
+        }
+
         if (!chunksRef.current.has(key)) {
           changed = true
+          plotSigRef.current.set(key, sig)
           const arr = []
           const rng = mulberry32(seedFor(cx, cz) ^ 0x5c)
           const n = 2 + ((rng() * 4) | 0)
@@ -82,7 +93,7 @@ export default function Rocks() {
       }
       setAllRocks(allR)
     }
-  }, [center.cx, center.cz])
+  }, [center.cx, center.cz, plots])
 
   const cutResources = useStore((s) => s.cutResources)
   const cutProcedural = useStore((s) => s.cutProcedural)

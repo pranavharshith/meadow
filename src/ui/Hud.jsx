@@ -5,8 +5,7 @@ import Chat from './Chat'
 import WorldMap from './WorldMap'
 import Settings from './Settings'
 import Screenshot from './Screenshot'
-import Shop from './Shop'
-import Crafting from './Crafting'
+import CreateHub from './CreateHub'
 import { TREE_ITEMS, ROCK_ITEMS, PLOT_ITEM } from '../catalog'
 import TouchJoystick from './TouchJoystick'
 import PlaceLabel from './PlaceLabel'
@@ -18,6 +17,9 @@ import PlacementBanner from './PlacementBanner'
 import ActionPill from './ActionPill'
 import NavIndicator from './NavIndicator'
 import PlotCustomizer from './PlotCustomizer'
+import Compass from './Compass'
+import FirstWalkQuest from './FirstWalkQuest'
+import MobileActionBar from './MobileActionBar'
 
 const VIEW_LABEL = { third: 'Follow', first: 'First person', top: 'Map', drone: 'Drone' }
 
@@ -41,10 +43,8 @@ export default function Hud() {
   const moveKeys = `${formatKey(keybinds.forward)}${formatKey(keybinds.left)}${formatKey(keybinds.backward)}${formatKey(keybinds.right)}`
   const cutSelection = useStore((s) => s.cutSelection)
   const selection = useStore((s) => s.selection)
-  const shopOpen = useStore((s) => s.shopOpen)
-  const setShopOpen = useStore((s) => s.setShopOpen)
-  const craftingOpen = useStore((s) => s.craftingOpen)
-  const setCraftingOpen = useStore((s) => s.setCraftingOpen)
+  const createOpen = useStore((s) => s.createOpen)
+  const setCreateOpen = useStore((s) => s.setCreateOpen)
   const teleportFlash = useStore((s) => s.teleportFlash)
   const socialOpen = useStore((s) => s.socialOpen)
   const setSocialOpen = useStore((s) => s.setSocialOpen)
@@ -52,6 +52,7 @@ export default function Hud() {
   const profileModal = useStore((s) => s.profileModal)
   const [editing, setEditing] = useState(false)
   const [seen, setSeen] = useState(false)
+  const [chatOpenRequest, setChatOpenRequest] = useState(0)
 
   useEffect(() => {
     if (profileModal === 'me') {
@@ -62,47 +63,81 @@ export default function Hud() {
 
   const isPlot = selectedItem.type === 'plot'
   const isRock = selectedItem.type === 'rock'
-  const allItems = isRock ? ROCK_ITEMS : isPlot ? [] : TREE_ITEMS
-  const currentItem = isPlot ? { name: 'Plot', emoji: '📌' } : (allItems.find((i) => i.id === selectedItem.id) || allItems[0])
-  const plantLabel = isPlot ? 'Claim Plot 📌' : isRock ? `Place ${currentItem.emoji}` : `Plant ${currentItem.emoji}`
+  const isCrafted = selectedItem.type === 'crafted'
+  const allItems = isRock ? ROCK_ITEMS : isPlot ? [] : isCrafted ? [] : TREE_ITEMS
+  const currentItem = isPlot
+    ? { name: 'Plot', emoji: '📌' }
+    : isCrafted
+      ? { name: 'Craft', emoji: '🔨' }
+      : (allItems.find((i) => i.id === selectedItem.id) || allItems[0] || { name: 'Item', emoji: '·' })
+  const plantLabel = isPlot
+    ? 'Claim Plot 📌'
+    : isRock
+      ? `Place ${currentItem.emoji}`
+      : isCrafted
+        ? 'Place craft'
+        : `Plant ${currentItem.emoji}`
 
   return (
-    <div className="ui">
+    <div className="ui" id="game-ui">
       <div className="topbar">
         <div className="brand">
           <div className="title">a shared garden</div>
           <div className="who no-look">
-            <button className="tag" onClick={() => setEditing((v) => !v)} title="edit profile & identity">
-              <span className="dot" style={{ background: color }} />
-              {name}
+            <button
+              type="button"
+              className="tag"
+              onClick={() => setEditing((v) => !v)}
+              title="edit profile & identity"
+              aria-expanded={editing}
+              aria-haspopup="dialog"
+            >
+              <span className="dot" style={{ '--dot-color': color }} aria-hidden="true" />
+              <span className="tag-name">{name}</span>
             </button>
-            <button className={`tag ${socialOpen ? 'active' : ''}`} onClick={() => setSocialOpen(!socialOpen)} title="Friends & Social" style={{ marginLeft: 4, position: 'relative' }}>
-              Social
-              {friendRequests.length > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: 'red', color: 'white', fontSize: 10, borderRadius: '50%', padding: '0 4px' }}>{friendRequests.length}</span>}
+            <button
+              type="button"
+              className={`tag social-tag has-badge${socialOpen ? ' active' : ''}`}
+              onClick={() => setSocialOpen(!socialOpen)}
+              title="Friends & Social"
+              aria-expanded={socialOpen}
+              aria-haspopup="dialog"
+            >
+              <span className="social-tag-full">Social</span>
+              <span className="social-tag-short" aria-hidden="true">👥</span>
+              {friendRequests.length > 0 && (
+                <span className="badge" aria-label={`${friendRequests.length} friend requests`}>
+                  {friendRequests.length}
+                </span>
+              )}
             </button>
-            <div className="gold" title="Wood">
-              🪵 {wood}
-            </div>
-            <div className="gold" title="Stone">
-              🪨 {stone}
-            </div>
-            <div className="gold" title="Gold">
-              <span className="coin" /> {gold}
+            <div className="resource-pill" title={`Wood ${wood} · Stone ${stone} · Gold ${gold}`}>
+              <span className="resource-bit">🪵 {wood}</span>
+              <span className="resource-sep" aria-hidden="true">·</span>
+              <span className="resource-bit">🪨 {stone}</span>
+              <span className="resource-sep" aria-hidden="true">·</span>
+              <span className="resource-bit resource-gold">
+                <span className="coin" aria-hidden="true" /> {gold}
+              </span>
             </div>
             <Status />
           </div>
           <Identity open={editing} onClose={() => setEditing(false)} />
           <Social />
         </div>
-        <Minimap />
-        <Compass />
+        <div className="topbar-right">
+          <Minimap />
+          <Compass />
+        </div>
       </div>
 
       <PlaceLabel />
       <div className="ui-queue no-look">
         <Toast />
+        {/* Placement first so it stacks above soft quests when both would show */}
         <PlacementBanner />
         <PlotCustomizer />
+        <FirstWalkQuest />
         <ActionPill selection={selection} onCut={cutSelection} />
       </div>
 
@@ -116,60 +151,48 @@ export default function Hud() {
           <span><b>E</b> plant/place</span>
           <span className="hint-wide"><b>R</b> water</span>
           <span className="hint-wide">click item then <b>X</b> cut/break</span>
-          <span className="hint-wide"><b>Q</b> craft, <b>G</b> shop</span>
+          <span className="hint-wide"><b>G</b> create · <b>Q</b> craft</span>
           <span className="hint-wide"><b>Enter</b> chat</span>
         </button>
       )}
 
-      <div className="controls">
-        <div className="buttons no-look">
-          <button className="btn" onClick={cycleView}>
+      <div className="controls desktop-controls">
+        <div className="buttons no-look" role="toolbar" aria-label="Game actions">
+          <button type="button" className="btn" onClick={cycleView} aria-label={`Camera view: ${VIEW_LABEL[view]}`}>
             {VIEW_LABEL[view]}
           </button>
-          <button className="btn plant" onClick={plantTree} title="Plant / Place selected item (E)">
+          <button type="button" className="btn plant" onClick={plantTree} title="Plant / Place selected item (E)">
             {plantLabel}
           </button>
           <button
-            className={`btn shop-btn${craftingOpen ? ' active' : ''}`}
-            onClick={() => setCraftingOpen(!craftingOpen)}
-            title="Crafting (Q)"
+            type="button"
+            className={`btn shop-btn create-btn${createOpen ? ' active' : ''}`}
+            onClick={() => setCreateOpen(!createOpen, createOpen ? undefined : 'trees')}
+            title="Create hub (G) — trees, craft, land, style"
+            aria-expanded={createOpen}
+            aria-haspopup="dialog"
           >
-            Craft
-          </button>
-          <button
-            className={`btn shop-btn${shopOpen ? ' active' : ''}`}
-            onClick={() => setShopOpen(!shopOpen)}
-            title="Nature Shop (G)"
-          >
-            Shop
+            Create
           </button>
           <Screenshot />
           <Settings />
         </div>
       </div>
 
-      <Chat />
-      <Shop />
-      <Crafting />
+      <MobileActionBar
+        plantLabel={plantLabel}
+        onOpenChat={() => setChatOpenRequest((n) => n + 1)}
+      />
+
+      <Chat openSignal={chatOpenRequest} />
+      <CreateHub />
       <WorldMap />
       <NavIndicator />
       <TouchJoystick />
-      
-      {/* Teleport Animation Overlay */}
-      <div 
-        className="no-look" 
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          backgroundColor: 'white',
-          opacity: teleportFlash ? 1 : 0,
-          pointerEvents: 'none',
-          transition: teleportFlash ? 'opacity 0.1s ease-in' : 'opacity 0.5s ease-out',
-          zIndex: 9999
-        }} 
+
+      <div
+        className={`teleport-flash no-look${teleportFlash ? ' active' : ''}`}
+        aria-hidden="true"
       />
     </div>
   )

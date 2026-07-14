@@ -1,5 +1,5 @@
 import { useStore } from '../store'
-import { TREE_ITEMS, ROCK_ITEMS, DYE_ITEMS } from '../catalog'
+import { TREE_ITEMS, ROCK_ITEMS, TREE_DYES } from '../catalog'
 
 export default function ActionPill({ selection, onCut }) {
   const clearSelection = useStore((s) => s.clearSelection)
@@ -41,9 +41,9 @@ export default function ActionPill({ selection, onCut }) {
   if (dyeingTreeId) {
     return (
       <div className="cut-pill show">
-        <span className="cut-pill-label">choose a colour</span>
+        <span className="cut-pill-label">dye leaves</span>
         <div className="dye-swatches">
-          {DYE_ITEMS.map((sw) => {
+          {TREE_DYES.map((sw) => {
             const cantAfford = gold < sw.cost
             return (
               <button

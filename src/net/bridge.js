@@ -52,4 +52,7 @@ export const bridge = {
   // from localStorage so it survives reloads.
   isMuted:     (_userId)                   => false,
   toggleMute:  (_userId, _muted)           => {},
+
+  // Moderation
+  reportPlayer: async (_userId, _reason, _context) => ({ ok: false, error: 'offline' }),
 }

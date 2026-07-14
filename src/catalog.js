@@ -55,18 +55,42 @@ export const TREE_ITEMS = [
   },
 ]
 
-export const DYE_ITEMS = [
-  { id: 'autumn',    name: 'Autumn Orange',  color: '#d46a2a', cost: 50,  emoji: '🍂', desc: 'Warm fall hues' },
-  { id: 'sunset',    name: 'Sunset Red',     color: '#c44030', cost: 50,  emoji: '🌅', desc: 'Deep evening glow' },
-  { id: 'golden',    name: 'Golden Yellow',  color: '#e8b830', cost: 50,  emoji: '🌻', desc: 'Bright sunflower' },
-  { id: 'sky',       name: 'Sky Blue',       color: '#5098d0', cost: 100, emoji: '💧', desc: 'Clear open sky' },
-  { id: 'lavender',  name: 'Lavender Purple',color: '#b080d0', cost: 100, emoji: '🔮', desc: 'Soft mystic tone' },
-  { id: 'blush',     name: 'Blush Pink',     color: '#e878a0', cost: 100, emoji: '🌸', desc: 'Gentle petal pink' },
-  { id: 'teal',      name: 'Forest Teal',    color: '#308a78', cost: 150, emoji: '🌊', desc: 'Deep woodland pool' },
-  { id: 'moonlight', name: 'Moonlight White',color: '#c8d8d0', cost: 150, emoji: '✨', desc: 'Pale silver shimmer' },
-  { id: 'onyx',      name: 'Onyx Black',     color: '#222222', cost: 200, emoji: '🦇', desc: 'Deep dark shadows' },
-  { id: 'emerald',   name: 'Emerald Green',  color: '#2e8b57', cost: 150, emoji: '🍀', desc: 'Vibrant gem tone' }
+/**
+ * Tree leaf dyes (ActionPill / dye_tree RPC). Nature-themed names.
+ * Hex values must match server whitelist in dye_tree.
+ */
+export const TREE_DYES = [
+  { id: 'autumn',    name: 'Autumn Leaves',   color: '#d46a2a', cost: 50,  emoji: '🍂', desc: 'Warm fall canopy' },
+  { id: 'sunset',    name: 'Sunset Canopy',   color: '#c44030', cost: 50,  emoji: '🌅', desc: 'Deep evening red' },
+  { id: 'golden',    name: 'Sunflower Gold',  color: '#e8b830', cost: 50,  emoji: '🌻', desc: 'Bright golden leaves' },
+  { id: 'sky',       name: 'Skyleaf Blue',    color: '#5098d0', cost: 100, emoji: '💧', desc: 'Cool blue foliage' },
+  { id: 'lavender',  name: 'Lilac Bloom',     color: '#b080d0', cost: 100, emoji: '🔮', desc: 'Soft purple leaves' },
+  { id: 'blush',     name: 'Blossom Pink',    color: '#e878a0', cost: 100, emoji: '🌸', desc: 'Petal-pink canopy' },
+  { id: 'teal',      name: 'Poolside Teal',   color: '#308a78', cost: 150, emoji: '🌊', desc: 'Deep woodland teal' },
+  { id: 'moonlight', name: 'Silverleaf',      color: '#c8d8d0', cost: 150, emoji: '✨', desc: 'Pale moonlit leaves' },
+  { id: 'onyx',      name: 'Midnight Leaf',   color: '#222222', cost: 200, emoji: '🦇', desc: 'Near-black foliage' },
+  { id: 'emerald',   name: 'Jewel Emerald',   color: '#2e8b57', cost: 150, emoji: '🍀', desc: 'Vibrant gem green' },
 ]
+
+/**
+ * Avatar body paints (Create → Style). Same hex catalog / costs as tree dyes
+ * (server buy_cosmetic), but copy is about cloth & skin — not leaves (E3).
+ */
+export const AVATAR_COLORS = [
+  { id: 'autumn',    name: 'Clay Orange',     color: '#d46a2a', cost: 50,  emoji: '🟠', desc: 'Warm clay tone' },
+  { id: 'sunset',    name: 'Coral Red',       color: '#c44030', cost: 50,  emoji: '🔴', desc: 'Soft coral cloth' },
+  { id: 'golden',    name: 'Honey Gold',      color: '#e8b830', cost: 50,  emoji: '🟡', desc: 'Sunny honey hue' },
+  { id: 'sky',       name: 'Sky Cloth',       color: '#5098d0', cost: 100, emoji: '🔵', desc: 'Clear sky blue' },
+  { id: 'lavender',  name: 'Lilac Cloth',     color: '#b080d0', cost: 100, emoji: '🟣', desc: 'Gentle lilac' },
+  { id: 'blush',     name: 'Rose Blush',      color: '#e878a0', cost: 100, emoji: '🩷', desc: 'Soft rose pink' },
+  { id: 'teal',      name: 'Seafoam Teal',    color: '#308a78', cost: 150, emoji: '🩵', desc: 'Cool seafoam' },
+  { id: 'moonlight', name: 'Mist White',      color: '#c8d8d0', cost: 150, emoji: '⚪', desc: 'Pale mist' },
+  { id: 'onyx',      name: 'Charcoal',        color: '#222222', cost: 200, emoji: '⚫', desc: 'Deep charcoal' },
+  { id: 'emerald',   name: 'Meadow Green',    color: '#2e8b57', cost: 150, emoji: '🟢', desc: 'Fresh meadow' },
+]
+
+/** @deprecated use TREE_DYES or AVATAR_COLORS — kept for older imports */
+export const DYE_ITEMS = TREE_DYES
 
 export const HAT_ITEMS = [
   { id: 'none',      name: 'No Hat',         cost: 0,   emoji: '👤', desc: 'Remove your hat' },

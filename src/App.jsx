@@ -34,16 +34,33 @@ import Water from './world/Water'
 import { useStore } from './store'
 
 // Fades the warm-haze overlay out once the scene is ready, for a soft entrance.
+// After the fade finishes we unmount so it can never intercept pointer events.
 function LoadingFade() {
   const { active } = useProgress()
-  const [gone, setGone] = useState(false)
+  const [phase, setPhase] = useState('loading') // loading | fading | done
+
   useEffect(() => {
-    if (!active) {
-      const id = setTimeout(() => setGone(true), 250)
+    if (!active && phase === 'loading') {
+      const id = setTimeout(() => setPhase('fading'), 250)
       return () => clearTimeout(id)
     }
-  }, [active])
-  return <div className={`fade${gone ? ' gone' : ''}`} />
+  }, [active, phase])
+
+  useEffect(() => {
+    if (phase !== 'fading') return
+    const id = setTimeout(() => setPhase('done'), 1500) // match CSS fade duration + buffer
+    return () => clearTimeout(id)
+  }, [phase])
+
+  if (phase === 'done') return null
+
+  return (
+    <div
+      className={`fade${phase === 'fading' ? ' gone' : ''}`}
+      aria-hidden="true"
+      // Always non-interactive; gone only affects opacity
+    />
+  )
 }
 
 export default function App() {

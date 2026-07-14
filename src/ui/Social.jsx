@@ -1,13 +1,26 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useStore } from '../store'
 import { bridge } from '../net/bridge'
+import { toggleMute } from '../net/moderation'
+import { useFocusTrap } from './a11y'
+
+const REPORT_REASONS = [
+  'Harassment',
+  'Spam / advertising',
+  'Inappropriate name or chat',
+  'Griefing builds',
+  'Other',
+]
 
 export default function Social() {
   const open = useStore((s) => s.socialOpen)
-  const close = () => {
+  const panelRef = useRef(null)
+  const close = useCallback(() => {
     useStore.getState().setSocialOpen(false)
     useStore.getState().setProfileModal(null)
-  }
+  }, [])
+  useFocusTrap(panelRef, open)
+  // Escape handled below: profile → back first, then close panel
   
   // profileModal id (if it is not 'me' and not null, we show the remote profile view)
   const profileId = useStore((s) => s.profileModal)
@@ -21,6 +34,10 @@ export default function Social() {
   
   const [searchName, setSearchName] = useState('')
   const [searchStatus, setSearchStatus] = useState('')
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportReason, setReportReason] = useState(REPORT_REASONS[0])
+  const [reportNote, setReportNote] = useState('')
+  const [reportBusy, setReportBusy] = useState(false)
 
   const onlineUserIds = useStore((s) => s.onlineUserIds)
   const friendsRaw = useStore((s) => s.friends) || []
@@ -127,62 +144,131 @@ export default function Social() {
   if (!open) return null
 
   const isProfile = profileId && profileId !== 'me'
+  const tabFocused = (t) => focusSection === 'tabs' && tab === t
 
   return (
-    <div className="identity social-panel open" style={{ width: 280 }}>
+    <div
+      ref={panelRef}
+      className="identity social-panel open"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="social-title"
+    >
+      <h2 id="social-title" className="sr-only">{isProfile ? 'Player profile' : 'Friends and social'}</h2>
       {isProfile ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="col">
           {loading ? (
-            <div style={{ color: 'rgba(255,255,255,0.7)', textAlign: 'center', padding: '20px 0' }}>Loading...</div>
+            <div className="panel-loading" role="status">Loading...</div>
           ) : remoteProf ? (
             <>
-              <div style={{ textAlign: 'center', margin: '8px 0' }}>
-                <div style={{ fontSize: '18px', fontWeight: 'bold', color: 'white' }}>{remoteProf.name}</div>
-                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>{remoteProf.title}</div>
+              <div className="profile-hero">
+                <div className="profile-name">{remoteProf.name}</div>
+                <div className="profile-title">{remoteProf.title}</div>
               </div>
-              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '8px', borderRadius: '4px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'white', marginBottom: '4px' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>Trees Planted</span><span>{remoteProf.treesPlanted}</span>
+              <div className="stat-grid inset">
+                <div className="stat-row sm">
+                  <span className="stat-label">Trees Planted</span><span>{remoteProf.treesPlanted}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'white', marginBottom: '4px' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>Landmarks</span><span>{remoteProf.landmarks} / 10</span>
+                <div className="stat-row sm">
+                  <span className="stat-label">Landmarks</span><span>{remoteProf.landmarks} / 10</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'white' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>Joined</span><span>{remoteProf.joinDate ? new Date(remoteProf.joinDate).toLocaleDateString() : 'Unknown'}</span>
+                <div className="stat-row sm">
+                  <span className="stat-label">Joined</span><span>{remoteProf.joinDate ? new Date(remoteProf.joinDate).toLocaleDateString() : 'Unknown'}</span>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div className="col actions">
                 <button 
-                  className="btn small" 
-                  style={{ outline: focusSection === 'actions' && focusIndex === 0 ? '2px solid white' : 'none' }}
-                  onClick={() => bridge.sendFriendRequest(profileId).then(r => useStore.getState().flash(r.ok ? 'Friend request sent!' : r.error))}
+                  type="button"
+                  className={`btn small kbd-focus${focusSection === 'actions' && focusIndex === 0 ? ' is-focused' : ''}`}
+                  onClick={() => bridge.sendFriendRequest(profileId).then(r => useStore.getState().flash(r.ok ? 'Friend request sent!' : r.error, r.ok ? 'success' : 'error'))}
                 >
                   Add Friend
                 </button>
                 <button 
-                  className="btn small" 
-                  style={{ background: 'rgba(255,255,255,0.1)', outline: focusSection === 'actions' && focusIndex === 1 ? '2px solid white' : 'none' }}
-                  onClick={() => useStore.getState().flash('Muted.')}
+                  type="button"
+                  className={`btn small ghost kbd-focus${focusSection === 'actions' && focusIndex === 1 ? ' is-focused' : ''}`}
+                  onClick={() => {
+                    const muted = toggleMute(profileId, remoteProf.name)
+                    useStore.getState().flash(muted ? `Muted ${remoteProf.name}` : `Unmuted ${remoteProf.name}`)
+                  }}
                 >
                   Mute
                 </button>
+                <button
+                  type="button"
+                  className="btn small danger-soft"
+                  onClick={() => setReportOpen((v) => !v)}
+                  aria-expanded={reportOpen}
+                >
+                  Report
+                </button>
+                {reportOpen && (
+                  <div className="report-form" role="group" aria-label="Report player">
+                    <label htmlFor="report-reason" className="sr-only">Reason</label>
+                    <select
+                      id="report-reason"
+                      className="report-select"
+                      value={reportReason}
+                      onChange={(e) => setReportReason(e.target.value)}
+                    >
+                      {REPORT_REASONS.map((r) => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                    <label htmlFor="report-note" className="sr-only">Optional details</label>
+                    <textarea
+                      id="report-note"
+                      className="report-note"
+                      rows={2}
+                      maxLength={400}
+                      placeholder="Optional details…"
+                      value={reportNote}
+                      onChange={(e) => setReportNote(e.target.value)}
+                      onFocus={() => useStore.getState().setInputContext('CHAT')}
+                      onBlur={() => useStore.getState().setInputContext('UI')}
+                    />
+                    <button
+                      type="button"
+                      className="btn small danger-soft"
+                      disabled={reportBusy}
+                      onClick={async () => {
+                        setReportBusy(true)
+                        const res = await bridge.reportPlayer(
+                          profileId,
+                          reportReason,
+                          reportNote.trim() || null
+                        )
+                        setReportBusy(false)
+                        if (res.ok) {
+                          useStore.getState().flash('Report submitted — thank you', 'success')
+                          setReportOpen(false)
+                          setReportNote('')
+                        } else {
+                          useStore.getState().flash(res.error || 'Could not send report', 'error')
+                        }
+                      }}
+                    >
+                      {reportBusy ? 'Sending…' : 'Submit report'}
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           ) : (
-            <div style={{ color: 'white', textAlign: 'center' }}>Player not found.</div>
+            <div className="panel-empty">Player not found.</div>
           )}
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+          <div className="tabs-row">
             <input 
               type="text" 
+              className="inline-input"
               placeholder="Add friend by name..." 
               value={searchName}
               onChange={(e) => { setSearchName(e.target.value); setSearchStatus(''); }}
               onFocus={() => useStore.getState().setInputContext('CHAT')}
               onBlur={() => useStore.getState().setInputContext('GAME')}
-              style={{ flex: 1, padding: '4px 8px', borderRadius: 4, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'white' }}
               onKeyDown={async (e) => {
                 if (e.key === 'Enter' && searchName.trim()) {
                   setSearchStatus('Sending...')
@@ -193,44 +279,63 @@ export default function Social() {
               }}
             />
           </div>
-          {searchStatus && <div style={{ fontSize: 10, color: searchStatus === 'Sent!' ? '#4caf50' : '#ff5252', marginBottom: 8, textAlign: 'center' }}>{searchStatus}</div>}
+          {searchStatus && (
+            <div className={`search-status${searchStatus === 'Sent!' ? ' ok' : ' err'}`}>
+              {searchStatus}
+            </div>
+          )}
 
-          <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-            <button className={`btn small ${tab === 'online' ? 'active' : ''}`} style={{ flex: 1, outline: focusSection === 'tabs' && tab === 'online' ? '2px solid white' : 'none' }} onClick={() => setTab('online')}>Online</button>
-            <button className={`btn small ${tab === 'offline' ? 'active' : ''}`} style={{ flex: 1, outline: focusSection === 'tabs' && tab === 'offline' ? '2px solid white' : 'none' }} onClick={() => setTab('offline')}>Offline</button>
-            <button className={`btn small ${tab === 'pending' ? 'active' : ''}`} style={{ flex: 1, outline: focusSection === 'tabs' && tab === 'pending' ? '2px solid white' : 'none', position: 'relative' }} onClick={() => setTab('pending')}>
+          <div className="tabs-row">
+            <button
+              className={`btn small flex-tab kbd-focus${tab === 'online' ? ' active' : ''}${tabFocused('online') ? ' is-focused' : ''}`}
+              onClick={() => setTab('online')}
+            >
+              Online
+            </button>
+            <button
+              className={`btn small flex-tab kbd-focus${tab === 'offline' ? ' active' : ''}${tabFocused('offline') ? ' is-focused' : ''}`}
+              onClick={() => setTab('offline')}
+            >
+              Offline
+            </button>
+            <button
+              className={`btn small flex-tab has-badge kbd-focus${tab === 'pending' ? ' active' : ''}${tabFocused('pending') ? ' is-focused' : ''}`}
+              onClick={() => setTab('pending')}
+            >
               Req
-              {requests.length > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: 'red', color: 'white', fontSize: 10, borderRadius: '50%', padding: '0 4px' }}>{requests.length}</span>}
+              {requests.length > 0 && <span className="badge">{requests.length}</span>}
             </button>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: '200px', overflowY: 'auto' }}>
+          <div className="scroll-list">
             {listData.length === 0 ? (
-              <div style={{ color: 'rgba(255,255,255,0.5)', textAlign: 'center', padding: '10px 0', fontSize: 12 }}>Nothing here</div>
+              <div className="list-empty">Nothing here</div>
             ) : (
               listData.map((item, i) => (
-                <div key={item.id || item.sender_id} style={{ 
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                  background: 'rgba(0,0,0,0.2)', padding: '6px 8px', borderRadius: '4px',
-                  outline: focusSection === 'list' && focusIndex === i ? '2px solid white' : 'none'
-                }}>
-                  <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => useStore.getState().setProfileModal(tab === 'pending' ? item.sender_id : item.id)}>
-                    <div style={{ color: 'white', fontSize: 13, fontWeight: 'bold' }}>{item.name}</div>
-                    <div style={{ fontSize: 10, color: tab === 'online' ? '#4caf50' : 'rgba(255,255,255,0.5)' }}>
+                <div
+                  key={item.id || item.sender_id}
+                  className={`list-item${focusSection === 'list' && focusIndex === i ? ' is-focused' : ''}`}
+                >
+                  <div
+                    className="list-item-main"
+                    onClick={() => useStore.getState().setProfileModal(tab === 'pending' ? item.sender_id : item.id)}
+                  >
+                    <div className="list-item-name">{item.name}</div>
+                    <div className={`list-item-meta${tab === 'online' ? ' online' : ''}`}>
                       {tab === 'online' ? 'Online' : tab === 'offline' ? 'Offline' : 'Pending Request'}
                     </div>
                   </div>
                   {tab === 'pending' ? (
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn small" style={{ padding: '0 6px' }} onClick={() => bridge.acceptFriendRequest(item.sender_id).then(r => useStore.getState().flash(r.ok ? 'Accepted!' : r.error))}>✓</button>
-                      <button className="btn small" style={{ padding: '0 6px', background: 'rgba(255,255,255,0.1)' }} onClick={() => bridge.declineFriendRequest(item.sender_id).then(r => useStore.getState().flash(r.ok ? 'Declined' : r.error))}>✕</button>
+                    <div className="list-item-actions">
+                      <button className="btn small icon-tight" onClick={() => bridge.acceptFriendRequest(item.sender_id).then(r => useStore.getState().flash(r.ok ? 'Accepted!' : r.error))}>✓</button>
+                      <button className="btn small icon-tight ghost" onClick={() => bridge.declineFriendRequest(item.sender_id).then(r => useStore.getState().flash(r.ok ? 'Declined' : r.error))}>✕</button>
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', gap: 4 }}>
+                    <div className="list-item-actions">
                       <button className="btn small" onClick={() => useStore.getState().flash(tab === 'online' ? 'Whisper coming soon' : 'Offline')}>
                         {tab === 'online' ? 'Chat' : '...'}
                       </button>
-                      <button className="btn small" style={{ background: 'rgba(255,50,50,0.2)' }} onClick={() => bridge.unfriend(item.id).then(r => useStore.getState().flash(r.ok ? 'Removed friend.' : r.error))}>
+                      <button className="btn small danger-soft" onClick={() => bridge.unfriend(item.id).then(r => useStore.getState().flash(r.ok ? 'Removed friend.' : r.error))}>
                         Remove
                       </button>
                     </div>

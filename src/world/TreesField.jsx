@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { useMemo, useRef, useState, useEffect } from 'react'
 import { generateTreeGeometries } from './ProceduralTree'
 import { useFrame } from '@react-three/fiber'
-import { terrainHeight, mulberry32 } from './noise'
+import { terrainHeight, mulberry32, plotSignatureForChunk } from './noise'
 import { CHUNK, seedFor } from './chunk'
 import {
   trunkGeo, leafGeo, trunkMat, leafMats,
@@ -361,6 +361,7 @@ function PlantedTrees({ trees }) {
 export default function TreesField() {
   const [center, setCenter] = useState({ cx: 0, cz: 0 })
   const trees = useStore((s) => s.trees)
+  const plots = useStore((s) => s.plots)
 
   useFrame(() => {
     const cx = Math.floor(P.pos.x / CHUNK)
@@ -369,9 +370,10 @@ export default function TreesField() {
   })
 
   const chunksRef = useRef(new Map())
+  const plotSigRef = useRef(new Map()) // chunk key → plot signature at gen time
   const [decorative, setDecorative] = useState([])
 
-  // Delta chunk loader
+  // Delta chunk loader — regen chunks whose plot pad changed (C5)
   useEffect(() => {
     let changed = false
     const newKeys = new Set()
@@ -384,8 +386,20 @@ export default function TreesField() {
         const key = `${cx},${cz}`
         newKeys.add(key)
 
+        const sig = plotSignatureForChunk(cx, cz, CHUNK)
+        if (chunksRef.current.has(key) && plotSigRef.current.get(key) !== sig) {
+          chunksRef.current.delete(key)
+          // drop registry entries for this chunk
+          for (let i = treeRegistry.length - 1; i >= 0; i--) {
+            if (treeRegistry[i].chunkKey === key && treeRegistry[i]._source === 'decorative') {
+              treeRegistry.splice(i, 1)
+            }
+          }
+        }
+
         if (!chunksRef.current.has(key)) {
           changed = true
+          plotSigRef.current.set(key, sig)
           const arr = []
           const rng = mulberry32(seedFor(cx, cz) ^ 0x7)
           const n = 3 + Math.floor(rng() * 3)
@@ -447,7 +461,7 @@ export default function TreesField() {
       setDecorative(allDeco)
       dirtyLOD.current = true
     }
-  }, [center.cx, center.cz])
+  }, [center.cx, center.cz, plots])
 
   const cutResources = useStore((s) => s.cutResources)
 

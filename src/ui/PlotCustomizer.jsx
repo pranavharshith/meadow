@@ -65,7 +65,7 @@ export default function PlotCustomizer() {
           <span className="coin" /> {cost}
         </div>
       </div>
-      <div style={{ fontSize: '11px', color: areaOk ? 'rgba(255,255,255,0.7)' : '#ff6b6b', marginBottom: '-4px' }}>
+      <div className={`pc-quota${areaOk ? '' : ' over'}`}>
         Land Quota: {Math.round(myUsedArea + newArea)} / {maxArea} sqm
       </div>
 

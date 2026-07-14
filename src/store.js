@@ -11,12 +11,19 @@ const GROW_SECONDS = 90
 const WATER_COOLDOWN = 4000 // ms between watering (client-side pre-check)
 const WATER_BOOST = 18000 // ms of growth granted per watering (mirrors server)
 const WORLD_CHAT_COST = 3
-const CHAT_MAX = 60
+/** Max chat messages kept in the local HUD list (history), not text length. */
+const CHAT_HISTORY_MAX = 60
+/** Max characters per message — must match server RPC limit (160). */
+export const CHAT_TEXT_MAX = 160
+export const WORLD_CHAT_GOLD_COST = WORLD_CHAT_COST
 
 // Gold sink costs
 const TELEPORT_COST = 15
 const SET_SPAWN_COST = 40
 const PLOT_COST = 250
+export const TELEPORT_GOLD_COST = TELEPORT_COST
+export const DAILY_BONUS_GOLD = 10
+export const DISCOVER_GOLD = 20
 
 // Cut reward gold
 const CUT_GROWN_REWARD = 8
@@ -57,17 +64,70 @@ const _pendingDiscover = new Set()
 
 export const PALETTE = PASTELS
 
+// First-session walk: guide new players to The Lonely Oak after welcome.
+// Missing/undefined on old saves → treat as 'done' so returning players are not nudged.
+const FIRST_WALK_LANDMARK_ID = 'lonely-oak'
+
 export const useStore = create((set, get) => ({
   // UI / HUD
   showNav: saved.showNav ?? true,
   hasCompletedWelcome: saved.hasCompletedWelcome ?? !!saved.name,
   isUpdatingName: false,
+  // 'active' | 'done' | 'dismissed' — only new welcomes start as 'active'
+  firstWalkQuest: saved.firstWalkQuest ?? 'done',
 
   completeWelcome: () => {
-    set({ hasCompletedWelcome: true })
+    const lm = LANDMARKS.find((l) => l.id === FIRST_WALK_LANDMARK_ID)
+    const alreadyFound = (get().discovered || []).includes(FIRST_WALK_LANDMARK_ID)
+    const quest = alreadyFound ? 'done' : 'active'
+    set({
+      hasCompletedWelcome: true,
+      firstWalkQuest: quest,
+      ...(quest === 'active' && lm
+        ? { navTarget: { id: lm.id, x: lm.x, z: lm.z, name: lm.name } }
+        : {}),
+    })
     const st = loadSave()
     st.hasCompletedWelcome = true
+    st.firstWalkQuest = quest
     localStorage.setItem(LS_KEY, JSON.stringify(st))
+    if (quest === 'active' && lm) {
+      // Delay so welcome UI unmounts first
+      setTimeout(() => {
+        get().flash(`First walk: head to ${lm.name}`)
+      }, 400)
+    }
+  },
+
+  dismissFirstWalk: () => {
+    set({ firstWalkQuest: 'dismissed' })
+    const st = loadSave()
+    st.firstWalkQuest = 'dismissed'
+    localStorage.setItem(LS_KEY, JSON.stringify(st))
+    // Clear nav only if still aimed at the first-walk landmark
+    const nav = get().navTarget
+    if (nav && nav.id === FIRST_WALK_LANDMARK_ID) set({ navTarget: null })
+  },
+
+  completeFirstWalk: () => {
+    if (get().firstWalkQuest !== 'active') return
+    set({ firstWalkQuest: 'done' })
+    const st = loadSave()
+    st.firstWalkQuest = 'done'
+    localStorage.setItem(LS_KEY, JSON.stringify(st))
+    const lm = LANDMARKS.find((l) => l.id === FIRST_WALK_LANDMARK_ID)
+    get().flash(lm ? `You found ${lm.name} — nice walking` : 'First walk complete')
+    // Soft mid-loop coach (B3): point at discovery / map / earn paths
+    setTimeout(() => {
+      get().flash('Tip · walk near places for gold · M opens map · plant free oaks anytime')
+    }, 2800)
+  },
+
+  startFirstWalkNav: () => {
+    const lm = LANDMARKS.find((l) => l.id === FIRST_WALK_LANDMARK_ID)
+    if (!lm) return
+    set({ navTarget: { id: lm.id, x: lm.x, z: lm.z, name: lm.name } })
+    get().flash(`Navigating to ${lm.name}`)
   },
 
   // camera + a/v
@@ -96,7 +156,7 @@ export const useStore = create((set, get) => ({
   name: saved.name ?? '',
   trees: saved.trees ?? [],
   discovered: saved.discovered ?? [],
-  lastBonus: saved.lastBonus ?? '', // only used offline; server tracks per-day online
+  lastBonus: saved.lastBonus ?? '', // calendar day (UTC) of last daily claim — offline + UI
   // rocks are server-owned when online (like trees). localStorage for offline.
   placedRocks: saved.placedRocks ?? [],
 
@@ -110,9 +170,9 @@ export const useStore = create((set, get) => ({
   craftedItems: saved.craftedItems ?? [],
   cutResources: saved.cutResources ?? {},
 
-  // shop & crafting
-  shopOpen: false,
-  craftingOpen: false,
+  // Unified Create hub (G = trees/nature, Q = craft tab). One name: Create.
+  createOpen: false,
+  createTab: 'trees', // trees | rocks | craft | plots | cosmetics
   isProcessingTeleport: false,
   teleportFlash: false,
   selectedItem: { type: 'tree', id: 'broadleaf', shape: 0, cost: 0 },
@@ -168,10 +228,14 @@ export const useStore = create((set, get) => ({
 
   // networking status
   online: false,
-  connectionStatus: 'offline',
+  connecting: false,
+  connectionStatus: 'offline', // offline | connecting | connected | reconnecting
+  connectionNote: null, // human reason when offline/failed
   playerCount: 1,
   renderedCount: 0,
   chat: [],
+  chatError: null, // last send failure shown in chat panel
+  muteRevision: 0, // bumps when mute list changes (Chat re-filter)
 
   chatScope: 'region',
 
@@ -192,8 +256,17 @@ export const useStore = create((set, get) => ({
   setMapOpen: (v) => set({ mapOpen: v }),
   setNavTarget: (target) => set({ navTarget: target }),
   clearNav: () => set({ navTarget: null }),
-  setShopOpen: (v) => set({ shopOpen: v, inputContext: v ? 'UI' : 'GAME' }),
-  setCraftingOpen: (v) => set({ craftingOpen: v, inputContext: v ? 'UI' : 'GAME' }),
+  setCreateOpen: (open, tab) =>
+    set((s) => {
+      const nextTab = tab != null ? tab : s.createTab || 'trees'
+      const isOpen = !!open
+      return {
+        createOpen: isOpen,
+        createTab: isOpen ? nextTab : s.createTab,
+        inputContext: isOpen ? 'UI' : 'GAME',
+      }
+    }),
+  setCreateTab: (tab) => set({ createTab: tab }),
   setSocialOpen: (v) => set({ socialOpen: v, inputContext: v ? 'UI' : 'GAME' }),
   setProfileModal: (v) => set({ profileModal: v, inputContext: v ? 'UI' : 'GAME' }),
   setFriends: (friends) => set({ friends }),
@@ -248,33 +321,73 @@ export const useStore = create((set, get) => ({
   },
   buyCosmetic: async (type, id, colorVal) => {
     const state = get()
-    
+
     if (!bridge.online) {
-      state.flash('must be online to buy')
+      // Free "no hat" still works offline; paid paints/hats need the shared garden
+      if (type === 'hat' && (id === 'none' || id == null)) {
+        set({ hatId: null })
+        state.flash('hat removed')
+        return true
+      }
+      state.flash('style purchases need online mode — free colours are in your profile')
       return false
     }
-    
+
     const res = await bridge.buyCosmetic(type, id, colorVal)
     if (!res.ok) {
       get().flash(res.error || 'purchase failed')
       return false
     }
-    
-    get().flash(`customised avatar`)
+
+    get().flash('customised avatar')
     return true
   },
-  setChatScope: (chatScope) => set({ chatScope }),
+  setChatScope: (chatScope) => set({ chatScope, chatError: null }),
+  setChatError: (chatError) => set({ chatError }),
+  clearChatError: () => set({ chatError: null }),
+  setMuteRevision: (muteRevision) => set({ muteRevision }),
 
-  flash: (msg) => {
-    set({ toast: { msg, at: Date.now() } })
+  /**
+   * @param {string} msg
+   * @param {'info'|'success'|'error'|'warn'} [type]
+   */
+  flash: (msg, type = 'info') => {
+    // Auto-detect type from common connection phrases when not specified
+    let t = type
+    if (type === 'info' && typeof msg === 'string') {
+      const m = msg.toLowerCase()
+      if (m.includes('could not') || m.includes('failed') || m.includes('need ') || m.includes('not enough'))
+        t = 'error'
+      else if (m.includes('connected') || m.includes('welcome') || m.includes('discovered') || m.includes('reconnected'))
+        t = 'success'
+      else if (m.includes('reconnect') || m.includes('connecting') || m.includes('lost'))
+        t = 'warn'
+    }
+    set({ toast: { msg, type: t, at: Date.now() } })
     setTimeout(() => {
-      if (get().toast && Date.now() - get().toast.at >= 2600) set({ toast: null })
-    }, 2700)
+      if (get().toast && Date.now() - get().toast.at >= 2800) set({ toast: null })
+    }, 2900)
   },
 
   // --- networking hydration (called by <Net/>) ---
-  setOnline: (online) => set({ online, connectionStatus: online ? 'connected' : 'offline' }),
+  setOnline: (online) => set((s) => ({
+    online,
+    connecting: false,
+    connectionStatus: online ? 'connected' : (s.connectionStatus === 'reconnecting' ? 'reconnecting' : 'offline'),
+    connectionNote: online ? null : s.connectionNote,
+  })),
+  setConnecting: (connecting) => set((s) => ({
+    connecting: !!connecting,
+    connectionStatus: connecting ? 'connecting' : s.connectionStatus,
+  })),
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
+  setConnectionNote: (connectionNote) => set({ connectionNote }),
+  goOffline: (reason) => set({
+    online: false,
+    connecting: false,
+    connectionStatus: 'offline',
+    connectionNote: reason || 'Could not connect — playing offline',
+  }),
   setPlayerCount: (playerCount) => set({ playerCount }),
   setRenderedCount: (renderedCount) => set({ renderedCount }),
   // Server is the source of truth for gold + discovered. Overwrites local.
@@ -330,7 +443,7 @@ export const useStore = create((set, get) => ({
     set((s) => ({ cutResources: { ...s.cutResources, [key]: cut } })),
 
   addChatMessage: (m) =>
-    set((s) => ({ chat: [...s.chat, m].slice(-CHAT_MAX) })),
+    set((s) => ({ chat: [...s.chat, m].slice(-CHAT_HISTORY_MAX) })),
 
   // ---------------------------------------------------------------------
   // MUTATIONS
@@ -437,18 +550,28 @@ export const useStore = create((set, get) => ({
       shape: sub.shape ?? 0,
       owner: true,
     }
-    const PLANT_REWARD = 5
+    // Free shapes award no gold (matches server #4). Paid shapes keep +5 bonus.
+    const PLANT_REWARD = cost > 0 ? 5 : 0
     set((s) => ({ trees: [...s.trees, t], gold: s.gold - cost + PLANT_REWARD }))
     const costStr = cost > 0 ? ` · -${cost} gold` : ''
-    state.flash(`planted a sapling${costStr} · +${PLANT_REWARD} gold`)
+    const rewardStr = PLANT_REWARD > 0 ? ` · +${PLANT_REWARD} gold` : ''
+    state.flash(`planted a sapling${costStr}${rewardStr}`)
 
     if (bridge.online) {
       const res = await bridge.plant(t)
       if (!res.ok) {
         set((s) => ({
           trees: s.trees.filter((x) => x.id !== t.id),
+          gold: s.gold + cost - PLANT_REWARD,
         }))
-        get().flash(res.error === 'too crowded' ? 'too crowded here' : 'could not plant')
+        const err = (res.error || '').toLowerCase()
+        get().flash(
+          err.includes('crowded') ? 'too crowded here'
+            : err.includes('too far') ? 'too far away'
+            : err.includes('position') ? 'move a little first'
+            : err.includes('gold') ? 'not enough gold'
+            : 'could not plant'
+        )
         return
       }
       if (typeof res.gold === 'number') set({ gold: res.gold })
@@ -484,16 +607,15 @@ export const useStore = create((set, get) => ({
         set((s) => ({
           placedRocks: s.placedRocks.filter((r) => r.id !== rock.id),
         }))
-        const map = {
-          'rock cooldown': 'wait a moment before placing again',
-          'too crowded':   'too crowded here',
-          'not enough gold': `need ${cost} gold`,
-        }
-        // If the server error isn't one we've mapped, surface the real
-        // message so the user (and we) can see what actually went wrong
-        // — usually "Could not find the function..." meaning schema.sql
-        // wasn't re-run, or a missing-column error.
-        get().flash(map[res.error] || `rock failed: ${res.error || 'unknown'}`)
+        const err = (res.error || '').toLowerCase()
+        const mapMsg =
+          err.includes('cooldown') ? 'wait a moment before placing again'
+          : err.includes('crowded') ? 'too crowded here'
+          : err.includes('gold') ? `need ${cost} gold`
+          : err.includes('too far') ? 'too far away'
+          : err.includes('position') ? 'move a little first'
+          : `rock failed: ${res.error || 'unknown'}`
+        get().flash(mapMsg)
         return
       }
       if (typeof res.gold === 'number') set({ gold: res.gold })
@@ -514,7 +636,7 @@ export const useStore = create((set, get) => ({
       }
       const res = await bridge.buyCustomPlot(plot)
       if (!res.ok) {
-        console.error('[buyPlot] server error:', res.error)
+        if (import.meta.env.DEV) console.error('[buyPlot] server error:', res.error)
         const map = {
           'already owned': 'you already own a plot',
           'limit of 5 plots reached': 'you can only own 5 plots',
@@ -588,6 +710,7 @@ export const useStore = create((set, get) => ({
       const rock = state.placedRocks.find((r) => r.id === sel.id)
       if (rock && !rock.owner && (Date.now() - (rock.placedAt || Date.now())) / 86400000 >= 2) return get().releaseSelection()
       if (!rock || !rock.owner) { set({ selection: null }); return }
+      const stoneBefore = state.stone
       set((s) => ({
         breakingId: rock.id,
         stone: s.stone + ROCK_REMOVE_REWARD,
@@ -606,12 +729,14 @@ export const useStore = create((set, get) => ({
       if (bridge.online) {
         bridge.removeRock(rock.id).then((res) => {
           if (!res.ok) {
-            // Revert: cancel animation
+            // Revert animation + optimistic stone
             set((s) => ({
               breakingId: null,
+              stone: stoneBefore,
             }))
             get().flash(res.error === 'not your rock' ? 'that rock is not yours' : 'could not remove rock')
           } else {
+            // Server returns authoritative stone total (#5)
             if (typeof res.stone === 'number') set({ stone: res.stone })
             const elapsed = performance.now() - breakStart
             const remaining = Math.max(0, 500 - elapsed)
@@ -619,6 +744,8 @@ export const useStore = create((set, get) => ({
             else doRemoveRock()
           }
         })
+      } else {
+        setTimeout(doRemoveRock, 500)
       }
       return
     } else if (sel.kind === 'tree') {
@@ -823,22 +950,27 @@ export const useStore = create((set, get) => ({
   },
 
   sendChat: async (text) => {
-    let clean = (text || '').trim().slice(0, 160)
-    if (!clean) return
+    let clean = (text || '').trim().slice(0, CHAT_TEXT_MAX)
+    if (!clean) return { ok: false, error: 'empty' }
     clean = maskProfanity(clean)
     const state = get()
     const scope = state.chatScope
+    set({ chatError: null })
 
     // Client-side pre-cooldown for instant feedback (server enforces the real one)
     if (!clientChatCooldown(scope)) {
-      state.flash('slow down — one message at a time')
-      return
+      const err = 'slow down — one message at a time'
+      set({ chatError: err })
+      state.flash(err)
+      return { ok: false, error: err }
     }
 
     // World chat is gold-gated; check locally for a nicer error, server enforces
     if (scope === 'world' && state.gold < WORLD_CHAT_COST) {
-      state.flash(`world chat costs ${WORLD_CHAT_COST} gold`)
-      return
+      const err = `world chat costs ${WORLD_CHAT_COST} gold`
+      set({ chatError: err })
+      state.flash(err)
+      return { ok: false, error: err }
     }
 
     const msg = {
@@ -849,6 +981,7 @@ export const useStore = create((set, get) => ({
       text: clean,
       at: Date.now(),
       self: true,
+      userId: null,
     }
     state.addChatMessage(msg)
 
@@ -859,9 +992,24 @@ export const useStore = create((set, get) => ({
           'chat cooldown': 'slow down — one message at a time',
           'not enough gold': `world chat costs ${WORLD_CHAT_COST} gold`,
           'bad text': 'message rejected',
+          'position unknown — move first': 'move a little, then try again',
+          'position stale — move first': 'move a little, then try again',
         }
-        get().flash(errMap[res.error] || 'could not send')
-        return
+        const raw = (res.error || '').toLowerCase()
+        let err = errMap[res.error] || errMap[raw]
+        if (!err) {
+          if (raw.includes('gold')) err = `world chat costs ${WORLD_CHAT_COST} gold`
+          else if (raw.includes('cooldown') || raw.includes('429')) err = 'slow down — one message at a time'
+          else if (raw.includes('position')) err = 'move a little, then try again'
+          else err = res.error || 'could not send'
+        }
+        // Drop optimistic bubble on failure so history stays honest
+        set((s) => ({
+          chat: s.chat.filter((m) => m.id !== msg.id),
+          chatError: err,
+        }))
+        get().flash(err)
+        return { ok: false, error: err }
       }
       if (typeof res.gold === 'number') set({ gold: res.gold })
       // Server returns the server-sanitized text; update our own message to match.
@@ -870,30 +1018,40 @@ export const useStore = create((set, get) => ({
           chat: s.chat.map((m) => (m.id === msg.id ? { ...m, text: res.text } : m)),
         }))
       }
+      set({ chatError: null })
+      return { ok: true }
     }
+    return { ok: true }
   },
 
   discoverLandmark: async (id) => {
-    if (!bridge.online) return // Cannot discover offline / before profile loads
     if (get().discovered.includes(id)) return
-    // FIX #9 — skip if a request for this landmark is already in flight
+    // Guard in-flight discoveries (online) so rejections don't double-flash
     if (_pendingDiscover.has(id)) return
 
     _pendingDiscover.add(id)
     const lm = LANDMARKS.find((l) => l.id === id)
+    const goldBefore = get().gold
+    const discoveredBefore = get().discovered
 
-    // Optimistic
-    set((s) => ({ discovered: [...s.discovered, id], gold: s.gold + 20 }))
-    get().flash(`discovered ${lm ? lm.name : 'a place'} · +20 gold`)
+    // Offline + online optimistic: local discovered + gold (B3 / offline progression)
+    set((s) => ({ discovered: [...s.discovered, id], gold: s.gold + DISCOVER_GOLD }))
+    get().flash(`discovered ${lm ? lm.name : 'a place'} · +${DISCOVER_GOLD} gold`)
+    if (id === FIRST_WALK_LANDMARK_ID) get().completeFirstWalk()
 
     if (bridge.online) {
       try {
         const res = await bridge.discover(id)
         if (!res.ok) {
-          // Roll back on server rejection
-          set((s) => ({
-            discovered: s.discovered.filter((x) => x !== id),
-          }))
+          set({
+            discovered: discoveredBefore,
+            gold: goldBefore,
+          })
+          // Don't spam if already discovered server-side
+          const err = (res.error || '').toLowerCase()
+          if (!err.includes('already') && !discoveredBefore.includes(id)) {
+            get().flash('could not save discovery — try again online')
+          }
         } else if (typeof res.gold === 'number') {
           set({ gold: res.gold })
         }
@@ -986,38 +1144,66 @@ export const useStore = create((set, get) => ({
     set({ isProcessingTeleport: false })
   },
 
-  claimDailyBonus: async () => {
-    // Online: server decides. Offline: use playtime.
+  /**
+   * Daily +10 gold.
+   * @param {{ quiet?: boolean, forceToast?: boolean }} opts
+   *   quiet — suppress "already claimed" / errors (auto-claim on connect)
+   *   forceToast — always explain outcome (manual claim from Settings)
+   */
+  claimDailyBonus: async ({ quiet = false, forceToast = false } = {}) => {
+    const say = (msg, isSuccessClaim = false) => {
+      // Auto-claim: only celebrate a real claim. Manual: always explain.
+      if (forceToast || isSuccessClaim || !quiet) get().flash(msg)
+    }
+
     if (bridge.online) {
       const res = await bridge.claimDaily()
-      if (res.ok && res.gold) {
-        set({ gold: res.gold })
-        get().flash('claimed daily bonus! · +10 gold')
+      if (res.ok && typeof res.gold === 'number') {
+        const prev = get().gold
+        set({ gold: res.gold, lastBonus: todayStr() })
+        if (res.gold > prev) {
+          say(`claimed daily bonus! · +${DAILY_BONUS_GOLD} gold`, true)
+          return { ok: true, claimed: true, gold: res.gold }
+        }
+        if (forceToast || !quiet) {
+          get().flash('daily bonus already claimed · come back tomorrow')
+        }
+        return { ok: true, claimed: false, gold: res.gold }
       }
-    } else {
-      // Offline mode: require 24 hours of accumulated playtime (86400 seconds)
-      const state = get()
-      const lastBonusPlaytime = state.lastBonusPlaytime ?? 0
-      if (state.playtimeSeconds - lastBonusPlaytime >= 86400 || !state.lastBonus) {
-        set((s) => ({
-          gold: s.gold + 10,
-          lastBonus: todayStr(),
-          lastBonusPlaytime: s.playtimeSeconds
-        }))
-        state.flash('claimed daily bonus! · +10 gold')
-      } else {
-        const remaining = 86400 - (state.playtimeSeconds - lastBonusPlaytime)
-        const hrs = Math.ceil(remaining / 3600)
-        state.flash(`play ${hrs} more hour(s) to unlock the next daily bonus (offline)`)
+      if (!res.ok) {
+        const err = (res.error || '').toLowerCase()
+        if (err.includes('too new')) {
+          if (forceToast || !quiet) get().flash('daily bonus unlocks after 12 hours with this account')
+        } else if (forceToast) {
+          get().flash(res.error || 'could not claim daily bonus')
+        }
+        return { ok: false, claimed: false, error: res.error }
       }
+      return { ok: false, claimed: false }
     }
+
+    // Offline: one claim per calendar day (UTC date) — same rhythm as online (B7)
+    const state = get()
+    const today = todayStr()
+    if (state.lastBonus === today) {
+      if (forceToast || !quiet) get().flash('daily bonus already claimed · come back tomorrow')
+      return { ok: true, claimed: false, gold: state.gold }
+    }
+    set((s) => ({
+      gold: s.gold + DAILY_BONUS_GOLD,
+      lastBonus: today,
+      lastBonusPlaytime: s.playtimeSeconds,
+    }))
+    say(`claimed daily bonus! · +${DAILY_BONUS_GOLD} gold`, true)
+    return { ok: true, claimed: true, gold: get().gold }
   },
 
   claimOfflineGold: async () => {
     if (bridge.online) {
       const res = await bridge.claimOfflineGold()
       if (res.ok && res.gold && res.gold > 0) {
-        set((s) => ({ gold: s.gold }))
+        // Server returns gold amount claimed (pending), not new balance
+        set((s) => ({ gold: s.gold + res.gold }))
         get().flash(`nature reclaimed your wild items · +${res.gold} gold!`)
       }
     }
@@ -1079,6 +1265,9 @@ useStore.subscribe((s) => {
         keybinds: s.keybinds,
         customSpawn: s.customSpawn,
         playtimeSeconds: s.playtimeSeconds,
+        firstWalkQuest: s.firstWalkQuest,
+        hasCompletedWelcome: s.hasCompletedWelcome,
+        lastBonus: s.lastBonus, // daily-claim UI works online + offline
       }
       if (!s.online) {
         base.gold = s.gold
@@ -1086,7 +1275,6 @@ useStore.subscribe((s) => {
         base.stone = s.stone
         base.trees = s.trees
         base.discovered = s.discovered
-        base.lastBonus = s.lastBonus
         base.placedRocks = s.placedRocks // offline: keep rocks locally
         base.plots = s.plots // offline: keep plots locally
         base.craftedItems = s.craftedItems

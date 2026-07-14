@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { PALETTE, useStore } from '../store'
 import { ONLINE, supabase } from '../net/supabase'
+import { useFocusTrap, useEscapeKey } from './a11y'
 
 export default function Identity({ open, onClose }) {
+  const panelRef = useRef(null)
+  useFocusTrap(panelRef, open)
+  useEscapeKey(open, onClose)
+
   const name = useStore((s) => s.name)
   const color = useStore((s) => s.color)
   const gold = useStore((s) => s.gold)
@@ -37,6 +42,11 @@ export default function Identity({ open, onClose }) {
     setIsValid(true)
     setIsChecking(true)
     const t = setTimeout(async () => {
+      if (!supabase) {
+        setIsChecking(false)
+        setIsValid(true)
+        return
+      }
       const { data } = await supabase.rpc('check_name_available', { p_name: check })
       setIsChecking(false)
       if (data === false) setIsValid(false)
@@ -115,106 +125,131 @@ export default function Identity({ open, onClose }) {
   }
 
   return (
-    <div className={`identity no-look${open ? ' open' : ''}`}>
-      <label>Your name {isChecking ? '(checking...)' : (!isValid ? '(unavailable)' : '')}</label>
+    <div
+      ref={panelRef}
+      className={`identity no-look${open ? ' open' : ''}`}
+      role={open ? 'dialog' : undefined}
+      aria-modal={open ? true : undefined}
+      aria-labelledby="identity-title"
+    >
+      <h2 id="identity-title" className="sr-only">Your identity</h2>
+      <label htmlFor="identity-name">
+        Your name {isChecking ? '(checking...)' : (!isValid ? '(unavailable)' : '')}
+      </label>
       <input 
+        id="identity-name"
         value={inputName} 
         maxLength={18} 
         className={!isValid && !isChecking ? 'invalid' : ''}
+        aria-invalid={!isValid && !isChecking}
+        autoComplete="nickname"
         onChange={(e) => setInputName(e.target.value)} 
         onBlur={(e) => { useStore.getState().setInputContext('UI'); if(isValid && !isChecking) commitName(e); }} 
         onFocus={() => useStore.getState().setInputContext('CHAT')}
         placeholder="wanderer" 
       />
-      <label>Colour</label>
-      <div className="swatches">
-        {PALETTE.map((c) => (
-          <button
-            key={c}
-            className={`swatch${c === color ? ' sel' : ''}`}
-            style={{ background: c }}
-            onClick={() => setColor(c)}
-            aria-label={`colour ${c}`}
-          />
-        ))}
-      </div>
-      <div style={{ background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', margin: '8px 0' }}>
-        <div style={{ marginBottom: '4px', borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: '2px', fontSize: '0.85em', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.9)' }}>Statistics</div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', marginBottom: '2px', color: 'white' }}>
-          <span style={{ color: 'rgba(255,255,255,0.7)' }}>Trees Planted</span><span>{treesPlanted}</span>
+      <fieldset className="swatch-fieldset">
+        <legend>Colour</legend>
+        <div className="swatches" role="listbox" aria-label="Avatar colour">
+          {PALETTE.map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="option"
+              aria-selected={c === color}
+              className={`swatch${c === color ? ' sel' : ''}`}
+              style={{ '--swatch-color': c }}
+              onClick={() => setColor(c)}
+              aria-label={`colour ${c}`}
+            />
+          ))}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', marginBottom: '2px', color: 'white' }}>
-          <span style={{ color: 'rgba(255,255,255,0.7)' }}>Landmarks</span><span>{discovered.length} / 10</span>
+      </fieldset>
+      <div className="stat-grid">
+        <div className="stat-grid-title">Statistics</div>
+        <div className="stat-row">
+          <span className="stat-label">Trees Planted</span><span>{treesPlanted}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85em', color: 'white' }}>
-          <span style={{ color: 'rgba(255,255,255,0.7)' }}>Joined</span><span>{joinDate ? new Date(joinDate).toLocaleDateString() : 'Unknown'}</span>
+        <div className="stat-row">
+          <span className="stat-label">Landmarks</span><span>{discovered.length} / 10</span>
+        </div>
+        <div className="stat-row">
+          <span className="stat-label">Joined</span><span>{joinDate ? new Date(joinDate).toLocaleDateString() : 'Unknown'}</span>
         </div>
       </div>
       {online && linkMode === 'email' && (
         <>
-          <label>Keep across devices (optional)</label>
+          <label htmlFor="identity-email">Keep across devices (optional)</label>
           <div className="row">
             <input
+              id="identity-email"
               type="email"
               value={email}
+              autoComplete="email"
               onChange={(e) => setEmail(e.target.value)}
               onFocus={() => useStore.getState().setInputContext('CHAT')}
               onBlur={() => useStore.getState().setInputContext('UI')}
               placeholder="you@email.com"
             />
-            <button className="btn small" onClick={saveEmail}>
+            <button type="button" className="btn small" onClick={saveEmail}>
               link
             </button>
           </div>
-          {emailNote && <div className="note">{emailNote}</div>}
+          {emailNote && <div className="note" role="status">{emailNote}</div>}
         </>
       )}
       {online && linkMode === 'otp' && (
         <>
-          <label>Enter 6-digit Code</label>
+          <label htmlFor="identity-otp">Enter 6-digit Code</label>
           <div className="row">
             <input
+              id="identity-otp"
               type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]*"
+              maxLength={8}
               value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value)}
+              onChange={(e) => setOtpCode(e.target.value.replace(/[^\d]/g, '').slice(0, 8))}
               onFocus={() => useStore.getState().setInputContext('CHAT')}
               onBlur={() => useStore.getState().setInputContext('UI')}
               placeholder="123456"
             />
-            <button className="btn small" onClick={verifyOtp}>
+            <button type="button" className="btn small" onClick={verifyOtp}>
               verify
             </button>
           </div>
-          {emailNote && <div className="note">{emailNote}</div>}
+          {emailNote && <div className="note" role="status">{emailNote}</div>}
         </>
       )}
       {online && linkMode === 'conflict' && (
-        <div style={{ background: 'rgba(255,50,50,0.1)', padding: '8px', borderRadius: '4px', margin: '8px 0', border: '1px solid rgba(255,50,50,0.3)' }}>
-          <div style={{ marginBottom: '8px', fontSize: '0.85em', color: 'rgba(255,200,200,0.9)' }}>
+        <div className="alert-box" role="alertdialog" aria-labelledby="identity-conflict-title">
+          <div className="alert-box-body" id="identity-conflict-title">
             This email is already linked to another Meadow account. Do you want to log out of this guest account and log into the old one?
             <br/><br/>
             <strong>Note: Your current guest progress will be lost.</strong>
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button className="btn small" style={{ background: 'rgba(255,50,50,0.2)' }} onClick={handleConflictAccept}>
+          <div className="row">
+            <button type="button" className="btn small danger-soft" onClick={handleConflictAccept}>
               Switch Account
             </button>
-            <button className="btn small" onClick={() => { setLinkMode('email'); setEmailNote(''); }}>
+            <button type="button" className="btn small" onClick={() => { setLinkMode('email'); setEmailNote(''); }}>
               Cancel
             </button>
           </div>
         </div>
       )}
-      <div className="row" style={{ marginTop: 8 }}>
+      <div className="row mt">
         <button
+          type="button"
           className={`btn small${gold < 40 || isProcessingTeleport ? ' disabled' : ''}`}
           onClick={() => gold >= 40 && useStore.getState().setSpawnHere()}
-          disabled={isProcessingTeleport}
+          disabled={isProcessingTeleport || gold < 40}
         >
           📍 Set Here · 40g
         </button>
       </div>
-      <button className="btn small" onClick={handleDone}>
+      <button type="button" className="btn small" onClick={handleDone}>
         done
       </button>
     </div>

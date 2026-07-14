@@ -1,13 +1,18 @@
 // Cloudflare Turnstile helper used to gate anonymous sign-in.
 //
-// VITE_TURNSTILE_SITE_KEY MUST be set. If not, the application will refuse
-// to authenticate, preventing bot networks from bypassing the check.
+// In production builds, VITE_TURNSTILE_SITE_KEY MUST be set. Without it,
+// getCaptchaToken() throws so Net will not open an unauthenticated online
+// session (bots cannot cycle anonymous identities).
+//
+// In development (import.meta.env.DEV), missing keys still warn and return
+// null so local offline/online testing works without Turnstile.
 //
 // We render an invisible widget once, cache the promise, and refresh the
 // token on demand — Turnstile tokens are single-use and expire after ~5 min.
 
 const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
 const SCRIPT_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+const IS_PROD = import.meta.env.PROD
 
 let scriptPromise = null
 let widgetId = null
@@ -43,22 +48,28 @@ function ensureContainer() {
 }
 
 /**
- * Fetch a fresh Turnstile token, or null if captcha isn't configured.
- * Never throws — failure to load the widget just resolves to null so the
- * game keeps working in dev without a captcha configured.
+ * Fetch a fresh Turnstile token.
+ * Production: throws if site key missing or widget fails (fail closed).
+ * Development: returns null if captcha isn't configured.
  */
 export async function getCaptchaToken() {
   if (!SITE_KEY) {
-    console.warn('VITE_TURNSTILE_SITE_KEY is not set. Proceeding without Captcha.')
+    if (IS_PROD) {
+      throw new Error('VITE_TURNSTILE_SITE_KEY is required in production')
+    }
+    console.warn('VITE_TURNSTILE_SITE_KEY is not set. Proceeding without Captcha (dev only).')
     return null
   }
   try {
     const turnstile = await loadScript()
-    if (!turnstile) return null
+    if (!turnstile) {
+      if (IS_PROD) throw new Error('turnstile unavailable')
+      return null
+    }
     const el = ensureContainer()
 
-    return await new Promise((resolve) => {
-      const done = (token) => resolve(token || null)
+    const token = await new Promise((resolve, reject) => {
+      const done = (t) => resolve(t || null)
       // Reset any prior render so we always get a fresh token.
       if (widgetId != null) {
         try { turnstile.reset(widgetId) } catch { /* ignore */ }
@@ -70,13 +81,26 @@ export async function getCaptchaToken() {
       widgetId = turnstile.render(el, {
         sitekey: SITE_KEY,
         callback: done,
-        'error-callback': () => done(null),
-        'timeout-callback': () => done(null),
+        'error-callback': () => {
+          if (IS_PROD) reject(new Error('captcha failed'))
+          else done(null)
+        },
+        'timeout-callback': () => {
+          if (IS_PROD) reject(new Error('captcha timeout'))
+          else done(null)
+        },
       })
     })
-  } catch {
+
+    if (IS_PROD && !token) {
+      throw new Error('captcha token missing')
+    }
+    return token
+  } catch (err) {
+    if (IS_PROD) throw err
     return null
   }
 }
 
 export const CAPTCHA_ENABLED = Boolean(SITE_KEY)
+export const CAPTCHA_REQUIRED = IS_PROD

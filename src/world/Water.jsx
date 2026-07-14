@@ -1,56 +1,41 @@
 import * as THREE from 'three'
 import { useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { terrainHeight } from './noise'
-// We import the same PONDS array used by noise.js for flattening
-import { PONDS } from './noise'
+import { terrainHeight, PONDS } from './noise'
+import {
+  STREAM_SAMPLE_POINTS,
+  STREAM_WIDTH,
+  STREAM_POINTS,
+} from './water-path'
+import { waterRipples } from '../player-state'
 
-// Water bodies — ponds and a stream that break up the uniform grass world.
-// Semi-transparent with gentle vertex animation for soft ripples.
-
-// Stream points forming a winding path from Silver Brook to Crystal Pond
-export const STREAM_POINTS = [
-  { x: -300, z: 280 },
-  { x: -260, z: 250 },
-  { x: -220, z: 230 },
-  { x: -180, z: 240 },
-  { x: -140, z: 220 },
-  { x: -100, z: 190 },
-  { x: -74, z: 140 },
-  { x: -60, z: 100 },
-  { x: -50, z: 60 },
-  { x: -74, z: 40 },
-]
-
-export const STREAM_WIDTH = 3.5
+// Re-export for any leftover imports
+export { STREAM_POINTS, STREAM_WIDTH } from './water-path'
 
 function createWaterMaterial() {
   const mat = new THREE.MeshStandardMaterial({
     color: '#4a90b8',
     transparent: true,
     opacity: 0.55,
-    roughness: 0.1,
-    metalness: 0.3,
+    roughness: 0.12,
+    metalness: 0.25,
     side: THREE.DoubleSide,
+    depthWrite: false,
   })
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 }
-    shader.uniforms.uRipples = { value: new Array(12).fill(new THREE.Vector4(0,0,0,0)) }
+    shader.uniforms.uRipples = { value: new Array(12).fill(new THREE.Vector4(0, 0, 0, 0)) }
     shader.vertexShader = `
       uniform float uTime;
-      uniform vec4 uRipples[12]; // x, z, startTime, intensity
+      uniform vec4 uRipples[12];
       ${shader.vertexShader}
     `
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
        vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
-       
-       // Base ambient ripples
-       float baseRipples = sin(wp.x * 0.5 + uTime * 1.2) * 0.05 + cos(wp.z * 0.4 + uTime * 0.9) * 0.04;
+       float baseRipples = sin(wp.x * 0.5 + uTime * 1.2) * 0.04 + cos(wp.z * 0.4 + uTime * 0.9) * 0.03;
        float dy = baseRipples;
-
-       // Dynamic step ripples
        for(int i=0; i<12; i++) {
          vec4 r = uRipples[i];
          if (r.w > 0.0) {
@@ -58,48 +43,35 @@ function createWaterMaterial() {
            float dz = wp.z - r.y;
            float dist = sqrt(dx*dx + dz*dz);
            float age = uTime - r.z;
-           
-           // Ripple spreads at 3.0 units per second
            float spread = age * 3.0;
            float distFromRing = abs(dist - spread);
-           
-           // Only affect vertices near the expanding ring
            if (distFromRing < 1.5 && age > 0.0 && age < 4.0) {
-             // Fade out based on age and distance from center
              float fade = (1.0 - (age / 4.0)) * smoothstep(1.5, 0.0, distFromRing);
-             // Wave function
-             float wave = sin((dist - age * 3.0) * 8.0) * 0.15;
+             float wave = sin((dist - age * 3.0) * 8.0) * 0.12;
              dy += wave * fade * r.w;
            }
          }
        }
-       
        transformed.y += dy;
-      `
+      `,
     )
     mat.userData.shader = shader
   }
   return mat
 }
 
+/** Stream ribbon sitting slightly above carved bed (same samples as corridor). */
 function buildStreamGeo() {
   const verts = []
   const indices = []
   const uvs = []
-
-  // Create a smooth curve from the stream points
-  const points = STREAM_POINTS.map(p => new THREE.Vector3(p.x, 0, p.z))
-  const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5)
-  
-  // Sample the curve at high resolution so the stream perfectly hugs the terrain
-  const SEGMENTS = 150
-  const curvePoints = curve.getSpacedPoints(SEGMENTS)
+  const curvePoints = STREAM_SAMPLE_POINTS
+  const hw = STREAM_WIDTH * 0.5
 
   for (let i = 0; i < curvePoints.length; i++) {
     const p = curvePoints[i]
-    
-    // Calculate 2D normal for stream width
-    let dx, dz
+    let dx
+    let dz
     if (i < curvePoints.length - 1) {
       dx = curvePoints[i + 1].x - p.x
       dz = curvePoints[i + 1].z - p.z
@@ -107,32 +79,22 @@ function buildStreamGeo() {
       dx = p.x - curvePoints[i - 1].x
       dz = p.z - curvePoints[i - 1].z
     }
-    const len = Math.hypot(dx, dz)
+    const len = Math.hypot(dx, dz) || 1
     const nx = -dz / len
     const nz = dx / len
-    const hw = STREAM_WIDTH * 0.5
-
     const x1 = p.x + nx * hw
     const z1 = p.z + nz * hw
     const x2 = p.x - nx * hw
     const z2 = p.z - nz * hw
-
-    // Sample terrain EXACTLY at the left/right vertices to prevent clipping
-    // Float it slightly above the grass so it's clearly visible
-    const y1 = terrainHeight(x1, z1) + 0.04
-    const y2 = terrainHeight(x2, z2) + 0.04
-
-    verts.push(x1, y1, z1)
-    verts.push(x2, y2, z2)
-
+    // Bed is already carved; float water slightly above terrainHeight
+    const y1 = terrainHeight(x1, z1) + 0.06
+    const y2 = terrainHeight(x2, z2) + 0.06
+    verts.push(x1, y1, z1, x2, y2, z2)
     const u = i / (curvePoints.length - 1)
-    uvs.push(0, u)
-    uvs.push(1, u)
-
+    uvs.push(0, u, 1, u)
     if (i < curvePoints.length - 1) {
       const base = i * 2
-      indices.push(base, base + 1, base + 2)
-      indices.push(base + 1, base + 3, base + 2)
+      indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2)
     }
   }
 
@@ -144,27 +106,20 @@ function buildStreamGeo() {
   return geo
 }
 
-import { useStore } from '../store'
-import { waterRipples } from '../player-state'
-
 const RIPPLE_VECS = new Array(12).fill(0).map(() => new THREE.Vector4())
 
 export default function Water() {
-  const plots = useStore((s) => s.plots)
   const mat = useMemo(() => createWaterMaterial(), [])
-  const streamGeo = useMemo(() => buildStreamGeo(), [plots])
+  // Rebuild if terrain carve changes globally (static after load)
+  const streamGeo = useMemo(() => buildStreamGeo(), [])
 
   useFrame(({ clock }) => {
     if (mat.userData.shader) {
       mat.userData.shader.uniforms.uTime.value = clock.elapsedTime
-      
       for (let i = 0; i < 12; i++) {
         const r = waterRipples[i]
-        if (r) {
-          RIPPLE_VECS[i].set(r.x, r.z, r.time, r.intensity)
-        } else {
-          RIPPLE_VECS[i].set(0, 0, 0, 0)
-        }
+        if (r) RIPPLE_VECS[i].set(r.x, r.z, r.time, r.intensity)
+        else RIPPLE_VECS[i].set(0, 0, 0, 0)
       }
       mat.userData.shader.uniforms.uRipples.value = RIPPLE_VECS
     }
@@ -172,18 +127,21 @@ export default function Water() {
 
   return (
     <group>
-      {PONDS.map((p, i) => (
-        <mesh
-          key={i}
-          // The terrain crater is deeply lowered, so this sits perfectly inside
-          position={[p.x, terrainHeight(p.x, p.z) + 0.35, p.z]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          material={mat}
-          receiveShadow
-        >
-          <circleGeometry args={[p.r, 24]} />
-        </mesh>
-      ))}
+      {PONDS.map((p, i) => {
+        // Basin bed is POND_HEIGHT - 0.45; water sits mid-basin for soft shores
+        const bedY = terrainHeight(p.x, p.z)
+        return (
+          <mesh
+            key={i}
+            position={[p.x, bedY + 0.12, p.z]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            material={mat}
+            receiveShadow
+          >
+            <circleGeometry args={[p.r * 0.98, 32]} />
+          </mesh>
+        )
+      })}
       <mesh geometry={streamGeo} material={mat} receiveShadow />
     </group>
   )

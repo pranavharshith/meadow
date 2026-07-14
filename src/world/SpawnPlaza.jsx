@@ -85,6 +85,7 @@ const STEP3_H = 0.35
 
 // Full radius of the base slab — players outside this fall back to raw terrain.
 // Set to cover the slab outer edge (WALL_RADIUS + 2.0 = 14.8) with a small margin.
+/** Outer walkable plaza radius — keep ≤ PLAZA_FLAT_R (15) in noise.js (C6). */
 export const PLAZA_OUTER_RADIUS = 14.5
 
 /**

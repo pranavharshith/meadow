@@ -39,29 +39,90 @@ export function clientChatCooldown(scope) {
 }
 
 let mutes = new Set()
+// Display names for mute list UI (best-effort from chat / presence)
+const muteNames = new Map()
+let muteRevision = 0
+const muteListeners = new Set()
+
+function loadLocalMutes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MUTE_KEY) || '[]')
+    if (Array.isArray(raw)) {
+      for (const entry of raw) {
+        if (typeof entry === 'string') mutes.add(entry)
+        else if (entry && entry.id) {
+          mutes.add(entry.id)
+          if (entry.name) muteNames.set(entry.id, entry.name)
+        }
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+function persistLocalMutes() {
+  try {
+    const payload = [...mutes].map((id) => ({ id, name: muteNames.get(id) || 'player' }))
+    localStorage.setItem(MUTE_KEY, JSON.stringify(payload))
+  } catch { /* ignore */ }
+}
+
+function bumpMutes() {
+  muteRevision += 1
+  for (const fn of muteListeners) {
+    try { fn(muteRevision) } catch { /* ignore */ }
+  }
+}
+
+loadLocalMutes()
+
+export function getMuteRevision() {
+  return muteRevision
+}
+
+export function subscribeMutes(fn) {
+  muteListeners.add(fn)
+  return () => muteListeners.delete(fn)
+}
 
 export function setMutesFromServer(serverMutes) {
   mutes = new Set(serverMutes || [])
+  // Merge with any local-only names we already know
+  persistLocalMutes()
+  bumpMutes()
 }
 
 export function isMuted(userId) {
   return userId ? mutes.has(userId) : false
 }
 
-export function setMuted(userId, muted) {
+export function setMuted(userId, muted, name) {
   if (!userId) return
-  if (muted) mutes.add(userId)
-  else mutes.delete(userId)
+  if (muted) {
+    mutes.add(userId)
+    if (name) muteNames.set(userId, name)
+  } else {
+    mutes.delete(userId)
+    muteNames.delete(userId)
+  }
+  persistLocalMutes()
+  bumpMutes()
 }
 
-export function toggleMute(userId) {
-  setMuted(userId, !isMuted(userId))
+export function toggleMute(userId, name) {
+  const next = !isMuted(userId)
+  setMuted(userId, next, name)
   if (bridge.online && bridge.toggleMute) {
     bridge.toggleMute(userId).catch(() => {})
   }
-  return isMuted(userId)
+  return next
 }
 
 export function listMutes() {
-  return [...mutes]
+  return [...mutes].map((id) => ({ id, name: muteNames.get(id) || 'player' }))
+}
+
+export function rememberMuteName(userId, name) {
+  if (!userId || !name) return
+  muteNames.set(userId, name)
+  if (mutes.has(userId)) persistLocalMutes()
 }
