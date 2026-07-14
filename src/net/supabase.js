@@ -5,10 +5,24 @@ import { createClient } from '@supabase/supabase-js'
 // network. Set them in a .env file (or Vercel project settings) to go live:
 //   VITE_SUPABASE_URL=...
 //   VITE_SUPABASE_ANON_KEY=...
-const url = import.meta.env.VITE_SUPABASE_URL
-const key = import.meta.env.VITE_SUPABASE_ANON_KEY
+//
+// Trim values — a leading space after `=` in .env is a common footgun and
+// produces invalid URLs / JWT keys with no obvious console explosion.
+const url = String(import.meta.env.VITE_SUPABASE_URL || '').trim()
+const key = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim()
 
 export const ONLINE = Boolean(url && key)
+
+// One-time diagnostics (dev only) so "stuck offline" is not silent
+if (import.meta.env.DEV) {
+  if (!ONLINE) {
+    console.info(
+      '[meadow] Offline mode: set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env, then restart `npm run dev`.',
+    )
+  } else {
+    console.info('[meadow] Supabase env loaded:', url.replace(/^(https:\/\/[^/]+).*/, '$1/…'))
+  }
+}
 
 export const supabase = ONLINE
   ? createClient(url, key, {

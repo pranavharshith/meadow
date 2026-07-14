@@ -8,32 +8,19 @@ import { useStore } from '../store'
 
 const RINGS = 2 // 5×5 window
 
-// LOD segment counts by Chebyshev ring distance (C4)
-const SEG_NEAR = 40
-const SEG_MID = 26
-const SEG_FAR = 16
+// IMPORTANT: all chunks in a ring set must share the SAME segment count.
+// Different segs on adjacent chunks sample different edge vertices → height
+// cracks that read as white lines (fog/sky through gaps). Quality only
+// changes the global grid density, never per-ring mismatch.
+function segsForQuality(quality) {
+  if (quality === 'off') return 18
+  if (quality === 'half') return 28
+  return 40
+}
 
 const LOW = new THREE.Color('#38571d')
 const HIGH = new THREE.Color('#8bb352')
 const DRY = new THREE.Color('#a98f52')
-
-function segsForRing(dx, dz, quality) {
-  const r = Math.max(Math.abs(dx), Math.abs(dz))
-  // Mirror grass density as a cheap quality knob
-  if (quality === 'off') {
-    if (r === 0) return 20
-    if (r === 1) return 14
-    return 10
-  }
-  if (quality === 'half') {
-    if (r === 0) return 28
-    if (r === 1) return 18
-    return 12
-  }
-  if (r === 0) return SEG_NEAR
-  if (r === 1) return SEG_MID
-  return SEG_FAR
-}
 
 function buildGroundGeo(cx, cz, segs) {
   const g = new THREE.PlaneGeometry(CHUNK, CHUNK, segs, segs)
@@ -116,12 +103,14 @@ export default function Terrain() {
     if (cx !== center.cx || cz !== center.cz) setCenter({ cx, cz })
   })
 
+  // One SEG for the whole window so shared edges match exactly
+  const segs = segsForQuality(grassDensity)
+
   const chunks = []
   for (let dx = -RINGS; dx <= RINGS; dx++) {
     for (let dz = -RINGS; dz <= RINGS; dz++) {
       const cx = center.cx + dx
       const cz = center.cz + dz
-      const segs = segsForRing(dx, dz, grassDensity)
       // Only plots that touch this chunk force a remesh (C1/C5)
       const plotSig = plotSignatureForChunk(cx, cz, CHUNK)
       chunks.push(

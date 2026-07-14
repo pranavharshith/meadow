@@ -33,7 +33,13 @@ export default function Net() {
 
   useEffect(() => {
     if (!ONLINE) {
-      useStore.getState().goOffline('Offline mode — no Supabase keys configured')
+      const note = 'Offline — add VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY to .env and restart dev server'
+      useStore.getState().goOffline(note)
+      // One visible toast so this is not silent (users often miss the status chip)
+      useStore.getState().flash(note, 'warn')
+      if (import.meta.env.DEV) {
+        console.info('[meadow/net]', note)
+      }
       // Expose local mute controls even offline (though there's no one to mute)
       bridge.isMuted = isMuted
       bridge.toggleMute = async () => {}
@@ -467,8 +473,9 @@ export default function Net() {
         })
         if (error) {
           const msg = error.message?.toLowerCase().includes('captcha')
-            ? 'Could not connect — captcha rejected'
-            : 'Could not connect — sign-in failed'
+            ? 'Could not connect — captcha rejected (check Turnstile + Supabase Auth CAPTCHA settings)'
+            : `Could not connect — sign-in failed: ${error.message || 'unknown'}`
+          if (import.meta.env.DEV) console.warn('[meadow/net] signInAnonymously', error)
           useStore.getState().goOffline(msg)
           useStore.getState().flash(msg, 'error')
           return

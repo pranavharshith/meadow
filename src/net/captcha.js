@@ -10,7 +10,8 @@
 // We render an invisible widget once, cache the promise, and refresh the
 // token on demand — Turnstile tokens are single-use and expire after ~5 min.
 
-const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
+// Trim — `.env` lines like `KEY = value` leave spaces that break Turnstile.
+const SITE_KEY = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()
 const SCRIPT_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
 const IS_PROD = import.meta.env.PROD
 
