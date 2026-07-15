@@ -15,7 +15,7 @@ function mergedTransformed(source, transforms) {
   return mergeGeometries(parts)
 }
 
-export const GRASS_BLADE_HEIGHT = 0.82
+export const GRASS_BLADE_HEIGHT = 0.92
 
 // One curved, tapered blade: several rows wide at the root, narrowing to a
 // point, gently bending forward. Reads as a broad leaf rather than a stick.
@@ -46,15 +46,15 @@ function createGrassBladeGeometry(height, baseWidth, bend, rows = 5) {
 // A tuft is a few overlapping blades fanned around the root so tufts read as
 // soft clumps that merge into a continuous meadow at distance.
 function createGrassTuftGeometry() {
-  const count = 4
+  const count = 6
   const blades = []
   for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI + (i % 2) * 0.5
-    const height = GRASS_BLADE_HEIGHT * (0.82 + (i % 3) * 0.13)
-    const bend = 0.16 + (i % 2) * 0.07
-    const blade = createGrassBladeGeometry(height, 0.14, bend, 5)
+    const angle = (i / count) * Math.PI * 2 + (i % 2) * 0.4
+    const height = GRASS_BLADE_HEIGHT * (0.78 + (i % 3) * 0.15)
+    const bend = 0.15 + (i % 2) * 0.08
+    const blade = createGrassBladeGeometry(height, 0.15, bend, 5)
     blade.rotateY(angle)
-    blade.translate(Math.cos(angle) * 0.03, -0.02, Math.sin(angle) * 0.03)
+    blade.translate(Math.cos(angle) * 0.045, -0.02, Math.sin(angle) * 0.045)
     blades.push(blade)
   }
   return mergeGeometries(blades)
@@ -130,7 +130,10 @@ export const stumpGeometry = new THREE.CylinderGeometry(0.28, 0.38, 0.72, 7)
 export const stumpCapGeometry = new THREE.CylinderGeometry(0.285, 0.285, 0.035, 7)
 
 export const grassMaterial = (() => {
-  const material = new THREE.MeshStandardMaterial({ color: '#78913a', side: THREE.DoubleSide, roughness: 1, metalness: 0 })
+  // White base so the per-instance colors render at full value instead of being
+  // multiplied down into muddy olive. Lushness/gradient comes from instanceColor
+  // and the shader tip gradient below.
+  const material = new THREE.MeshStandardMaterial({ color: '#ffffff', side: THREE.DoubleSide, roughness: 1, metalness: 0 })
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = windTime
     shader.uniforms.uWind = windStrength

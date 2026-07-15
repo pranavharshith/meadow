@@ -17,7 +17,7 @@ const _tilt = new THREE.Quaternion()
 const _yaw = new THREE.Quaternion()
 
 const COLORS = Object.freeze({
-  grass: [new THREE.Color('#607a32'), new THREE.Color('#78913a'), new THREE.Color('#91a247'), new THREE.Color('#4c6b36')],
+  grass: [new THREE.Color('#5c8a2c'), new THREE.Color('#72a637'), new THREE.Color('#8dc24a'), new THREE.Color('#4c7d2c')],
   flower: [new THREE.Color('#f4e5ca'), new THREE.Color('#dda8bc'), new THREE.Color('#d8c8eb'), new THREE.Color('#e9c77e')],
   fern: [new THREE.Color('#315c34'), new THREE.Color('#44703b'), new THREE.Color('#547f43')],
   leaf: [new THREE.Color('#8b7037'), new THREE.Color('#70552d'), new THREE.Color('#a18145'), new THREE.Color('#5c4728')],
@@ -57,24 +57,26 @@ export function generateGroundCover(cx, cz, densityScale, plots, segments = 50) 
   const dummy = new THREE.Object3D()
 
   const grassRandom = mulberry32(seedFor(cx, cz) ^ 0xa1)
-  for (let i = 0; i < Math.floor(2400 * densityScale); i++) {
+  for (let i = 0; i < Math.floor(4600 * densityScale); i++) {
     const [x, z] = point(grassRandom, cx, cz)
     const roll = grassRandom()
     const rotation = grassRandom() * Math.PI
-    const width = 0.62 + grassRandom() * 0.48
-    const height = 0.42 + grassRandom() * 0.72
+    const width = 0.7 + grassRandom() * 0.55
+    const height = 0.55 + grassRandom() * 0.8
     const color = COLORS.grass[(grassRandom() * COLORS.grass.length) | 0]
     if (isNatureExcluded(plots, x, z)) continue
 
     const y = terrainHeight(x, z)
     const biome = biomeSample(x, z, 0, y)
     const zones = sampleGroundCoverZones(x, z)
-    const canopyClearance = 1 - biome.forest * 0.58
-    const acceptance = (0.18 + biome.meadow * 0.5 + biome.moisture * 0.08)
-      * zones.meadowPatch * canopyClearance
+    // Fuller carpet: high base coverage in open ground, thinning only under
+    // dense canopy so meadows read as a continuous field like the reference.
+    const canopyClearance = 1 - biome.forest * 0.42
+    const acceptance = (0.55 + biome.meadow * 0.42 + biome.moisture * 0.12)
+      * (0.55 + zones.meadowPatch * 0.45) * canopyClearance
     if (roll > acceptance) continue
 
-    const verticalScale = height * (0.82 + biome.moisture * 0.18) * (0.76 + zones.meadowPatch * 0.3)
+    const verticalScale = height * (0.85 + biome.moisture * 0.2) * (0.82 + zones.meadowPatch * 0.28)
     // Sit on the exact rendered facet and lean with the slope.
     const meshY = sampleTerrainMeshHeight(x, z, segments)
     sampleTerrainMeshNormal(x, z, segments, _normal)
