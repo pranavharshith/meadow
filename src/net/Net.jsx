@@ -817,15 +817,17 @@ export default function Net() {
             hatId: data.hat_id
           })
           if (chatChannelRef.current && chatChannelRef.current.state === 'joined') {
-            chatChannelRef.current.track({
-              id: meId.current,
-              name: data.name,
-              color: data.color,
-              headColor: data.head_color,
-              bodyColor: data.body_color,
-              legColor: data.leg_color,
-              hatId: data.hat_id
-            }).catch(() => {})
+            void Promise.resolve(
+              chatChannelRef.current.track({
+                id: meId.current,
+                name: data.name,
+                color: data.color,
+                headColor: data.head_color,
+                bodyColor: data.body_color,
+                legColor: data.leg_color,
+                hatId: data.hat_id
+              }),
+            ).catch(() => {})
           }
         }
         return { ok: !error, error }
@@ -1076,11 +1078,14 @@ export default function Net() {
       realtimeFailStreak = 0
       useStore.getState().flash('Connected — welcome to the meadow', 'success')
 
-      // Seed server position immediately so proximity RPCs work (#6)
-      supabase.rpc('update_position', {
-        p_x: +P.pos.x.toFixed(2),
-        p_z: +P.pos.z.toFixed(2),
-      }).catch(() => {})
+      // Seed server position immediately so proximity RPCs work (#6).
+      // Postgrest builders are thenable but have no .catch — use Promise.resolve.
+      void Promise.resolve(
+        supabase.rpc('update_position', {
+          p_x: +P.pos.x.toFixed(2),
+          p_z: +P.pos.z.toFixed(2),
+        }),
+      ).catch(() => {})
 
       // Online: quiet auto-claim (toast only when newly claimed)
       useStore.getState().claimDailyBonus({ quiet: true })
@@ -1217,10 +1222,12 @@ export default function Net() {
       posRpcAcc.current += dt
       if (posRpcAcc.current >= 0.5) {
         posRpcAcc.current = 0
-        supabase.rpc('update_position', {
-          p_x: +P.pos.x.toFixed(2),
-          p_z: +P.pos.z.toFixed(2),
-        }).then(() => {}).catch(() => {})
+        void Promise.resolve(
+          supabase.rpc('update_position', {
+            p_x: +P.pos.x.toFixed(2),
+            p_z: +P.pos.z.toFixed(2),
+          }),
+        ).catch(() => {})
       }
     }
 
