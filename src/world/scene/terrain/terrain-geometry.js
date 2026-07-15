@@ -4,13 +4,13 @@ import { CHUNK } from '../../chunk'
 import { terrainDeformations } from '../../../player-state'
 import { sampleTerrainColor } from './terrain-palette'
 
-const CHUNK_OVERLAP = 0.14
 const NORMAL_PROBE = 2.2
 
 /** Build one world-space terrain chunk with stable normals and biome colors. */
 export function buildTerrainGeometry(cx, cz, segments) {
-  const size = CHUNK + CHUNK_OVERLAP * 2
-  const geometry = new THREE.PlaneGeometry(size, size, segments, segments)
+  // Exact CHUNK size (no overlap) so the vertex lattice aligns globally and the
+  // player/grass surface sampler can reproduce the same triangles precisely.
+  const geometry = new THREE.PlaneGeometry(CHUNK, CHUNK, segments, segments)
   geometry.rotateX(-Math.PI / 2)
 
   const originX = cx * CHUNK + CHUNK / 2

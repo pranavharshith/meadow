@@ -1,124 +1,102 @@
 import * as THREE from 'three'
-import { useMemo, useRef, useLayoutEffect } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { terrainHeight, mulberry32 } from './noise'
+import { mulberry32, terrainHeight } from './noise'
 import { P } from '../player-state'
 
-// A handful of flower petals drifting across the meadow on the breeze. They
-// live in WORLD space and simply float along the wind; when one drifts too far
-// from the player it is recycled on the upwind side, so they always flow past
-// you in a natural, patterned stream rather than being glued to the camera.
-const COUNT = 150
-const RADIUS = 46 // how far a petal may wander before it recycles
-const WIND = new THREE.Vector2(0.9, 0.55) // gentle drift direction (world)
+const COUNT = 48
+const RADIUS = 42
+const WIND = new THREE.Vector2(0.9, 0.55)
 
+/** Sparse triangular leaves drifting through the scene without screen clutter. */
 export default function Petals() {
   const ref = useRef()
-
-  // normalized wind + the upwind angle (where recycled petals enter from)
-  const windDir = useMemo(() => WIND.clone().normalize(), [])
-  const upwind = useMemo(
-    () => Math.atan2(-windDir.y, -windDir.x),
-    [windDir]
+  const windDirection = useMemo(() => WIND.clone().normalize(), [])
+  const upwindAngle = useMemo(
+    () => Math.atan2(-windDirection.y, -windDirection.x),
+    [windDirection],
   )
 
   const petals = useMemo(() => {
-    const rng = mulberry32(555)
-    const arr = []
-    const px = 0
-    const pz = 6 // matches the player's starting spot
-    for (let i = 0; i < COUNT; i++) {
-      const a = rng() * Math.PI * 2
-      const r = Math.sqrt(rng()) * RADIUS
-      arr.push({
-        x: px + Math.cos(a) * r,
-        z: pz + Math.sin(a) * r,
-        h: 0.4 + rng() * 2.4, // height above the ground
-        phase: rng() * Math.PI * 2,
-        spin: (rng() - 0.5) * 2,
-        flutter: 0.6 + rng() * 0.8,
-        speed: 0.7 + rng() * 0.6, // per-petal wind speed for a looser pattern
-        sway: 0.4 + rng() * 0.6, // sideways wobble strength
-        sc: 0.6 + rng() * 0.6,
-      })
-    }
-    return arr
+    const random = mulberry32(555)
+    return Array.from({ length: COUNT }, () => {
+      const angle = random() * Math.PI * 2
+      const radius = Math.sqrt(random()) * RADIUS
+      return {
+        x: Math.cos(angle) * radius,
+        z: 6 + Math.sin(angle) * radius,
+        height: 0.3 + random() * 1.5,
+        phase: random() * Math.PI * 2,
+        spin: (random() - 0.5) * 1.5,
+        flutter: 0.55 + random() * 0.75,
+        speed: 0.55 + random() * 0.55,
+        sway: 0.25 + random() * 0.4,
+        scale: 0.55 + random() * 0.45,
+      }
+    })
   }, [])
 
-  const geo = useMemo(() => new THREE.PlaneGeometry(0.16, 0.1), [])
-  const mat = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: '#ffd9e6',
-        emissive: '#ffbcd2',
-        emissiveIntensity: 0.15,
-        roughness: 0.8,
-        side: THREE.DoubleSide,
-      }),
-    []
-  )
+  const geometry = useMemo(() => new THREE.CircleGeometry(0.07, 3), [])
+  const material = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#e5c99a',
+    roughness: 0.95,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+  }), [])
 
   useLayoutEffect(() => {
-    const mesh = ref.current
-    const col = new THREE.Color()
-    const palette = ['#ffffff', '#fff2b0', '#ffd1e8', '#ffb3c1', '#fff7d6']
-    const rng = mulberry32(556)
+    const palette = ['#e8d7b2', '#d8b77f', '#cb9873', '#b6a45f']
+    const random = mulberry32(556)
+    const color = new THREE.Color()
     for (let i = 0; i < COUNT; i++) {
-      col.set(palette[(rng() * palette.length) | 0])
-      mesh.setColorAt(i, col)
+      ref.current.setColorAt(i, color.set(palette[(random() * palette.length) | 0]))
     }
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    if (ref.current.instanceColor) ref.current.instanceColor.needsUpdate = true
   }, [])
 
-  const d = useMemo(() => new THREE.Object3D(), [])
-  const rnd = useRef(mulberry32(777))
+  const dummy = useMemo(() => new THREE.Object3D(), [])
+  const recycleRandom = useRef(mulberry32(777))
 
-  useFrame(({ clock }, dt) => {
-    const step = Math.min(dt, 0.05)
-    const t = clock.elapsedTime
-    const mesh = ref.current
-    const px = P.pos.x
-    const pz = P.pos.z
-    const r2 = RADIUS * RADIUS
+  useFrame(({ clock }, delta) => {
+    const step = Math.min(delta, 0.05)
+    const time = clock.elapsedTime
+    const playerX = P.pos.x
+    const playerZ = P.pos.z
+    const radiusSquared = RADIUS * RADIUS
 
     for (let i = 0; i < COUNT; i++) {
-      const p = petals[i]
-      // drift along the wind, with a gentle perpendicular wobble so the stream
-      // meanders instead of moving in a dead-straight line
-      const wob = Math.sin(t * p.flutter + p.phase) * p.sway
-      p.x += (windDir.x * p.speed - windDir.y * wob) * step
-      p.z += (windDir.y * p.speed + windDir.x * wob) * step
+      const petal = petals[i]
+      const wobble = Math.sin(time * petal.flutter + petal.phase) * petal.sway
+      petal.x += (windDirection.x * petal.speed - windDirection.y * wobble) * step
+      petal.z += (windDirection.y * petal.speed + windDirection.x * wobble) * step
 
-      // recycle upwind when it has floated too far from the player
-      const dx = p.x - px
-      const dz = p.z - pz
-      if (dx * dx + dz * dz > r2) {
-        const rng = rnd.current
-        const ang = upwind + (rng() - 0.5) * Math.PI // enter from upwind arc
-        const rr = RADIUS * (0.75 + rng() * 0.25)
-        p.x = px + Math.cos(ang) * rr
-        p.z = pz + Math.sin(ang) * rr
-        p.h = 0.4 + rng() * 2.4
-        p.phase = rng() * Math.PI * 2
+      const dx = petal.x - playerX
+      const dz = petal.z - playerZ
+      if (dx * dx + dz * dz > radiusSquared) {
+        const random = recycleRandom.current
+        const angle = upwindAngle + (random() - 0.5) * Math.PI
+        const radius = RADIUS * (0.78 + random() * 0.22)
+        petal.x = playerX + Math.cos(angle) * radius
+        petal.z = playerZ + Math.sin(angle) * radius
+        petal.height = 0.3 + random() * 1.5
+        petal.phase = random() * Math.PI * 2
       }
 
-      const flutterY = Math.sin(t * p.flutter + p.phase) * 0.25
-      const gy = terrainHeight(p.x, p.z) + p.h + flutterY
-
-      d.position.set(p.x, gy, p.z)
-      d.rotation.set(
-        t * p.spin * 0.6 + p.phase,
-        t * p.spin + p.phase,
-        Math.sin(t * p.flutter + p.phase) * 0.8
+      const flutterHeight = Math.sin(time * petal.flutter + petal.phase) * 0.16
+      dummy.position.set(petal.x, terrainHeight(petal.x, petal.z) + petal.height + flutterHeight, petal.z)
+      dummy.rotation.set(
+        time * petal.spin * 0.45 + petal.phase,
+        time * petal.spin + petal.phase,
+        Math.sin(time * petal.flutter + petal.phase) * 0.65,
       )
-      d.scale.setScalar(p.sc)
-      d.updateMatrix()
-      mesh.setMatrixAt(i, d.matrix)
+      dummy.scale.setScalar(petal.scale)
+      dummy.updateMatrix()
+      ref.current.setMatrixAt(i, dummy.matrix)
     }
-    mesh.instanceMatrix.needsUpdate = true
+    ref.current.instanceMatrix.needsUpdate = true
   })
 
-  return (
-    <instancedMesh ref={ref} args={[geo, mat, COUNT]} frustumCulled={false} />
-  )
+  return <instancedMesh ref={ref} args={[geometry, material, COUNT]} frustumCulled={false} />
 }

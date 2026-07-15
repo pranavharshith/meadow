@@ -42,6 +42,23 @@ export const look = {
 // Raw keyboard state keyed by e.code.
 export const keys = {}
 
+// Clears every held key. Called when the window loses focus so a key held
+// during an alt-tab / tab-switch can't stay "pressed" and walk the avatar
+// into a wall forever.
+export function releaseAllKeys() {
+  for (const code in keys) keys[code] = false
+}
+
+// Shared pointer-gesture state. Controls (desktop) and TouchJoystick write it;
+// world click handlers read `moved` to tell a real tap apart from a camera
+// drag. Because React Three Fiber fires its synthetic click on pointer-up
+// *before* our window-level pointerup listener runs, `moved` is still accurate
+// inside every onClick — no timers or guesswork required.
+export const pointer = {
+  moved: false,   // did the current/just-finished gesture cross the drag threshold
+  dragging: false, // a look-drag is actively in progress
+}
+
 // Positions of trees near the player, used by minimap + collision + wildlife.
 // Each entry: { x, z, r, mature }
 export const treeRegistry = []

@@ -872,6 +872,15 @@ export const useStore = create((set, get) => ({
       return
     }
 
+    // Wild (procedural) trees and rocks: selected by clicking, harvested here
+    // on X — the same select-then-cut rhythm as planted items, so a stray
+    // click can never destroy the scenery.
+    if (sel.kind === 'procedural') {
+      get().cutProcedural(sel.chunkKey, sel.localId, sel.resourceKind || 'tree', sel.id)
+      set({ selection: null })
+      return
+    }
+
     if (sel.kind === 'rock') {
       const rock = state.placedRocks.find((r) => r.id === sel.id)
       if (rock && !rock.owner && (Date.now() - (rock.placedAt || Date.now())) / 86400000 >= 2) return get().releaseSelection()

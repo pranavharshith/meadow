@@ -4,7 +4,7 @@ import { Select } from '@react-three/postprocessing'
 import { terrainHeight } from '../../noise'
 import { plazaFloorHeight } from '../../SpawnPlaza'
 import { makeLeafMat } from '../../tree-assets'
-import { treeRegistry } from '../../../player-state'
+import { treeRegistry, pointer } from '../../../player-state'
 import { useStore } from '../../../store'
 import PlantedTreeModel from './PlantedTreeModel'
 
@@ -103,9 +103,11 @@ export default function PlantedTrees({ trees }) {
 
         const handleClick = (event) => {
           event.stopPropagation()
+          if (pointer.moved) return
           if (cuttingId === tree.id) return
           if (!owned) {
             flash('this tree was planted by someone else')
+            setSelection(null)
             return
           }
           setSelection(selected ? null : { kind: 'tree', id: tree.id })

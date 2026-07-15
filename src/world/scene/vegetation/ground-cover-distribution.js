@@ -8,156 +8,204 @@ import {
 } from '../../noise'
 import { CHUNK, seedFor } from '../../chunk'
 import { isNatureExcluded } from '../contracts/placement-mask'
+import { sampleTerrainMeshHeight, sampleTerrainMeshNormal } from '../terrain/terrain-surface'
+import { sampleGroundCoverZones } from './ground-cover-zones'
+
+const _up = new THREE.Vector3(0, 1, 0)
+const _normal = new THREE.Vector3()
+const _tilt = new THREE.Quaternion()
+const _yaw = new THREE.Quaternion()
 
 const COLORS = Object.freeze({
-  grass: [new THREE.Color('#506b28'), new THREE.Color('#718b32'), new THREE.Color('#8c9940'), new THREE.Color('#435f2d')],
-  flower: [new THREE.Color('#f3e0c3'), new THREE.Color('#dca8bd'), new THREE.Color('#d8c8ee'), new THREE.Color('#e8c27b')],
-  fern: [new THREE.Color('#254a2a'), new THREE.Color('#365f31'), new THREE.Color('#476d35')],
-  leaf: [new THREE.Color('#8a7032'), new THREE.Color('#6e5428'), new THREE.Color('#a17d3a'), new THREE.Color('#574321')],
-  pebble: [new THREE.Color('#62645b'), new THREE.Color('#858273'), new THREE.Color('#696559')],
+  grass: [new THREE.Color('#607a32'), new THREE.Color('#78913a'), new THREE.Color('#91a247'), new THREE.Color('#4c6b36')],
+  flower: [new THREE.Color('#f4e5ca'), new THREE.Color('#dda8bc'), new THREE.Color('#d8c8eb'), new THREE.Color('#e9c77e')],
+  fern: [new THREE.Color('#315c34'), new THREE.Color('#44703b'), new THREE.Color('#547f43')],
+  leaf: [new THREE.Color('#8b7037'), new THREE.Color('#70552d'), new THREE.Color('#a18145'), new THREE.Color('#5c4728')],
+  pebble: [new THREE.Color('#6e7067'), new THREE.Color('#918e7e'), new THREE.Color('#777166')],
 })
 
 function append(target, dummy, x, y, z, rotation, scale, color) {
   dummy.position.set(x, y, z)
-  dummy.rotation.set(rotation[0], rotation[1], rotation[2])
-  dummy.scale.set(scale[0], scale[1], scale[2])
+  dummy.rotation.set(...rotation)
+  dummy.scale.set(...scale)
   dummy.updateMatrix()
   target.push({ matrix: dummy.matrix.clone(), color })
 }
 
-function point(rng, cx, cz) {
-  return [cx * CHUNK + rng() * CHUNK, cz * CHUNK + rng() * CHUNK]
+// Places an instance flush on the rendered terrain facet: yaw first, then tilt
+// so the base sits against the slope instead of floating vertically.
+function appendGrounded(target, dummy, x, y, z, normal, yaw, scale, color) {
+  _tilt.setFromUnitVectors(_up, normal)
+  _yaw.setFromAxisAngle(_up, yaw)
+  dummy.quaternion.copy(_tilt).multiply(_yaw)
+  dummy.position.set(x, y, z)
+  dummy.scale.set(...scale)
+  dummy.updateMatrix()
+  target.push({ matrix: dummy.matrix.clone(), color })
 }
 
-/** Generates all static forest-floor batches for one deterministic chunk. */
-export function generateGroundCover(cx, cz, densityScale, plots) {
+function point(random, cx, cz) {
+  return [cx * CHUNK + random() * CHUNK, cz * CHUNK + random() * CHUNK]
+}
+
+/** Generates mutually composed forest-floor batches for one stable chunk. */
+export function generateGroundCover(cx, cz, densityScale, plots, segments = 50) {
   const result = {
     grass: [], flowers: [], ferns: [], shrubs: [], berries: [],
     leaves: [], twigs: [], pebbles: [], stumps: [], stumpCaps: [],
   }
   const dummy = new THREE.Object3D()
 
-  const grassRng = mulberry32(seedFor(cx, cz) ^ 0xa1)
-  const grassCandidates = Math.floor(3600 * densityScale)
-  for (let i = 0; i < grassCandidates; i++) {
-    const [x, z] = point(grassRng, cx, cz)
-    const acceptanceRoll = grassRng()
-    const rotation = grassRng() * Math.PI
-    const width = 0.68 + grassRng() * 0.62
-    const height = 0.58 + grassRng() * 1.1
-    const colorRoll = (grassRng() * COLORS.grass.length) | 0
+  const grassRandom = mulberry32(seedFor(cx, cz) ^ 0xa1)
+  for (let i = 0; i < Math.floor(2400 * densityScale); i++) {
+    const [x, z] = point(grassRandom, cx, cz)
+    const roll = grassRandom()
+    const rotation = grassRandom() * Math.PI
+    const width = 0.62 + grassRandom() * 0.48
+    const height = 0.42 + grassRandom() * 0.72
+    const color = COLORS.grass[(grassRandom() * COLORS.grass.length) | 0]
     if (isNatureExcluded(plots, x, z)) continue
+
     const y = terrainHeight(x, z)
     const biome = biomeSample(x, z, 0, y)
-    const acceptance = 0.42 + biome.meadow * 0.4 + biome.forest * 0.18
-    if (acceptanceRoll > acceptance) continue
-    append(result.grass, dummy, x, y + 0.012, z, [0, rotation, 0], [width, height * (0.8 + biome.moisture * 0.35), width], COLORS.grass[colorRoll])
+    const zones = sampleGroundCoverZones(x, z)
+    const canopyClearance = 1 - biome.forest * 0.58
+    const acceptance = (0.18 + biome.meadow * 0.5 + biome.moisture * 0.08)
+      * zones.meadowPatch * canopyClearance
+    if (roll > acceptance) continue
+
+    const verticalScale = height * (0.82 + biome.moisture * 0.18) * (0.76 + zones.meadowPatch * 0.3)
+    // Sit on the exact rendered facet and lean with the slope.
+    const meshY = sampleTerrainMeshHeight(x, z, segments)
+    sampleTerrainMeshNormal(x, z, segments, _normal)
+    appendGrounded(result.grass, dummy, x, meshY - 0.02, z, _normal, rotation, [width, verticalScale, width], color)
   }
 
-  const flowerRng = mulberry32(seedFor(cx, cz) ^ 0xf1)
-  for (let i = 0; i < Math.floor(70 * densityScale); i++) {
-    const [x, z] = point(flowerRng, cx, cz)
-    const cluster = clusterField(x, z)
-    const rotation = flowerRng() * Math.PI
-    const scale = 0.45 + flowerRng() * 0.7
-    const color = COLORS.flower[(flowerRng() * COLORS.flower.length) | 0]
-    if (cluster < 0.52 || isNatureExcluded(plots, x, z)) continue
+  const flowerRandom = mulberry32(seedFor(cx, cz) ^ 0xf1)
+  for (let i = 0; i < Math.floor(52 * densityScale); i++) {
+    const [x, z] = point(flowerRandom, cx, cz)
+    const roll = flowerRandom()
+    const rotation = flowerRandom() * Math.PI
+    const scale = 0.42 + flowerRandom() * 0.58
+    const color = COLORS.flower[(flowerRandom() * COLORS.flower.length) | 0]
+    if (isNatureExcluded(plots, x, z)) continue
+
     const y = terrainHeight(x, z)
     const biome = biomeSample(x, z, 0, y)
-    if (biome.forest > 0.72 && flowerRng() > 0.22) continue
-    append(result.flowers, dummy, x, y + 0.08, z, [0, rotation, 0], [scale, scale, scale], color)
+    const zones = sampleGroundCoverZones(x, z)
+    const acceptance = clusterField(x, z) * zones.meadowPatch * biome.meadow * 0.76
+    if (roll > acceptance || biome.forest > 0.58) continue
+    append(result.flowers, dummy, x, y + 0.07, z, [0, rotation, 0], [scale, scale, scale], color)
   }
 
-  const fernRng = mulberry32(seedFor(cx, cz) ^ 0x4f3)
-  for (let i = 0; i < Math.floor(270 * densityScale); i++) {
-    const [x, z] = point(fernRng, cx, cz)
-    const roll = fernRng()
-    const rotation = fernRng() * Math.PI * 2
-    const scale = 0.5 + fernRng() * 1.05
-    const color = COLORS.fern[(fernRng() * COLORS.fern.length) | 0]
+  const fernRandom = mulberry32(seedFor(cx, cz) ^ 0x4f3)
+  for (let i = 0; i < Math.floor(175 * densityScale); i++) {
+    const [x, z] = point(fernRandom, cx, cz)
+    const roll = fernRandom()
+    const rotation = fernRandom() * Math.PI * 2
+    const scale = 0.48 + fernRandom() * 0.82
+    const color = COLORS.fern[(fernRandom() * COLORS.fern.length) | 0]
     if (isNatureExcluded(plots, x, z)) continue
+
     const y = terrainHeight(x, z)
     const slope = terrainSlope(x, z)
     const biome = biomeSample(x, z, slope, y)
-    if (slope > 0.72 || roll > 0.08 + biome.forest * 0.72 + biome.moisture * 0.18) continue
+    const zones = sampleGroundCoverZones(x, z)
+    const acceptance = zones.fernPatch * (0.16 + biome.forest * 0.62 + biome.moisture * 0.18)
+    if (slope > 0.68 || roll > acceptance) continue
     append(result.ferns, dummy, x, y + 0.025, z, [0, rotation, 0], [scale, scale, scale], color)
   }
 
-  const shrubRng = mulberry32(seedFor(cx, cz) ^ 0xb51)
-  for (let i = 0; i < Math.floor(90 * densityScale); i++) {
-    const [x, z] = point(shrubRng, cx, cz)
-    const roll = shrubRng()
-    const rotation = shrubRng() * Math.PI * 2
-    const width = 0.58 + shrubRng() * 1.05
-    const height = 0.62 + shrubRng() * 0.78
-    const berryRoll = shrubRng()
+  const shrubRandom = mulberry32(seedFor(cx, cz) ^ 0xb51)
+  for (let i = 0; i < Math.floor(58 * densityScale); i++) {
+    const [x, z] = point(shrubRandom, cx, cz)
+    const roll = shrubRandom()
+    const rotation = shrubRandom() * Math.PI * 2
+    const width = 0.58 + shrubRandom() * 0.78
+    const height = 0.6 + shrubRandom() * 0.58
+    const berries = shrubRandom()
     if (isNatureExcluded(plots, x, z, 0.5)) continue
+
     const y = terrainHeight(x, z)
     const slope = terrainSlope(x, z)
     const biome = biomeSample(x, z, slope, y)
-    if (slope > 0.68 || roll > 0.04 + biome.forest * 0.5 + biome.moisture * 0.1) continue
+    const zones = sampleGroundCoverZones(x, z)
+    const acceptance = zones.shrubPatch * (0.12 + biome.forest * 0.48 + biome.moisture * 0.08)
+    if (slope > 0.64 || roll > acceptance) continue
+
     const scale = [width, height, width]
     append(result.shrubs, dummy, x, y, z, [0, rotation, 0], scale)
-    if (berryRoll < 0.56) append(result.berries, dummy, x, y, z, [0, rotation, 0], scale)
+    if (berries < 0.42) append(result.berries, dummy, x, y, z, [0, rotation, 0], scale)
   }
 
-  const litterRng = mulberry32(seedFor(cx, cz) ^ 0x1eaf)
-  for (let i = 0; i < Math.floor(470 * densityScale); i++) {
-    const [x, z] = point(litterRng, cx, cz)
-    const roll = litterRng()
-    const rotation = litterRng() * Math.PI * 2
-    const scaleX = 0.55 + litterRng() * 1.5
-    const scaleZ = 0.55 + litterRng() * 1.3
-    const color = COLORS.leaf[(litterRng() * COLORS.leaf.length) | 0]
+  const litterRandom = mulberry32(seedFor(cx, cz) ^ 0x1eaf)
+  for (let i = 0; i < Math.floor(220 * densityScale); i++) {
+    const [x, z] = point(litterRandom, cx, cz)
+    const roll = litterRandom()
+    const rotation = litterRandom() * Math.PI * 2
+    const scaleX = 0.55 + litterRandom() * 1.15
+    const scaleZ = 0.55 + litterRandom() * 1.05
+    const color = COLORS.leaf[(litterRandom() * COLORS.leaf.length) | 0]
     if (isNatureExcluded(plots, x, z)) continue
+
     const y = terrainHeight(x, z)
     const biome = biomeSample(x, z, 0, y)
-    if (roll > 0.08 + biome.forest * 0.82 + biome.dryness * 0.12) continue
+    const zones = sampleGroundCoverZones(x, z)
+    const acceptance = zones.litterPatch * (0.15 + biome.forest * 0.68 + biome.dryness * 0.08)
+    if (roll > acceptance) continue
     append(result.leaves, dummy, x, y + 0.018, z, [0, rotation, 0], [scaleX, 1, scaleZ], color)
   }
 
-  const debrisRng = mulberry32(seedFor(cx, cz) ^ 0xd3b)
-  for (let i = 0; i < Math.floor(105 * densityScale); i++) {
-    const [x, z] = point(debrisRng, cx, cz)
-    const roll = debrisRng()
-    const rotation = debrisRng() * Math.PI * 2
-    const length = 0.45 + debrisRng() * 1.45
+  const debrisRandom = mulberry32(seedFor(cx, cz) ^ 0xd3b)
+  for (let i = 0; i < Math.floor(48 * densityScale); i++) {
+    const [x, z] = point(debrisRandom, cx, cz)
+    const roll = debrisRandom()
+    const rotation = debrisRandom() * Math.PI * 2
+    const length = 0.5 + debrisRandom() * 1.1
+    const thickness = 0.7 + debrisRandom() * 0.55
     if (isNatureExcluded(plots, x, z)) continue
+
     const y = terrainHeight(x, z)
     const biome = biomeSample(x, z, 0, y)
-    if (roll > 0.08 + biome.forest * 0.62) continue
-    append(result.twigs, dummy, x, y + 0.04, z, [0.03, rotation, 0], [length, 0.7 + debrisRng() * 0.8, 1])
+    const zones = sampleGroundCoverZones(x, z)
+    if (roll > zones.litterPatch * (0.08 + biome.forest * 0.48)) continue
+    append(result.twigs, dummy, x, y + 0.04, z, [0.03, rotation, 0], [length, thickness, 1])
   }
 
-  const pebbleRng = mulberry32(seedFor(cx, cz) ^ 0x57a)
-  for (let i = 0; i < Math.floor(85 * densityScale); i++) {
-    const [x, z] = point(pebbleRng, cx, cz)
-    const roll = pebbleRng()
-    const rotation = pebbleRng() * Math.PI * 2
-    const scale = 0.35 + pebbleRng() * 1.65
-    const color = COLORS.pebble[(pebbleRng() * COLORS.pebble.length) | 0]
+  const pebbleRandom = mulberry32(seedFor(cx, cz) ^ 0x57a)
+  for (let i = 0; i < Math.floor(46 * densityScale); i++) {
+    const [x, z] = point(pebbleRandom, cx, cz)
+    const roll = pebbleRandom()
+    const rotation = pebbleRandom() * Math.PI * 2
+    const scale = 0.38 + pebbleRandom() * 1.25
+    const color = COLORS.pebble[(pebbleRandom() * COLORS.pebble.length) | 0]
     if (isNatureExcluded(plots, x, z)) continue
+
     const y = terrainHeight(x, z)
     const slope = terrainSlope(x, z)
     const biome = biomeSample(x, z, slope, y)
-    if (roll > 0.08 + biome.rock * 0.58 + biome.forest * 0.14) continue
+    const zones = sampleGroundCoverZones(x, z)
+    const acceptance = 0.03 + zones.stonePatch * 0.28 + biome.rock * 0.42
+    if (roll > acceptance) continue
     append(result.pebbles, dummy, x, y + 0.08 * scale, z, [0, rotation, 0], [scale, scale, scale], color)
   }
 
-  const stumpRng = mulberry32(seedFor(cx, cz) ^ 0x57b9)
-  for (let i = 0; i < Math.floor(14 * densityScale); i++) {
-    const [x, z] = point(stumpRng, cx, cz)
-    const roll = stumpRng()
-    const rotation = stumpRng() * Math.PI * 2
-    const width = 0.72 + stumpRng() * 0.85
-    const height = 0.62 + stumpRng() * 0.8
+  const stumpRandom = mulberry32(seedFor(cx, cz) ^ 0x57b9)
+  for (let i = 0; i < Math.floor(7 * densityScale); i++) {
+    const [x, z] = point(stumpRandom, cx, cz)
+    const roll = stumpRandom()
+    const rotation = stumpRandom() * Math.PI * 2
+    const width = 0.78 + stumpRandom() * 0.62
+    const height = 0.68 + stumpRandom() * 0.62
     if (isNatureExcluded(plots, x, z, 0.8)) continue
+
     const y = terrainHeight(x, z)
     const biome = biomeSample(x, z, terrainSlope(x, z), y)
-    if (roll > biome.forest * 0.62) continue
-    const stumpScale = [width, height, width]
-    append(result.stumps, dummy, x, y + 0.36 * height, z, [0, rotation, 0], stumpScale)
-    append(result.stumpCaps, dummy, x, y + 0.72 * height, z, [0, rotation, 0], stumpScale)
+    const zones = sampleGroundCoverZones(x, z)
+    if (roll > zones.detailPatch * biome.forest * 0.34) continue
+    const scale = [width, height, width]
+    append(result.stumps, dummy, x, y + 0.36 * height, z, [0, rotation, 0], scale)
+    append(result.stumpCaps, dummy, x, y + 0.72 * height, z, [0, rotation, 0], scale)
   }
 
   return result

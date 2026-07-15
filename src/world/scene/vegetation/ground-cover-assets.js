@@ -15,13 +15,49 @@ function mergedTransformed(source, transforms) {
   return mergeGeometries(parts)
 }
 
+export const GRASS_BLADE_HEIGHT = 0.82
+
+// One curved, tapered blade: several rows wide at the root, narrowing to a
+// point, gently bending forward. Reads as a broad leaf rather than a stick.
+function createGrassBladeGeometry(height, baseWidth, bend, rows = 5) {
+  const positions = []
+  const indices = []
+  for (let i = 0; i <= rows; i++) {
+    const t = i / rows
+    const y = t * height
+    const halfWidth = (baseWidth * 0.5) * Math.pow(1 - t, 0.68)
+    const z = bend * t * t
+    positions.push(-halfWidth, y, z, halfWidth, y, z)
+  }
+  for (let i = 0; i < rows; i++) {
+    const a = i * 2
+    const b = i * 2 + 1
+    const c = (i + 1) * 2
+    const d = (i + 1) * 2 + 1
+    indices.push(a, b, d, a, d, c)
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+// A tuft is a few overlapping blades fanned around the root so tufts read as
+// soft clumps that merge into a continuous meadow at distance.
 function createGrassTuftGeometry() {
-  const blade = new THREE.PlaneGeometry(0.08, 0.66, 1, 3)
-  blade.translate(0, 0.33, 0)
-  return mergedTransformed(blade, Array.from({ length: 5 }, (_, index) => ({
-    rotation: [0, (index / 5) * Math.PI, (index - 2) * 0.035],
-    scale: [0.78 + (index % 3) * 0.14, 0.78 + (index % 2) * 0.28, 1],
-  })))
+  const count = 4
+  const blades = []
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI + (i % 2) * 0.5
+    const height = GRASS_BLADE_HEIGHT * (0.82 + (i % 3) * 0.13)
+    const bend = 0.16 + (i % 2) * 0.07
+    const blade = createGrassBladeGeometry(height, 0.14, bend, 5)
+    blade.rotateY(angle)
+    blade.translate(Math.cos(angle) * 0.03, -0.02, Math.sin(angle) * 0.03)
+    blades.push(blade)
+  }
+  return mergeGeometries(blades)
 }
 
 function createFernGeometry() {
@@ -51,7 +87,7 @@ function createFernGeometry() {
       endX, 0.2, endZ,
       endX - sideX * 0.12, 0.18, endZ - sideZ * 0.12,
     )
-    for (let n = 0; n < 5; n++) normals.push(0, 1, 0)
+    for (let normal = 0; normal < 5; normal++) normals.push(0, 1, 0)
     indices.push(vertex, vertex + 1, vertex + 2, vertex, vertex + 2, vertex + 3, vertex, vertex + 3, vertex + 4)
     vertex += 5
   }
@@ -66,8 +102,8 @@ function createFernGeometry() {
 
 const bushSource = new THREE.IcosahedronGeometry(0.5, 0)
 const berrySource = new THREE.IcosahedronGeometry(0.07, 0)
-const flowerPlane = new THREE.PlaneGeometry(0.24, 0.3)
-flowerPlane.translate(0, 0.15, 0)
+const flowerPlane = new THREE.PlaneGeometry(0.22, 0.27)
+flowerPlane.translate(0, 0.135, 0)
 
 export const grassTuftGeometry = createGrassTuftGeometry()
 export const fernGeometry = createFernGeometry()
@@ -84,7 +120,7 @@ export const flowerGeometry = mergedTransformed(flowerPlane, [
   { rotation: [0, 0, 0] },
   { rotation: [0, Math.PI / 2, 0] },
 ])
-export const fallenLeafGeometry = new THREE.CircleGeometry(0.13, 3)
+export const fallenLeafGeometry = new THREE.CircleGeometry(0.12, 3)
 fallenLeafGeometry.rotateX(-Math.PI / 2)
 export const twigGeometry = new THREE.CylinderGeometry(0.025, 0.04, 0.85, 5)
 twigGeometry.rotateZ(Math.PI / 2)
@@ -94,37 +130,41 @@ export const stumpGeometry = new THREE.CylinderGeometry(0.28, 0.38, 0.72, 7)
 export const stumpCapGeometry = new THREE.CylinderGeometry(0.285, 0.285, 0.035, 7)
 
 export const grassMaterial = (() => {
-  const material = new THREE.MeshStandardMaterial({
-    color: '#6e8b32',
-    side: THREE.DoubleSide,
-    roughness: 1,
-    metalness: 0,
-  })
+  const material = new THREE.MeshStandardMaterial({ color: '#78913a', side: THREE.DoubleSide, roughness: 1, metalness: 0 })
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = windTime
     shader.uniforms.uWind = windStrength
-    shader.vertexShader = 'uniform float uTime;\nuniform float uWind;\n' + shader.vertexShader
+    shader.vertexShader = 'uniform float uTime;\nuniform float uWind;\nvarying float vGrassH;\n' + shader.vertexShader
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
-       float grassHeight = clamp(position.y / 0.7, 0.0, 1.0);
+       float grassHeight = clamp(position.y / ${GRASS_BLADE_HEIGHT.toFixed(3)}, 0.0, 1.0);
+       vGrassH = grassHeight;
        vec3 grassOrigin = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
        float grassPhase = grassOrigin.x * 0.31 + grassOrigin.z * 0.27;
-       float grassSway = sin(uTime * 1.2 + grassPhase) + 0.45 * sin(uTime * 2.4 + grassPhase * 1.7);
-       transformed.x += grassSway * 0.11 * pow(grassHeight, 1.7) * uWind;
-       transformed.z += cos(uTime + grassPhase) * 0.06 * grassHeight * uWind;`,
+       float grassSway = sin(uTime * 1.1 + grassPhase) + 0.4 * sin(uTime * 2.3 + grassPhase * 1.7);
+       float bendAmt = pow(grassHeight, 1.6);
+       transformed.x += grassSway * 0.17 * bendAmt * uWind;
+       transformed.z += cos(uTime * 0.9 + grassPhase) * 0.09 * bendAmt * uWind;`,
+    )
+    shader.fragmentShader = 'varying float vGrassH;\n' + shader.fragmentShader
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+       diffuseColor.rgb *= mix(0.6, 1.12, vGrassH);
+       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.06, 1.1, 0.82), vGrassH * 0.5);`,
     )
   }
-  material.customProgramCacheKey = () => 'woodland-grass-v1'
+  material.customProgramCacheKey = () => 'woodland-grass-ribbon-v1'
   return material
 })()
 
-export const fernMaterial = new THREE.MeshStandardMaterial({ color: '#31592f', side: THREE.DoubleSide, roughness: 1, flatShading: true })
-export const shrubMaterial = new THREE.MeshStandardMaterial({ color: '#294b27', roughness: 1, flatShading: true })
-export const berryMaterial = new THREE.MeshStandardMaterial({ color: '#a92955', roughness: 0.8, flatShading: true })
-export const flowerMaterial = new THREE.MeshStandardMaterial({ color: '#f3d5b5', side: THREE.DoubleSide, roughness: 0.8 })
-export const leafMaterial = new THREE.MeshStandardMaterial({ color: '#79602c', side: THREE.DoubleSide, roughness: 1 })
-export const twigMaterial = new THREE.MeshStandardMaterial({ color: '#4a321e', roughness: 1, flatShading: true })
-export const pebbleMaterial = new THREE.MeshStandardMaterial({ color: '#706f64', roughness: 1, flatShading: true })
-export const stumpMaterial = new THREE.MeshStandardMaterial({ color: '#594126', roughness: 1, flatShading: true })
-export const stumpCapMaterial = new THREE.MeshStandardMaterial({ color: '#a07b4d', roughness: 1, flatShading: true })
+export const fernMaterial = new THREE.MeshStandardMaterial({ color: '#426f3f', side: THREE.DoubleSide, roughness: 1, flatShading: true })
+export const shrubMaterial = new THREE.MeshStandardMaterial({ color: '#3d6337', roughness: 1, flatShading: true })
+export const berryMaterial = new THREE.MeshStandardMaterial({ color: '#ad3f5e', roughness: 0.82, flatShading: true })
+export const flowerMaterial = new THREE.MeshStandardMaterial({ color: '#f0ddc0', side: THREE.DoubleSide, roughness: 0.82 })
+export const leafMaterial = new THREE.MeshStandardMaterial({ color: '#80683b', side: THREE.DoubleSide, roughness: 1 })
+export const twigMaterial = new THREE.MeshStandardMaterial({ color: '#563c25', roughness: 1, flatShading: true })
+export const pebbleMaterial = new THREE.MeshStandardMaterial({ color: '#7b796e', roughness: 1, flatShading: true })
+export const stumpMaterial = new THREE.MeshStandardMaterial({ color: '#64482b', roughness: 1, flatShading: true })
+export const stumpCapMaterial = new THREE.MeshStandardMaterial({ color: '#ad8758', roughness: 1, flatShading: true })

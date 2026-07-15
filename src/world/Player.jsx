@@ -10,10 +10,25 @@ import { useStore } from '../store'
 import AvatarMesh from './AvatarMesh'
 import { deformTerrain } from './deform'
 import { isOverWater } from './water-path'
+import { terrainSegmentsFor } from './scene/contracts/quality'
+import { sampleTerrainMeshHeight } from './scene/terrain/terrain-surface'
 
 const UP = new THREE.Vector3(0, 1, 0)
 const WALK = 4.2
 const RUN = 9
+const SUBSTEP = 0.3
+const MAX_CLIMB_RATIO = 2.2
+
+// One authoritative walk height: plaza slab first, otherwise the exact rendered
+// terrain facet, preserving any water-wade lift so the player wades rather than
+// sinking to the bed. Keeps player, grass, and camera on the same surface.
+export function samplePlayerSurface(x, z, segments) {
+  const plazaY = plazaFloorHeight(x, z)
+  if (plazaY !== null) return plazaY
+  const meshY = sampleTerrainMeshHeight(x, z, segments)
+  const wadeLift = walkSurfaceHeight(x, z) - terrainHeight(x, z)
+  return meshY + (wadeLift > 0 ? wadeLift : 0)
+}
 
 function dampAngle(current, target, lambda, dt) {
   let diff = target - current
@@ -112,7 +127,9 @@ export default function Player() {
     }
     const run = !blockMove && (keys['ShiftLeft'] || keys['ShiftRight'])
 
-    if (view === 'top') {
+    if (view === 'top' || view === 'drone') {
+      // Overhead views have no on-screen "forward" from yaw, so map movement to
+      // world axes: pushing up always walks away on screen.
       fwd.set(0, 0, -1)
       right.set(1, 0, 0)
     } else {
@@ -138,55 +155,71 @@ export default function Player() {
     P.moving = velocity.lengthSq() > 0.01
     P.running = run || (useStore.getState().joystickEnabled && Math.hypot(move.x, move.z) > 0.8)
 
-    if (P.moving) {
-      let nx = P.pos.x + velocity.x * step
-      let nz = P.pos.z + velocity.z * step
+    const segments = terrainSegmentsFor(st.grassDensity)
 
-      const inPlaza = plazaFloorHeight(nx, nz) !== null
-      if (!inPlaza) {
-        const e = 0.5
-        const hx = terrainHeight(nx + e, nz) - terrainHeight(nx - e, nz)
-        const hz = terrainHeight(nx, nz + e) - terrainHeight(nx, nz - e)
-        const gradX = hx / (2 * e)
-        const gradZ = hz / (2 * e)
-        const slope = Math.hypot(gradX, gradZ)
-        const MAX_SLOPE = 1.5
-        if (slope > MAX_SLOPE) {
-          const slide = (slope - MAX_SLOPE) * 20.0
-          nx -= (gradX / slope) * slide * step
-          nz -= (gradZ / slope) * slide * step
+    if (P.moving) {
+      // Integrate in short substeps so fast/downhill movement follows the
+      // terrain triangles instead of tunnelling across them.
+      const totalX = velocity.x * step
+      const totalZ = velocity.z * step
+      const subCount = Math.max(1, Math.ceil(Math.hypot(totalX, totalZ) / SUBSTEP))
+      const invSub = 1 / subCount
+
+      let curX = P.pos.x
+      let curZ = P.pos.z
+      let curSurface = samplePlayerSurface(curX, curZ, segments)
+
+      for (let s = 0; s < subCount; s++) {
+        let nx = curX + totalX * invSub
+        let nz = curZ + totalZ * invSub
+
+        const inPlaza = plazaFloorHeight(nx, nz) !== null
+        if (!inPlaza) {
+          const e = 0.5
+          const hx = samplePlayerSurface(nx + e, nz, segments) - samplePlayerSurface(nx - e, nz, segments)
+          const hz = samplePlayerSurface(nx, nz + e, segments) - samplePlayerSurface(nx, nz - e, segments)
+          const gradX = hx / (2 * e)
+          const gradZ = hz / (2 * e)
+          const slope = Math.hypot(gradX, gradZ)
+          const MAX_SLOPE = 1.5
+          if (slope > MAX_SLOPE) {
+            const slide = (slope - MAX_SLOPE) * 20.0
+            nx -= (gradX / slope) * slide * step * invSub
+            nz -= (gradZ / slope) * slide * step * invSub
+          }
         }
+
+        ;[nx, nz] = pushOut(nx, nz)
+
+        // Reject a substep that would scale a near-vertical wall.
+        const nextSurface = samplePlayerSurface(nx, nz, segments)
+        const stepDist = Math.hypot(nx - curX, nz - curZ)
+        if (stepDist > 1e-5 && Math.abs(nextSurface - curSurface) / stepDist > MAX_CLIMB_RATIO) break
+
+        curX = nx
+        curZ = nz
+        curSurface = nextSurface
       }
 
-      ;[nx, nz] = pushOut(nx, nz)
-      
-      const dx = nx - P.pos.x
-      const dz = nz - P.pos.z
-      const distMoved = Math.hypot(dx, dz)
-      
-      P.pos.x = nx
-      P.pos.z = nz
+      const distMoved = Math.hypot(curX - P.pos.x, curZ - P.pos.z)
+      P.pos.x = curX
+      P.pos.z = curZ
       P.avatarYaw = Math.atan2(velocity.x, velocity.z)
-      
+
       lastDeformDist.current += distMoved
       if (lastDeformDist.current > 0.8) {
         lastDeformDist.current = 0
-        if (isOverWater(nx, nz)) {
-          // Send a ripple event to the shader
-          // We pass clock.elapsedTime and an intensity factor based on speed
+        if (isOverWater(curX, curZ)) {
           const intensity = Math.min(1.0, velocity.length() / WALK)
-          addRipple(nx, nz, clock.elapsedTime, intensity)
-        } else if (!inPlaza) {
-          deformTerrain(nx, nz)
+          addRipple(curX, curZ, clock.elapsedTime, intensity)
+        } else if (plazaFloorHeight(curX, curZ) === null) {
+          deformTerrain(curX, curZ)
         }
       }
     }
-    // Ground: plaza steps, else walk surface (dry pad / wade near water surface — G2.5).
-    // Tiny foot lift avoids z-fight / toe clip (G1.8).
+    // Ground to the exact rendered surface. Tiny foot lift avoids toe clip.
     const FOOT_LIFT = 0.03
-    const plazaY = plazaFloorHeight(P.pos.x, P.pos.z)
-    const groundY = plazaY !== null ? plazaY : walkSurfaceHeight(P.pos.x, P.pos.z)
-    P.pos.y = groundY + FOOT_LIFT
+    P.pos.y = samplePlayerSurface(P.pos.x, P.pos.z, segments) + FOOT_LIFT
 
     const g = groupRef.current
     g.position.set(P.pos.x, P.pos.y, P.pos.z)

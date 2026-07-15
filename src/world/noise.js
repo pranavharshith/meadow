@@ -228,6 +228,9 @@ export function terrainSlope(x, z) {
  */
 export function walkSurfaceHeight(x, z) {
   const ground = terrainHeight(x, z)
+  // Claimed plot pads (and their blend) are dry land even over water/streams —
+  // never re-add wade lift there (G1.6).
+  if (plotFlatten(x, z, ground) !== null) return ground
   const lift = waterSurfaceLift(x, z)
   if (lift <= 0) return ground
   return ground + lift

@@ -48,6 +48,7 @@ export default function AvatarMesh({ color, headColor, bodyColor, legColor, hatI
     if (sitting) {
       // Settle down to kneel
       bobRef.current.position.y = THREE.MathUtils.lerp(bobRef.current.position.y, -0.25, k)
+      bodyRef.current.position.y = THREE.MathUtils.lerp(bodyRef.current.position.y, 0, k)
       bodyRef.current.rotation.x = THREE.MathUtils.lerp(bodyRef.current.rotation.x, -0.1, k)
       
       // Legs fold backwards to kneel
@@ -68,7 +69,9 @@ export default function AvatarMesh({ color, headColor, bodyColor, legColor, hatI
       if (moving) {
         const speed = run ? 14 : 9
         const bounce = Math.abs(Math.sin(t * speed)) * 0.08
-        bobRef.current.position.y = THREE.MathUtils.lerp(bobRef.current.position.y, bounce, k * 2)
+        // Bounce the torso, not the whole rig, so the feet stay on the ground.
+        bobRef.current.position.y = THREE.MathUtils.lerp(bobRef.current.position.y, 0, k * 2)
+        bodyRef.current.position.y = THREE.MathUtils.lerp(bodyRef.current.position.y, bounce, k * 2)
         
         // Opposing limbs on X axis (forward/back)
         const stride = run ? 0.6 : 0.4
@@ -84,7 +87,8 @@ export default function AvatarMesh({ color, headColor, bodyColor, legColor, hatI
       } else {
         // Idle breathing
         const breath = Math.sin(t * 2) * 0.015
-        bobRef.current.position.y = THREE.MathUtils.lerp(bobRef.current.position.y, breath, k)
+        bobRef.current.position.y = THREE.MathUtils.lerp(bobRef.current.position.y, 0, k)
+        bodyRef.current.position.y = THREE.MathUtils.lerp(bodyRef.current.position.y, breath, k)
         
         legLRef.current.rotation.x = THREE.MathUtils.lerp(legLRef.current.rotation.x, 0, k)
         legRRef.current.rotation.x = THREE.MathUtils.lerp(legRRef.current.rotation.x, 0, k)

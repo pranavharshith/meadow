@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { useStore } from '../store'
-import { P, craftedRegistry } from '../player-state'
+import { P, craftedRegistry, pointer } from '../player-state'
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
@@ -152,8 +152,10 @@ export default function CraftedItems() {
             rotation={[0, item.rot || 0, 0]}
             onClick={(e) => {
               e.stopPropagation()
+              if (pointer.moved) return
               if (!owned) {
                 flash('this was placed by someone else')
+                setSelection(null)
                 return
               }
               if (isSelected) setSelection(null)

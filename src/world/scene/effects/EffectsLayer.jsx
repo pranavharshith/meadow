@@ -3,38 +3,27 @@ import {
   BrightnessContrast,
   EffectComposer,
   HueSaturation,
-  N8AO,
   Outline,
+  SMAA,
   Vignette,
 } from '@react-three/postprocessing'
 import { BlendFunction, KernelSize } from 'postprocessing'
 import { useStore } from '../../../store'
 
-/** Restrained grounding and grade; intentionally disabled by the Effects setting. */
+/** Warning-free color and selection stack; grounding comes from scene lighting. */
 export default function EffectsLayer() {
   const enabled = useStore((state) => state.effects)
   if (!enabled) return null
 
   return (
-    <EffectComposer disableNormalPass multisampling={2} autoClear={false}>
-      <N8AO
-        halfRes
-        quality="low"
-        aoRadius={1.7}
-        distanceFalloff={0.75}
-        intensity={0.58}
-        aoSamples={8}
-        denoiseSamples={4}
-        denoiseRadius={8}
-        color="#362f22"
-      />
-      <HueSaturation saturation={0.055} />
-      <BrightnessContrast brightness={0.005} contrast={0.035} />
+    <EffectComposer disableNormalPass multisampling={0} autoClear={false}>
+      <HueSaturation saturation={0.025} />
+      <BrightnessContrast brightness={0.008} contrast={0.015} />
       <Bloom
         mipmapBlur
-        intensity={0.34}
-        luminanceThreshold={0.88}
-        luminanceSmoothing={0.2}
+        intensity={0.25}
+        luminanceThreshold={0.92}
+        luminanceSmoothing={0.16}
       />
       <Outline
         blendFunction={BlendFunction.SCREEN}
@@ -46,7 +35,8 @@ export default function EffectsLayer() {
         kernelSize={KernelSize.SMALL}
         xRay={false}
       />
-      <Vignette offset={0.32} darkness={0.42} />
+      <Vignette offset={0.36} darkness={0.3} />
+      <SMAA />
     </EffectComposer>
   )
 }

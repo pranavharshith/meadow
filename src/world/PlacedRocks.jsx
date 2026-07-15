@@ -3,7 +3,7 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight } from './noise'
 import { plazaFloorHeight } from './SpawnPlaza'
-import { P, rockRegistry } from '../player-state'
+import { P, rockRegistry, pointer } from '../player-state'
 import { useStore } from '../store'
 import { Select } from '@react-three/postprocessing'
 import { ROCK_GEOS, ROCK_MATS } from './rock-assets'
@@ -109,9 +109,11 @@ export default function PlacedRocks() {
           : undefined
         const onClick = (e) => {
           e.stopPropagation()
+          if (pointer.moved) return
           if (breakingId === r.id) return
           if (!canSelect) {
             flash('this rock was placed by someone else')
+            setSelection(null)
             return
           }
           if (isSelected) setSelection(null)

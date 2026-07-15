@@ -23,6 +23,13 @@ const DEAD_ZONE = MAX_DIST * 0.20 // 20% deadzone to prevent drift
 const LOOK_SENS = 0.0032 // radians per pixel
 const PITCH_MIN = 0.12
 const PITCH_MAX = 1.35
+const ZOOM_MIN = 0.55
+const ZOOM_MAX = 2.2
+const PINCH_SENS = 0.005 // zoom per pixel of finger-spread change
+
+function touchDistance(a, b) {
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+}
 
 export default function TouchJoystick() {
   const enabled = useStore((s) => s.joystickEnabled)
@@ -30,6 +37,7 @@ export default function TouchJoystick() {
   // Refs so we never need re-renders inside event handlers
   const joyState  = useRef({ active: false, id: null, ox: 0, oy: 0, cx: 0, cy: 0 })
   const lookState = useRef({ active: false, id: null, lx: 0, ly: 0 })
+  const pinchState = useRef({ active: false, dist: 0 })
 
   const ringRef  = useRef(null)
   const knobRef  = useRef(null)
@@ -86,6 +94,17 @@ export default function TouchJoystick() {
     const isRightZone = (x) => x >= window.innerWidth / 2
 
     const onStart = (e) => {
+      // Two fingers → pinch-to-zoom. Abandon any in-progress move/look so the
+      // gesture doesn't fight the camera.
+      if (e.touches.length >= 2) {
+        pinchState.current = { active: true, dist: touchDistance(e.touches[0], e.touches[1]) }
+        joyState.current.active = false
+        lookState.current.active = false
+        clearJoy()
+        if (knobRef.current) knobRef.current.style.transform = 'translate(0, 0)'
+        return
+      }
+
       for (const touch of e.changedTouches) {
         const tx = touch.clientX
         const ty = touch.clientY
@@ -100,6 +119,17 @@ export default function TouchJoystick() {
     }
 
     const onMove = (e) => {
+      // Pinch overrides everything while two fingers are down.
+      if (pinchState.current.active && e.touches.length >= 2) {
+        e.preventDefault()
+        const dist = touchDistance(e.touches[0], e.touches[1])
+        // Fingers spreading apart pulls the camera in (smaller zoom = closer).
+        look.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN,
+          look.zoom + (pinchState.current.dist - dist) * PINCH_SENS))
+        pinchState.current.dist = dist
+        return
+      }
+
       for (const touch of e.changedTouches) {
         const joy = joyState.current
         if (joy.active && touch.identifier === joy.id) {
@@ -122,6 +152,10 @@ export default function TouchJoystick() {
     }
 
     const onEnd = (e) => {
+      // A pinch ends as soon as fewer than two fingers remain.
+      if (pinchState.current.active && e.touches.length < 2) {
+        pinchState.current.active = false
+      }
       for (const touch of e.changedTouches) {
         if (touch.identifier === joyState.current.id) {
           joyState.current.active = false

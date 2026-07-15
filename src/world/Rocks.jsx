@@ -3,9 +3,10 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { terrainHeight, mulberry32, clusterField, plotSignatureForChunk, isBadPropSpot } from './noise'
 import { CHUNK, seedFor } from './chunk'
-import { P, rockRegistry } from '../player-state'
+import { P, rockRegistry, pointer } from '../player-state'
 import { ROCK_GEOS, ROCK_MATS } from './rock-assets'
 import { useStore } from '../store'
+import { Select } from '@react-three/postprocessing'
 
 export default function Rocks() {
   const [center, setCenter] = useState({ cx: 0, cz: 0 })
@@ -98,12 +99,24 @@ export default function Rocks() {
   }, [center.cx, center.cz, plots])
 
   const cutResources = useStore((s) => s.cutResources)
-  const cutProcedural = useStore((s) => s.cutProcedural)
+  const selection = useStore((s) => s.selection)
+  const setSelection = useStore((s) => s.setSelection)
 
+  // Clicking a wild rock selects it (X then breaks it), matching trees and
+  // placed rocks. Clicks that were really camera drags are ignored.
   const onDecorativeClick = (r, e) => {
     e.stopPropagation()
+    if (pointer.moved) return
     const idStr = `${r.chunkKey}_${r.localId}_rock`
-    cutProcedural(r.chunkKey, r.localId, 'rock', idStr)
+    const current = useStore.getState().selection
+    const already = current && current.kind === 'procedural' && current.id === idStr
+    setSelection(already ? null : {
+      kind: 'procedural',
+      id: idStr,
+      chunkKey: r.chunkKey,
+      localId: r.localId,
+      resourceKind: 'rock',
+    })
   }
 
   return (
@@ -111,20 +124,22 @@ export default function Rocks() {
       {allRocks.map((r, i) => {
         const idStr = `${r.chunkKey}_${r.localId}_rock`
         if (cutResources[idStr]) return null
+        const selected = selection && selection.kind === 'procedural' && selection.id === idStr
         return (
-        <mesh
-          key={idStr}
-          geometry={ROCK_GEOS[r.shape ?? 2]}
-          material={ROCK_MATS[r.matIdx ?? 0]}
-          position={[r.x, r.y + r.sy - r.sink, r.z]}
-          rotation={[0, r.rot, 0]}
-          scale={[r.sx, r.sy, r.sz]}
-          castShadow
-          receiveShadow
-          onClick={(e) => onDecorativeClick(r, e)}
-          onPointerOver={() => { document.body.style.cursor = 'pointer' }}
-          onPointerOut={() => { document.body.style.cursor = '' }}
-        />
+        <Select key={idStr} enabled={!!selected}>
+          <mesh
+            geometry={ROCK_GEOS[r.shape ?? 2]}
+            material={ROCK_MATS[r.matIdx ?? 0]}
+            position={[r.x, r.y + r.sy - r.sink, r.z]}
+            rotation={[0, r.rot, 0]}
+            scale={[r.sx, r.sy, r.sz]}
+            castShadow
+            receiveShadow
+            onClick={(e) => onDecorativeClick(r, e)}
+            onPointerOver={() => { document.body.style.cursor = 'pointer' }}
+            onPointerOut={() => { document.body.style.cursor = '' }}
+          />
+        </Select>
       )})}
     </group>
   )

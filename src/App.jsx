@@ -8,6 +8,7 @@ import Ambience from './Ambience'
 import Hud from './ui/Hud'
 import WelcomeScreen from './ui/WelcomeScreen'
 import { useStore } from './store'
+import { pointer } from './player-state'
 
 // Fades the warm haze out once the scene is ready, then unmounts completely.
 function LoadingFade() {
@@ -53,8 +54,14 @@ export default function App() {
           gl.toneMappingExposure = 1.05
         }}
         onPointerMissed={() => {
+          // Ignore the click that ends a camera drag.
+          if (pointer.moved) return
           const state = useStore.getState()
-          if (!state.placementMode && !state.isDraggingCamera) state.clearSelection()
+          // While placing, a click on open ground (or the ghost) drops the
+          // object where people instinctively expect — the key and button
+          // still work too. Otherwise an empty click clears the selection.
+          if (state.placementMode) state.confirmPlacement()
+          else state.clearSelection()
         }}
       >
         <WorldScene />

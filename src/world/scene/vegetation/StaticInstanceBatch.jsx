@@ -5,6 +5,7 @@ export default function StaticInstanceBatch({
   geometry,
   material,
   instances,
+  boundingSphere,
   castShadow = false,
   receiveShadow = false,
   name,
@@ -16,17 +17,20 @@ export default function StaticInstanceBatch({
     const mesh = ref.current
     if (!mesh) return
 
-    for (let i = 0; i < instances.length; i++) {
-      const instance = instances[i]
-      mesh.setMatrixAt(i, instance.matrix)
-      if (instance.color) mesh.setColorAt(i, instance.color)
+    for (let index = 0; index < instances.length; index++) {
+      const instance = instances[index]
+      mesh.setMatrixAt(index, instance.matrix)
+      if (instance.color) mesh.setColorAt(index, instance.color)
     }
     mesh.count = instances.length
     mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-    mesh.computeBoundingBox()
-    mesh.computeBoundingSphere()
-  }, [instances])
+
+    // Chunk bounds are known up front. Avoid scanning thousands of instance
+    // matrices for every batch during mount, quality changes, and resize.
+    if (boundingSphere) mesh.boundingSphere = boundingSphere
+    else mesh.computeBoundingSphere()
+  }, [instances, boundingSphere])
 
   return (
     <instancedMesh

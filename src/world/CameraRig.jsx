@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 import { useMemo, useRef, useEffect, useLayoutEffect } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
-import { walkSurfaceHeight } from './noise'
-import { plazaFloorHeight } from './SpawnPlaza'
 import { P, look } from '../player-state'
 import { useStore } from '../store'
+import { samplePlayerSurface } from './Player'
+import { terrainSegmentsFor } from './scene/contracts/quality'
 
 const THIRD_DIST = 7
 const TOP_HEIGHT = 80
@@ -19,20 +19,9 @@ export default function CameraRig() {
   const { camera } = useThree()
   const view = useStore((s) => s.viewMode)
 
-  const curPos = useMemo(() => {
-    const cp = Math.cos(look.pitch)
-    const dist = THIRD_DIST * look.zoom
-    const plazaY = plazaFloorHeight(P.pos.x, P.pos.z)
-    const groundY = plazaY !== null ? plazaY : walkSurfaceHeight(P.pos.x, P.pos.z)
-    // Actually set P.pos.y correctly here too, so the target aligns perfectly
-    P.pos.y = groundY
-    return new THREE.Vector3(
-      P.pos.x - Math.sin(look.yaw) * cp * dist,
-      groundY + 1.3 + Math.sin(look.pitch) * dist,
-      P.pos.z - Math.cos(look.yaw) * cp * dist
-    )
-  }, [])
-  const curTarget = useMemo(() => new THREE.Vector3(P.pos.x, P.pos.y + 1.3, P.pos.z), [])
+  // Smoothed camera position/target, seeded once in the layout effect below.
+  const curPos = useMemo(() => new THREE.Vector3(), [])
+  const curTarget = useMemo(() => new THREE.Vector3(), [])
   const pos = useMemo(() => new THREE.Vector3(), [])
   const target = useMemo(() => new THREE.Vector3(), [])
   const head = useMemo(() => new THREE.Vector3(), [])
@@ -42,9 +31,21 @@ export default function CameraRig() {
   const prevView = useRef(view)
 
   useLayoutEffect(() => {
-    // Snap camera to the initial position *before* the first frame renders,
-    // otherwise React Three Fiber renders frame 1 at the default (0, 0, 5)
-    // before useFrame takes over, causing a one-frame visual glitch.
+    // Seed and snap the camera *before* the first frame renders, otherwise R3F
+    // renders frame 1 at the default (0, 0, 5) before useFrame takes over,
+    // causing a one-frame visual glitch. Grounding the player here (a plain
+    // effect, not a memo side effect) keeps the initial target aligned.
+    const cp = Math.cos(look.pitch)
+    const dist = THIRD_DIST * look.zoom
+    const segments = terrainSegmentsFor(useStore.getState().grassDensity)
+    const groundY = samplePlayerSurface(P.pos.x, P.pos.z, segments)
+    P.pos.y = groundY + 0.03
+    curPos.set(
+      P.pos.x - Math.sin(look.yaw) * cp * dist,
+      groundY + 1.3 + Math.sin(look.pitch) * dist,
+      P.pos.z - Math.cos(look.yaw) * cp * dist,
+    )
+    curTarget.set(P.pos.x, P.pos.y + 1.3, P.pos.z)
     camera.position.copy(curPos)
     camera.lookAt(curTarget)
   }, [camera, curPos, curTarget])
@@ -58,6 +59,7 @@ export default function CameraRig() {
 
   useFrame((_, dt) => {
     const step = Math.min(dt, 0.05)
+    const segments = terrainSegmentsFor(useStore.getState().grassDensity)
 
     // Decay switch timer
     if (switchTimer.current > 0) switchTimer.current -= step
@@ -94,11 +96,29 @@ export default function CameraRig() {
       target.copy(head)
     }
 
+    // Occlusion: if terrain rises between the player and the camera (cresting
+    // a hill or backing into a slope), glide the camera in front of it so the
+    // view is never buried. Cheap boom march using the same height field the
+    // collision clamps already trust.
+    if (view !== 'first' && view !== 'top' && view !== 'drone') {
+      const SAMPLES = 6
+      for (let i = 1; i <= SAMPLES; i++) {
+        const t = i / SAMPLES
+        const sx = target.x + (pos.x - target.x) * t
+        const sz = target.z + (pos.z - target.z) * t
+        const sy = target.y + (pos.y - target.y) * t
+        const groundY = samplePlayerSurface(sx, sz, segments) + 0.5
+        if (sy < groundY) {
+          pos.set(sx, Math.max(sy, groundY), sz)
+          break
+        }
+      }
+    }
+
     // Pre-lerp collision check to prevent steady-state jitter.
     // By ensuring the target destination is valid, the lerp smoothly resolves to it
     // without fighting the post-lerp safety clamp.
-    const posPlazaY = plazaFloorHeight(pos.x, pos.z)
-    const posFloorY = posPlazaY !== null ? posPlazaY : walkSurfaceHeight(pos.x, pos.z)
+    const posFloorY = samplePlayerSurface(pos.x, pos.z, segments)
     if (pos.y < posFloorY + 0.6 && view !== 'top') {
       pos.y = posFloorY + 0.6
     }
@@ -116,8 +136,7 @@ export default function CameraRig() {
     
     // Post-lerp collision check: prevent camera from dipping under terrain or plaza structures
     // (We do this on curPos to prevent clipping during fast movement or view transitions)
-    const plazaY = plazaFloorHeight(curPos.x, curPos.z)
-    const floorY = plazaY !== null ? plazaY : walkSurfaceHeight(curPos.x, curPos.z)
+    const floorY = samplePlayerSurface(curPos.x, curPos.z, segments)
     if (curPos.y < floorY + 0.6 && view !== 'top') {
       curPos.y = floorY + 0.6
     }

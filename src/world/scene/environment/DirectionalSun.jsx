@@ -3,10 +3,13 @@ import { useFrame } from '@react-three/fiber'
 import { P } from '../../../player-state'
 import { LIGHTING } from './lighting-config'
 
+const FOLLOW_STEP_SQUARED = 0.25
+
 /** Camera-local shadow rig: higher nearby definition without a larger map. */
 export default function DirectionalSun({ direction, shadows }) {
   const light = useRef()
   const target = useRef()
+  const lastFocus = useRef({ x: Number.POSITIVE_INFINITY, y: 0, z: 0 })
 
   useLayoutEffect(() => {
     if (light.current && target.current) light.current.target = target.current
@@ -14,13 +17,17 @@ export default function DirectionalSun({ direction, shadows }) {
 
   useFrame(() => {
     if (!light.current || !target.current) return
-    const focusX = P.pos.x
-    const focusZ = P.pos.z
-    target.current.position.set(focusX, P.pos.y + 1, focusZ)
+    const dx = P.pos.x - lastFocus.current.x
+    const dy = P.pos.y - lastFocus.current.y
+    const dz = P.pos.z - lastFocus.current.z
+    if (dx * dx + dy * dy + dz * dz < FOLLOW_STEP_SQUARED) return
+
+    lastFocus.current = { x: P.pos.x, y: P.pos.y, z: P.pos.z }
+    target.current.position.set(P.pos.x, P.pos.y + 1, P.pos.z)
     light.current.position.set(
-      focusX + direction.x * LIGHTING.sunDistance,
+      P.pos.x + direction.x * LIGHTING.sunDistance,
       P.pos.y + direction.y * LIGHTING.sunDistance,
-      focusZ + direction.z * LIGHTING.sunDistance,
+      P.pos.z + direction.z * LIGHTING.sunDistance,
     )
     target.current.updateMatrixWorld()
   })

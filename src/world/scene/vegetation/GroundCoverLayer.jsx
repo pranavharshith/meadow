@@ -8,7 +8,7 @@ import {
 import { CHUNK } from '../../chunk'
 import { P } from '../../../player-state'
 import { useStore } from '../../../store'
-import { coverScaleFor, NATURE_RINGS } from '../contracts/quality'
+import { coverScaleFor, NATURE_RINGS, terrainSegmentsFor } from '../contracts/quality'
 import { useAdaptiveNatureTier } from '../contracts/useAdaptiveNatureTier'
 import GroundCoverChunk from './GroundCoverChunk'
 
@@ -29,6 +29,7 @@ export default function GroundCoverLayer() {
   const densityScale = coverScaleFor(density, autoTier)
   if (densityScale === 0) return null
 
+  const segments = terrainSegmentsFor(density)
   const plotRevision = getTerrainPlotRev()
   const chunks = []
   for (let dx = -NATURE_RINGS.vegetation; dx <= NATURE_RINGS.vegetation; dx++) {
@@ -38,10 +39,11 @@ export default function GroundCoverLayer() {
       const plotSignature = plotSignatureForChunk(cx, cz, CHUNK)
       chunks.push(
         <GroundCoverChunk
-          key={`${cx},${cz},${densityScale},${plotRevision},${plotSignature}`}
+          key={`${cx},${cz},${densityScale},${segments},${plotRevision},${plotSignature}`}
           cx={cx}
           cz={cz}
           densityScale={densityScale}
+          segments={segments}
           plots={plots}
           plotSignature={plotSignature}
         />,

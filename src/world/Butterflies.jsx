@@ -1,131 +1,110 @@
 import * as THREE from 'three'
 import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { terrainHeight, mulberry32 } from './noise'
+import { mulberry32, terrainHeight } from './noise'
 import { P, treeRegistry } from '../player-state'
 
-// Soft fluttering butterflies that gather around trees. They pick a nearby
-// (preferably mature) tree as an anchor and wander around it, so grown groves
-// naturally become livelier — beauty as the reward for planting, not gold.
-const COUNT = 20
-const WING = ['#f2a9c4', '#f6c66b', '#a9c8f0', '#c8a2e0', '#ffffff']
+const COUNT = 12
+const WING_COLORS = ['#d99aae', '#dfb45f', '#91add1', '#ae92c7', '#ddd6bd']
 
+/** Small triangular butterflies that gather around mature nearby trees. */
 export default function Butterflies() {
   const groupRefs = useRef([])
   const leftRefs = useRef([])
   const rightRefs = useRef([])
 
   const flutters = useMemo(() => {
-    const rng = mulberry32(2024)
-    const arr = []
-    for (let i = 0; i < COUNT; i++) {
-      arr.push({
-        ax: P.pos.x + (rng() - 0.5) * 40,
-        az: P.pos.z + (rng() - 0.5) * 40,
-        r: 1.2 + rng() * 3.2,
-        speed: 0.5 + rng() * 0.9,
-        phase: rng() * Math.PI * 2,
-        height: 0.6 + rng() * 1.8,
-        flap: 12 + rng() * 8,
-        color: WING[(rng() * WING.length) | 0],
-        next: 0,
-      })
-    }
-    return arr
+    const random = mulberry32(2024)
+    return Array.from({ length: COUNT }, () => ({
+      anchorX: P.pos.x + (random() - 0.5) * 40,
+      anchorZ: P.pos.z + (random() - 0.5) * 40,
+      radius: 1.2 + random() * 3.2,
+      speed: 0.5 + random() * 0.9,
+      phase: random() * Math.PI * 2,
+      height: 0.6 + random() * 1.8,
+      flap: 12 + random() * 8,
+      colorIndex: (random() * WING_COLORS.length) | 0,
+      nextAnchorAt: 0,
+    }))
   }, [])
 
-  const wingGeo = useMemo(() => {
-    const g = new THREE.PlaneGeometry(0.34, 0.26)
-    g.translate(0.17, 0, 0)
-    return g
+  const wingGeometry = useMemo(() => {
+    const geometry = new THREE.CircleGeometry(0.14, 3)
+    geometry.translate(0.11, 0, 0)
+    return geometry
   }, [])
-  const mats = useMemo(
-    () =>
-      WING.map(
-        (c) =>
-          new THREE.MeshStandardMaterial({
-            color: c,
-            emissive: c,
-            emissiveIntensity: 0.12,
-            roughness: 0.6,
-            side: THREE.DoubleSide,
-          })
-      ),
-    []
-  )
+  const materials = useMemo(() => WING_COLORS.map((color) => new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.85,
+    side: THREE.DoubleSide,
+  })), [])
+  const random = useMemo(() => mulberry32(88), [])
 
-  const pickAnchor = (f, rng) => {
-    // favour a nearby mature tree; otherwise wander to a random nearby spot
+  const pickAnchor = (flutter) => {
     let best = null
-    let bestD = 900
-    for (let i = 0; i < treeRegistry.length; i++) {
-      const t = treeRegistry[i]
-      if (!t.mature) continue
-      const d = (t.x - P.pos.x) ** 2 + (t.z - P.pos.z) ** 2
-      if (d < bestD && Math.random() < 0.6) {
-        bestD = d
-        best = t
+    let bestDistance = 900
+    for (let index = 0; index < treeRegistry.length; index++) {
+      const tree = treeRegistry[index]
+      if (!tree.mature) continue
+      const distance = (tree.x - P.pos.x) ** 2 + (tree.z - P.pos.z) ** 2
+      if (distance < bestDistance && random() < 0.6) {
+        bestDistance = distance
+        best = tree
       }
     }
     if (best) {
-      f.ax = best.x + (rng() - 0.5) * 2
-      f.az = best.z + (rng() - 0.5) * 2
+      flutter.anchorX = best.x + (random() - 0.5) * 2
+      flutter.anchorZ = best.z + (random() - 0.5) * 2
     } else {
-      f.ax = P.pos.x + (rng() - 0.5) * 34
-      f.az = P.pos.z + (rng() - 0.5) * 34
+      flutter.anchorX = P.pos.x + (random() - 0.5) * 34
+      flutter.anchorZ = P.pos.z + (random() - 0.5) * 34
     }
   }
 
-  const rng = useMemo(() => mulberry32(88), [])
-
   useFrame(({ clock }) => {
-    const t = clock.elapsedTime
-    for (let i = 0; i < COUNT; i++) {
-      const f = flutters[i]
-      const g = groupRefs.current[i]
-      if (!g) continue
+    const time = clock.elapsedTime
+    for (let index = 0; index < COUNT; index++) {
+      const flutter = flutters[index]
+      const group = groupRefs.current[index]
+      if (!group) continue
 
-      if (t > f.next) {
-        pickAnchor(f, rng)
-        f.next = t + 5 + rng() * 6
+      if (time > flutter.nextAnchorAt) {
+        pickAnchor(flutter)
+        flutter.nextAnchorAt = time + 5 + random() * 6
       }
-      
-      // If the player runs far away, don't drag the butterfly (rubber-banding).
-      // Instead, instantly teleport it to a new anchor near the player's current location.
-      const toP = Math.hypot(f.ax - P.pos.x, f.az - P.pos.z)
-      if (toP > 45) {
-        pickAnchor(f, rng)
-        f.next = t + 5 + rng() * 6
+      if (Math.hypot(flutter.anchorX - P.pos.x, flutter.anchorZ - P.pos.z) > 45) {
+        pickAnchor(flutter)
+        flutter.nextAnchorAt = time + 5 + random() * 6
       }
 
-      const ang = t * f.speed + f.phase
-      const x = f.ax + Math.cos(ang) * f.r
-      const z = f.az + Math.sin(ang * 1.3) * f.r
-      const y = terrainHeight(x, z) + f.height + Math.sin(t * 2 + f.phase) * 0.35
-      g.position.set(x, y, z)
-      g.rotation.y = -ang
+      const angle = time * flutter.speed + flutter.phase
+      const x = flutter.anchorX + Math.cos(angle) * flutter.radius
+      const z = flutter.anchorZ + Math.sin(angle * 1.3) * flutter.radius
+      group.position.set(
+        x,
+        terrainHeight(x, z) + flutter.height + Math.sin(time * 2 + flutter.phase) * 0.35,
+        z,
+      )
+      group.rotation.y = -angle
 
-      const flap = 0.2 + Math.abs(Math.sin(t * f.flap + f.phase)) * 1.1
-      if (rightRefs.current[i]) rightRefs.current[i].rotation.y = flap
-      if (leftRefs.current[i]) leftRefs.current[i].rotation.y = Math.PI - flap
+      const flap = 0.2 + Math.abs(Math.sin(time * flutter.flap + flutter.phase)) * 1.1
+      if (rightRefs.current[index]) rightRefs.current[index].rotation.y = flap
+      if (leftRefs.current[index]) leftRefs.current[index].rotation.y = Math.PI - flap
     }
   })
 
   return (
-    <group>
-      {flutters.map((f, i) => {
-        const mat = mats[WING.indexOf(f.color)] || mats[0]
-        return (
-          <group key={i} ref={(el) => (groupRefs.current[i] = el)}>
-            <group ref={(el) => (rightRefs.current[i] = el)}>
-              <mesh geometry={wingGeo} material={mat} />
-            </group>
-            <group ref={(el) => (leftRefs.current[i] = el)} rotation={[0, Math.PI, 0]}>
-              <mesh geometry={wingGeo} material={mat} />
-            </group>
+    <group name="butterflies">
+      {flutters.map((flutter, index) => (
+        <group key={index} ref={(group) => { groupRefs.current[index] = group }}>
+          <group ref={(wing) => { rightRefs.current[index] = wing }}>
+            <mesh geometry={wingGeometry} material={materials[flutter.colorIndex]} />
           </group>
-        )
-      })}
+          <group ref={(wing) => { leftRefs.current[index] = wing }} rotation={[0, Math.PI, 0]}>
+            <mesh geometry={wingGeometry} material={materials[flutter.colorIndex]} />
+          </group>
+        </group>
+      ))}
     </group>
   )
 }

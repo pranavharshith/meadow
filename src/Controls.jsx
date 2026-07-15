@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { keys, look, P } from './player-state'
+import { keys, look, P, pointer, releaseAllKeys } from './player-state'
 import { useStore } from './store'
 
 const LOOK_SENS = 0.0026
@@ -7,6 +7,10 @@ const PITCH_MIN = -0.8 // Allow camera to tilt upwards in third-person
 const PITCH_MAX = 1.35
 const ZOOM_MIN = 0.55
 const ZOOM_MAX = 2.2
+// A gesture only becomes a camera drag once it travels past this many pixels.
+// Below it, the press stays a clean tap so world clicks aren't stolen by tiny
+// jitter, and the cursor is never locked for a simple selection.
+const DRAG_THRESHOLD = 6
 
 // Global keyboard + drag-to-look input. Drags that begin on UI (.no-look)
 // elements are ignored so buttons don't rotate the camera.
@@ -85,37 +89,55 @@ export default function Controls() {
       keys[e.code] = false
     }
 
-    let dragging = false
-    let hasMoved = false
+    // Touch is owned by TouchJoystick when the on-screen joystick is enabled,
+    // so the same finger can't drive both systems and double the sensitivity.
+    const touchOwnedElsewhere = (e) =>
+      e.pointerType === 'touch' && useStore.getState().joystickEnabled
+
+    let holding = false // primary button is down
+    let downX = 0
+    let downY = 0
     let lx = 0
     let ly = 0
+
     const onDown = (e) => {
       // Ignore right-clicks (2) and middle-clicks (1) so the browser's context menu (Inspect) works
       if (e.button !== 0) return
-      
+      if (touchOwnedElsewhere(e)) return
       if (e.target.closest && e.target.closest('.no-look')) return
-      
-      if (!document.pointerLockElement && e.target.tagName === 'CANVAS') {
-        const promise = e.target.requestPointerLock()
-        if (promise) promise.catch(() => {})
-      }
-      
-      dragging = true
-      hasMoved = false
-      lx = e.clientX
-      ly = e.clientY
+
+      holding = true
+      downX = lx = e.clientX
+      downY = ly = e.clientY
+      // Every fresh press starts as a tap; it only becomes a drag once the
+      // pointer travels past the threshold (see onMove).
+      pointer.moved = false
+      pointer.dragging = false
       // any movement key / drag cancels sitting
       if (P.emote === 'sit') P.emote = null
     }
+
+    const beginDrag = (e) => {
+      pointer.moved = true
+      pointer.dragging = true
+      useStore.getState().setIsDraggingCamera(true)
+      // Lock the pointer only now, on a genuine drag — never on a plain click.
+      // This removes the cursor flicker and the rapid lock/unlock race.
+      if (!document.pointerLockElement && e.target && e.target.tagName === 'CANVAS') {
+        const promise = e.target.requestPointerLock()
+        if (promise && promise.catch) promise.catch(() => {})
+      }
+    }
+
     const onMove = (e) => {
+      if (touchOwnedElsewhere(e)) return
       const isLocked = !!document.pointerLockElement
-      if (!dragging && !isLocked) return
-      
+      if (!holding && !isLocked) return
+
       look.lastLookTime = performance.now()
 
       let dx = 0
       let dy = 0
-
       if (isLocked) {
         dx = e.movementX || 0
         dy = e.movementY || 0
@@ -125,13 +147,16 @@ export default function Controls() {
         lx = e.clientX
         ly = e.clientY
       }
-      
-      if (!hasMoved && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
-        hasMoved = true
-        useStore.getState().setIsDraggingCamera(true)
+
+      // Promote to a drag once we've clearly moved. Until then, swallow the
+      // tiny deltas so a selecting tap never nudges the camera.
+      if (!pointer.dragging) {
+        if (Math.abs(e.clientX - downX) < DRAG_THRESHOLD &&
+            Math.abs(e.clientY - downY) < DRAG_THRESHOLD) return
+        beginDrag(e)
       }
-      
-      // Prevent dragging from secretly spinning the camera while in Map or Drone view
+
+      // Dragging never spins the camera in Map or Drone (top-down) views.
       const view = useStore.getState().viewMode
       if (view !== 'top' && view !== 'drone') {
         look.yaw -= dx * LOOK_SENS
@@ -140,17 +165,18 @@ export default function Controls() {
         look.pitch = Math.min(pMax, Math.max(pMin, look.pitch + dy * LOOK_SENS))
       }
     }
-    const onUp = () => {
-      dragging = false
-      if (hasMoved) {
-        setTimeout(() => {
-          useStore.getState().setIsDraggingCamera(false)
-        }, 50)
-      }
-      if (document.pointerLockElement) {
-        document.exitPointerLock()
-      }
+
+    const onUp = (e) => {
+      if (touchOwnedElsewhere(e)) return
+      holding = false
+      // `pointer.moved` stays true until the next press so world onClick
+      // handlers (which fire on this same pointer-up, just before us) can see
+      // it. The drag flag itself ends immediately.
+      pointer.dragging = false
+      useStore.getState().setIsDraggingCamera(false)
+      if (document.pointerLockElement) document.exitPointerLock()
     }
+
     const onWheel = (e) => {
       // Same guard as onDown: scrolling inside a UI panel (chat, settings,
       // shop, worldmap, etc.) must not steal the wheel for camera zoom.
@@ -158,19 +184,39 @@ export default function Controls() {
       look.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, look.zoom + e.deltaY * 0.0012))
     }
 
+    // Losing focus (alt-tab, switching tabs, opening devtools) can swallow the
+    // keyup, leaving a movement key stuck down. Release everything so we always
+    // return to a calm, still avatar.
+    const onBlur = () => {
+      releaseAllKeys()
+      holding = false
+      pointer.moved = false
+      pointer.dragging = false
+      useStore.getState().setIsDraggingCamera(false)
+    }
+    const onVisibility = () => {
+      if (document.hidden) onBlur()
+    }
+
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('pointerdown', onDown)
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
     window.addEventListener('wheel', onWheel, { passive: true })
+    window.addEventListener('blur', onBlur)
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('pointerdown', onDown)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
       window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('blur', onBlur)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [])
 
