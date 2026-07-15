@@ -20,6 +20,8 @@ export default function Net() {
   const posChannelRef = useRef(null)   // sharded: presence, pos, tree
   const chatChannelRef = useRef(null)  // region-wide: chat + head count
   const worldRef = useRef(null)        // global: world chat (server-emitted)
+  const friendsChRef = useRef(null)    // per-user friends postgres_changes
+  const worldTreeChRef = useRef(null)  // world tree postgres_changes
   const regionRef = useRef(null)
   const currentChunkRef = useRef(null)
   const acc = useRef(0)
@@ -438,16 +440,40 @@ export default function Net() {
     }
     joinRegionRef.current = joinRegion
 
+    // Supabase reuses channels by topic. Calling .on() on an already-subscribed
+    // channel throws: "cannot add callbacks ... after subscribe()". Drop any
+    // leftover with the same topic (init retries / Strict Mode) first.
+    async function dropChannelByTopic(topic) {
+      const want = topic.startsWith('realtime:') ? topic : `realtime:${topic}`
+      const list = typeof supabase.getChannels === 'function' ? supabase.getChannels() : []
+      await Promise.all(
+        list
+          .filter((ch) => ch?.topic === want || ch?.topic === topic)
+          .map((ch) => supabase.removeChannel(ch).catch(() => {})),
+      )
+    }
+
+    async function openChannel(topic, configure, opts) {
+      await dropChannelByTopic(topic)
+      if (disposed) return null
+      const ch = opts ? supabase.channel(topic, opts) : supabase.channel(topic)
+      configure(ch)
+      ch.subscribe()
+      return ch
+    }
+
     function subscribeWorld() {
-      if (worldRef.current) {
-        try { supabase.removeChannel(worldRef.current) } catch {}
-      }
-      // Server (send_world_chat RPC) emits 'chat' events into this topic via
-      // realtime.send(). Clients are receive-only here — no client emits.
-      const world = supabase.channel('world', { config: { broadcast: { self: false } } })
-      world.on('broadcast', { event: 'chat' }, ({ payload }) => receiveChat(payload, 'world'))
-      world.subscribe()
-      worldRef.current = world
+      // Server (send_world_chat RPC) emits into topic "world". Fixed name required.
+      void openChannel(
+        'world',
+        (world) => {
+          world.on('broadcast', { event: 'chat' }, ({ payload }) => receiveChat(payload, 'world'))
+        },
+        { config: { broadcast: { self: false } } },
+      ).then((world) => {
+        if (disposed || !world) return
+        worldRef.current = world
+      })
     }
 
     // ---------- init ----------
@@ -630,10 +656,28 @@ export default function Net() {
       await fetchSocialData()
       if (stale()) return
 
-      const friendsCh = supabase.channel(`friends:${user.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'friends' }, fetchSocialData)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'friend_requests' }, fetchSocialData)
-        .subscribe()
+      // postgres_changes only care about filters, not the channel topic name.
+      // Unique topic every init → retries never call .on() on an already-subscribed
+      // channel (that threw and was shown as "Could not connect").
+      // These channels are optional: one-shot RPC already hydrated friends/world tree.
+      if (friendsChRef.current) {
+        try { await supabase.removeChannel(friendsChRef.current) } catch { /* ignore */ }
+        friendsChRef.current = null
+      }
+      try {
+        const friendsTopic = `friends:${user.id}:${Date.now().toString(36)}`
+        const friendsCh = await openChannel(friendsTopic, (ch) => {
+          ch.on('postgres_changes', { event: '*', schema: 'public', table: 'friends' }, fetchSocialData)
+          ch.on('postgres_changes', { event: '*', schema: 'public', table: 'friend_requests' }, fetchSocialData)
+        })
+        if (stale()) {
+          if (friendsCh) try { await supabase.removeChannel(friendsCh) } catch { /* ignore */ }
+          return
+        }
+        friendsChRef.current = friendsCh
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('[meadow/net] friends channel', err)
+      }
 
       // ---------- World Tree Hydration & Sync ----------
       const fetchWorldTree = async () => {
@@ -646,19 +690,32 @@ export default function Net() {
       await fetchWorldTree()
       if (stale()) return
 
-      const wtCh = supabase.channel('world_tree_sync')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'world_tree' }, (payload) => {
-          if (payload.new && payload.new.total_wood !== undefined) {
-            useStore.getState().setWorldTreeWood(payload.new.total_wood)
-          }
+      if (worldTreeChRef.current) {
+        try { await supabase.removeChannel(worldTreeChRef.current) } catch { /* ignore */ }
+        worldTreeChRef.current = null
+      }
+      try {
+        const wtTopic = `world_tree_sync:${Date.now().toString(36)}`
+        const wtCh = await openChannel(wtTopic, (ch) => {
+          ch.on('postgres_changes', { event: '*', schema: 'public', table: 'world_tree' }, (payload) => {
+            if (payload.new && payload.new.total_wood !== undefined) {
+              useStore.getState().setWorldTreeWood(payload.new.total_wood)
+            }
+          })
+          ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'world_tree_donors' }, (payload) => {
+            if (payload.new && payload.new.user_id) {
+              useStore.getState().addWorldTreeDonor(payload.new.user_id)
+            }
+          })
         })
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'world_tree_donors' }, (payload) => {
-          if (payload.new && payload.new.user_id) {
-            useStore.getState().addWorldTreeDonor(payload.new.user_id)
-          }
-        })
-        .subscribe()
-
+        if (stale()) {
+          if (wtCh) try { await supabase.removeChannel(wtCh) } catch { /* ignore */ }
+          return
+        }
+        worldTreeChRef.current = wtCh
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('[meadow/net] world_tree channel', err)
+      }
 
       // ---------- bridge wiring: all mutations go through RPCs ----------
       bridge.online = true
@@ -1143,6 +1200,10 @@ export default function Net() {
       activeChunkChannels.clear()
       if (chatChannelRef.current) supabase.removeChannel(chatChannelRef.current)
       if (worldRef.current) supabase.removeChannel(worldRef.current)
+      if (friendsChRef.current) supabase.removeChannel(friendsChRef.current)
+      if (worldTreeChRef.current) supabase.removeChannel(worldTreeChRef.current)
+      friendsChRef.current = null
+      worldTreeChRef.current = null
       remotePlayers.clear()
     }
   }, [])
