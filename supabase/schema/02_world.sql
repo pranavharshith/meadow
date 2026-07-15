@@ -135,7 +135,8 @@ declare
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
   perform public.check_rate_limit();
-  perform public.require_near(p_x, p_z, 12.0);
+  -- 18 units: plant ghost sits ahead of feet; 12 was too tight for laggy position heartbeats
+  perform public.require_near(p_x, p_z, 18.0);
 
   select last_plant_at into last_at from public.players where id = auth.uid();
   if last_at is not null and now() - last_at < interval '500 milliseconds' then
@@ -327,7 +328,7 @@ declare
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
   perform public.check_rate_limit();
-  perform public.require_near(p_x, p_z, 12.0);
+  perform public.require_near(p_x, p_z, 18.0);
 
   select last_rock_at into last_at from public.players where id = auth.uid();
   if last_at is not null and now() - last_at < interval '500 milliseconds' then
@@ -449,7 +450,7 @@ declare
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
   perform public.check_rate_limit();
-  perform public.require_near(p_x, p_z, 12.0);
+  perform public.require_near(p_x, p_z, 18.0);
 
   -- Ignore client costs; catalog is authoritative
   v_wood := case p_item_id

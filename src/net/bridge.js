@@ -16,6 +16,9 @@ export const bridge = {
   buyCosmetic: async (_type, _id, _colorVal) => ({ ok: false, error: 'offline' }),
 
   // Server-gated mutations. Each returns { ok, gold?, error?, ...extras }.
+  // Sync last known position to server (proximity-gated RPCs need this).
+  syncPosition: async ()                   => ({ ok: true }),
+
   plant:       async (_tree)               => ({ ok: false, error: 'offline' }),
   water:       async (_treeId)             => ({ ok: false, error: 'offline' }),
   cut:         async (_treeId)             => ({ ok: false, error: 'offline' }),

@@ -707,18 +707,39 @@ export default function Net() {
         return { ok: true, gold: data.gold }
       }
 
+      // Push latest position so require_near() succeeds (plant/place RPCs need this).
+      bridge.syncPosition = async () => {
+        const { error } = await supabase.rpc('update_position', {
+          p_x: +P.pos.x.toFixed(2),
+          p_z: +P.pos.z.toFixed(2),
+        })
+        return { ok: !error, error: error?.message }
+      }
+
       bridge.plant = async (tree) => {
+        // Ensure server has a fresh position before proximity check
+        await bridge.syncPosition()
         const { data, error } = await supabase.rpc('plant_tree', {
           p_id: tree.id,
-          p_x: tree.x,
-          p_z: tree.z,
-          p_variant: tree.variant,
-          p_shape: tree.shape || 0,
-          p_scale: tree.scale,
+          p_x: Number(tree.x),
+          p_z: Number(tree.z),
+          p_variant: Math.round(Number(tree.variant) || 0),
+          p_shape: Math.round(Number(tree.shape) || 0),
+          p_scale: Number(tree.scale) || 1.4,
         })
         if (error) return { ok: false, error: error.message }
         // Server emits chunk 'tree' broadcast (#9). No client forge path.
-        return { ok: true, gold: data ? data.gold : undefined }
+        // plant_tree returns player row
+        if (data && typeof data === 'object') {
+          return {
+            ok: true,
+            gold: data.gold,
+            wood: data.wood,
+            stone: data.stone,
+            trees_planted: data.trees_planted,
+          }
+        }
+        return { ok: true, gold: data }
       }
 
       bridge.water = async (treeId) => {
@@ -740,16 +761,17 @@ export default function Net() {
 
       bridge.placeRock = async (rock, _cost = 5) => {
         // Server derives cost from rock_shape (#1). Client cost ignored.
+        await bridge.syncPosition()
         const { data, error } = await supabase.rpc('place_rock', {
           p_id:        rock.id,
-          p_x:         rock.x,
-          p_z:         rock.z,
-          p_rot:       rock.rot ?? 0,
-          p_rock_shape: rock.rockShape ?? 2,
-          p_sx:        rock.sx ?? 1,
-          p_sy:        rock.sy ?? 1,
-          p_sz:        rock.sz ?? 1,
-          p_mat_idx:   rock.matIdx ?? 0,
+          p_x:         Number(rock.x),
+          p_z:         Number(rock.z),
+          p_rot:       Number(rock.rot ?? 0),
+          p_rock_shape: Math.round(Number(rock.rockShape ?? 2)),
+          p_sx:        Number(rock.sx ?? 1),
+          p_sy:        Number(rock.sy ?? 1),
+          p_sz:        Number(rock.sz ?? 1),
+          p_mat_idx:   Math.round(Number(rock.matIdx ?? 0)),
         })
         if (error) return { ok: false, error: error.message }
         return { ok: true, gold: data }
@@ -969,6 +991,7 @@ export default function Net() {
       disposed = true
       bridge.online = false
       bridge.saveIdentity = async () => {}
+      bridge.syncPosition = async () => ({ ok: true })
       bridge.plant = async () => ({ ok: false, error: 'offline' })
       bridge.water = async () => ({ ok: false, error: 'offline' })
       bridge.cut = async () => ({ ok: false, error: 'offline' })

@@ -34,9 +34,17 @@ const CUT_RANGE = 4.0 // world units
 // Rock reward on removal
 const ROCK_REMOVE_REWARD = 3
 
+/** Always returns a valid UUID (required by plant_tree / place_rock RPCs). */
 function genId() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-  return 'x' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  // RFC4122-ish v4 fallback when randomUUID is unavailable
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
 }
 
 function loadSave() {
@@ -655,17 +663,23 @@ export const useStore = create((set, get) => ({
           gold: s.gold + cost - PLANT_REWARD,
           treesPlanted: Math.max(0, (s.treesPlanted || 1) - 1),
         }))
-        const err = (res.error || '').toLowerCase()
-        get().flash(
+        const raw = res.error || ''
+        const err = raw.toLowerCase()
+        const msg =
           err.includes('crowded') ? 'too crowded here'
-            : err.includes('too far') ? 'too far away'
-            : err.includes('position') ? 'move a little first'
-            : err.includes('gold') ? 'not enough gold'
-            : 'could not plant'
-        )
+          : err.includes('too far') ? 'too far away — stand closer'
+          : err.includes('position') || err.includes('move first') ? 'move a little, then plant again'
+          : err.includes('plaza') || err.includes('spawn') ? 'cannot plant in the spawn plaza'
+          : err.includes('gold') ? 'not enough gold'
+          : err.includes('cooldown') || err.includes('429') ? 'wait a moment before planting again'
+          : err.includes('not signed') ? 'still connecting — try again'
+          : err.includes('could not find') || err.includes('pgrst') ? 'server schema outdated — apply supabase/schema 01–04'
+          : (raw && raw.length < 80 ? raw : 'could not plant')
+        get().flash(msg, 'error')
         return
       }
       if (typeof res.gold === 'number') set({ gold: res.gold })
+      if (typeof res.trees_planted === 'number') set({ treesPlanted: res.trees_planted })
     }
     get().advanceSoftQuest('plant')
   },

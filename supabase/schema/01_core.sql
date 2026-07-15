@@ -193,7 +193,8 @@ begin
   if px is null or pz is null or pat is null then
     raise exception 'position unknown — move first';
   end if;
-  if now() - pat > interval '30 seconds' then
+  -- 90s grace so a short tab-switch does not block planting
+  if now() - pat > interval '90 seconds' then
     raise exception 'position stale — move first';
   end if;
 
