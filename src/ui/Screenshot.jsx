@@ -1,10 +1,13 @@
 import { useStore } from '../store'
 import { place } from '../player-state'
+import { captureCanvas } from '../world/renderer-api'
 
 // Captures the Three.js canvas, overlays place name + branding, then triggers
 // share (Web Share API) or downloads the image as a fallback.
 function captureAndShare() {
-  const canvas = document.querySelector('canvas')
+  // Force a render first — Canvas runs with preserveDrawingBuffer: false so the
+  // previous frame is not kept; reading without this would often be blank.
+  const canvas = captureCanvas()
   if (!canvas) return
 
   const name = useStore.getState().name

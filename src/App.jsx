@@ -9,6 +9,7 @@ import Hud from './ui/Hud'
 import WelcomeScreen from './ui/WelcomeScreen'
 import { useStore } from './store'
 import { pointer } from './player-state'
+import { setRendererApi } from './world/renderer-api'
 
 // Fades the warm haze out once the scene is ready, then unmounts completely.
 function LoadingFade() {
@@ -45,17 +46,19 @@ export default function App() {
         dpr={[1, 1.75]}
         camera={{ position: [0, 4, 10], fov: 62, near: 0.1, far: 600 }}
         gl={{
-          // No MSAA: with preserveDrawingBuffer the multisampled default
-          // framebuffer must resolve its depth-stencil every frame, which ANGLE
-          // rejects ("read and write depth stencil ... same image"). SMAA in the
-          // effect stack provides anti-aliasing during normal play instead.
+          // No MSAA + no preserveDrawingBuffer: both force depth-stencil resolves
+          // that ANGLE rejects ("read and write depth stencil ... same image").
+          // SMAA in the effect stack anti-aliases; screenshots force one render
+          // via renderer-api before readback instead of preserving the buffer.
           antialias: false,
+          stencil: false,
           powerPreference: 'high-performance',
-          preserveDrawingBuffer: true,
+          preserveDrawingBuffer: false,
         }}
-        onCreated={({ gl }) => {
+        onCreated={({ gl, scene, camera }) => {
           gl.toneMapping = THREE.ACESFilmicToneMapping
           gl.toneMappingExposure = 1.05
+          setRendererApi({ gl, scene, camera })
         }}
         onPointerMissed={() => {
           // Ignore the click that ends a camera drag.

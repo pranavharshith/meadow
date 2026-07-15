@@ -50,7 +50,12 @@ export default function Net() {
     }
 
     let disposed = false
+    // Invalidate in-flight init when this effect is cleaned up (Strict Mode remount,
+    // HMR, unmount). Stale inits must not call goOffline and clobber a newer connect.
+    let initGen = 0
     const activeChunkChannels = new Map()
+    // Require a few consecutive unhealthy polls before flapping UI to offline.
+    let realtimeFailStreak = 0
 
     // ---------- receivers ----------
     // Basic payload guards against obviously forged Realtime spam (#9).
@@ -446,48 +451,131 @@ export default function Net() {
     }
 
     // ---------- init ----------
-    async function init() {
-      const st = useStore.getState()
-      st.setConnecting(true)
-      st.setConnectionNote(null)
-      st.flash('Connecting to the shared meadow…', 'warn')
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+    const isRetryableConnectError = (err) => {
+      if (!err) return true
+      const msg = String(err.message || err).toLowerCase()
+      // Permanent / config failures — do not spin forever
+      if (msg.includes('banned') || msg.includes('restricted')) return false
+      if (msg.includes('captcha') && (msg.includes('required') || msg.includes('site_key') || msg.includes('turnstile'))) return false
+      // Transient: network, timeouts, 5xx-ish auth/RPC blips
+      if (msg.includes('network') || msg.includes('fetch') || msg.includes('timeout') || msg.includes('timed out')) return true
+      if (msg.includes('failed to fetch') || msg.includes('load failed') || msg.includes('econnreset')) return true
+      if (msg.includes('503') || msg.includes('502') || msg.includes('504') || msg.includes('429')) return true
+      if (msg.includes('jwt') || msg.includes('session') || msg.includes('refresh')) return true
+      // Default: retry a few times — cold Supabase / flaky mobile often look generic
+      return true
+    }
+
+    const failConnect = (msg, { flash = true } = {}) => {
+      if (disposed) return
+      netStatus.online = false
+      netStatus.ready = false
+      useStore.getState().goOffline(msg)
+      if (flash) useStore.getState().flash(msg, 'error')
+    }
+
+    async function init() {
+      const gen = ++initGen
+      const stale = () => disposed || gen !== initGen
+
+      const MAX_ATTEMPTS = 6
+      let lastErr = null
+
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        if (stale()) return
+
+        const st = useStore.getState()
+        st.setConnecting(true)
+        st.setConnectionNote(attempt === 0 ? null : `Still connecting… (${attempt + 1}/${MAX_ATTEMPTS})`)
+        if (attempt === 0) {
+          st.flash('Connecting to the shared meadow…', 'warn')
+        } else {
+          st.setConnectionStatus('reconnecting')
+          // One toast on first retry only — further attempts update the status note
+          if (attempt === 1) st.flash('Connection hiccup — retrying…', 'warn')
+        }
+
+        try {
+          await initOnce(stale)
+          return
+        } catch (err) {
+          lastErr = err
+          if (stale()) return
+          if (import.meta.env.DEV) console.warn('[meadow/net] init attempt failed', attempt + 1, err)
+
+          // Explicit permanent failures throw with .permanent = true
+          if (err?.permanent || !isRetryableConnectError(err)) {
+            failConnect(err?.userMessage || err?.message || 'Could not connect')
+            return
+          }
+
+          if (attempt < MAX_ATTEMPTS - 1) {
+            // Backoff: ~1.5s, 3s, 6s, 12s, 15s — total well under a couple minutes
+            const delay = Math.min(1500 * 2 ** attempt, 15000)
+            useStore.getState().setConnectionNote(`Connection issue — retrying in ${Math.round(delay / 1000)}s…`)
+            await sleep(delay)
+            continue
+          }
+        }
+      }
+
+      if (stale()) return
+      const detail = lastErr?.userMessage || lastErr?.message || 'network error'
+      failConnect(detail.startsWith('Could not connect') ? detail : `Could not connect — ${detail}`)
+    }
+
+    async function initOnce(stale) {
       // anonymous identity (persisted by supabase-js in localStorage)
-      let { data: sess } = await supabase.auth.getSession()
-      if (!sess.session) {
+      let { data: sess, error: sessErr } = await supabase.auth.getSession()
+      if (stale()) return
+      if (sessErr) {
+        const e = new Error(sessErr.message || 'session error')
+        e.userMessage = sessErr.message || 'session error'
+        throw e
+      }
+      if (!sess?.session) {
         // #7 Captcha: production fails closed if Turnstile is missing/fails
         let captchaToken = null
         try {
           captchaToken = await getCaptchaToken()
         } catch (err) {
           if (import.meta.env.DEV) console.warn('captcha required', err?.message || err)
-          const msg = 'Could not connect — captcha failed or missing'
-          useStore.getState().goOffline(msg)
-          useStore.getState().flash(msg, 'error')
-          return
+          const e = new Error(err?.message || 'captcha failed')
+          e.permanent = true
+          e.userMessage = 'Could not connect — captcha failed or missing'
+          throw e
         }
+        if (stale()) return
         const { data, error } = await supabase.auth.signInAnonymously({
           options: captchaToken ? { captchaToken } : undefined,
         })
+        if (stale()) return
         if (error) {
-          const msg = error.message?.toLowerCase().includes('captcha')
+          const captcha = error.message?.toLowerCase().includes('captcha')
+          const e = new Error(error.message || 'sign-in failed')
+          e.permanent = captcha || (error.status >= 400 && error.status < 500 && error.status !== 429)
+          e.userMessage = captcha
             ? 'Could not connect — captcha rejected (check Turnstile + Supabase Auth CAPTCHA settings)'
             : `Could not connect — sign-in failed: ${error.message || 'unknown'}`
           if (import.meta.env.DEV) console.warn('[meadow/net] signInAnonymously', error)
-          useStore.getState().goOffline(msg)
-          useStore.getState().flash(msg, 'error')
-          return
+          throw e
         }
         sess = data
       }
-      const user = (await supabase.auth.getUser()).data.user
-      if (!user || disposed) {
-        if (!disposed) {
-          const msg = 'Could not connect — no user session'
-          useStore.getState().goOffline(msg)
-          useStore.getState().flash(msg, 'error')
-        }
-        return
+      const { data: userData, error: userErr } = await supabase.auth.getUser()
+      if (stale()) return
+      if (userErr) {
+        const e = new Error(userErr.message || 'auth error')
+        e.userMessage = userErr.message || 'auth error'
+        throw e
+      }
+      const user = userData?.user
+      if (!user) {
+        const e = new Error('no user session')
+        e.userMessage = 'Could not connect — no user session'
+        throw e
       }
       meId.current = user.id
       shardRef.current = shardFor(user.id)
@@ -498,15 +586,16 @@ export default function Net() {
         p_name: s0.name,
         p_color: s0.color,
       })
+      if (stale()) return
       if (profErr) {
         if (import.meta.env.DEV) console.warn('ensure_profile failed', profErr.message)
         const ban = (profErr.message || '').toLowerCase().includes('banned')
-        const msg = ban
+        const e = new Error(profErr.message || 'profile load failed')
+        e.permanent = ban
+        e.userMessage = ban
           ? 'Could not connect — this account is restricted'
           : 'Could not connect — profile load failed'
-        useStore.getState().goOffline(msg)
-        useStore.getState().flash(msg, 'error')
-        return
+        throw e
       }
       if (prof) {
         lastProfileRef.current = { name: prof.name, color: prof.color }
@@ -539,6 +628,7 @@ export default function Net() {
       }
       
       await fetchSocialData()
+      if (stale()) return
 
       const friendsCh = supabase.channel(`friends:${user.id}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'friends' }, fetchSocialData)
@@ -554,6 +644,7 @@ export default function Net() {
         if (donors) useStore.getState().setWorldTreeDonors(donors.map(d => d.user_id))
       }
       await fetchWorldTree()
+      if (stale()) return
 
       const wtCh = supabase.channel('world_tree_sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'world_tree' }, (payload) => {
@@ -811,6 +902,9 @@ export default function Net() {
       }
 
       bridge.cutProceduralResource = async (id, type, chunkKeyArg) => {
+        // Server rejects with "position unknown/stale" / "too far away" unless
+        // last_pos is fresh — same proximity gate as plant/place.
+        await bridge.syncPosition()
         const { data, error } = await supabase.rpc('cut_procedural_resource', {
           p_id: id,
           p_type: type,
@@ -915,11 +1009,14 @@ export default function Net() {
 
       subscribeWorld()
 
+      if (stale()) return
+
       useStore.getState().setOnline(true)
       useStore.getState().setConnectionNote(null)
       useStore.getState().setConnecting(false)
       netStatus.online = true
       netStatus.ready = true
+      realtimeFailStreak = 0
       useStore.getState().flash('Connected — welcome to the meadow', 'success')
 
       // Seed server position immediately so proximity RPCs work (#6)
@@ -933,14 +1030,17 @@ export default function Net() {
       useStore.getState().claimOfflineGold()
 
       const { rx, rz } = regionOf(P.pos.x, P.pos.z)
-      joinRegion(rx, rz)
+      // Fire-and-forget region join; failures here must not fail init
+      Promise.resolve(joinRegion(rx, rz)).catch((err) => {
+        if (import.meta.env.DEV) console.warn('[meadow/net] joinRegion', err)
+      })
     }
 
     init().catch((err) => {
-      if (import.meta.env.DEV) console.warn('net init failed', err)
-      const msg = 'Could not connect — network error'
-      useStore.getState().goOffline(msg)
-      useStore.getState().flash(msg, 'error')
+      // Safety net: init() handles its own failures; only mark offline if still current
+      if (disposed) return
+      if (import.meta.env.DEV) console.warn('[meadow/net] init unexpected', err)
+      failConnect(err?.userMessage || err?.message || 'Could not connect — network error')
     })
 
     // --- Reconnection handling ---
@@ -950,23 +1050,52 @@ export default function Net() {
         if (netStatus.ready) {
           useStore.getState().setConnectionStatus('connected')
           useStore.getState().setOnline(true)
+          useStore.getState().setConnectionNote(null)
           netStatus.online = true
+          realtimeFailStreak = 0
         }
       }
     })
 
-    const reconnectInterval = setInterval(() => {
-      if (disposed) return
-      const sock = supabase.realtime && supabase.realtime.conn
-      const isConnected = sock ? sock.readyState === 1 : true
+    // Prefer public realtime helpers. The old `realtime.conn.readyState` path is
+    // gone in modern @supabase/realtime-js (conn lives on the private phoenix
+    // socket). Treating "connecting" as healthy avoids false offline flaps while
+    // the websocket is still opening — which used to show as offline for minutes.
+    const realtimeHealthy = () => {
+      const rt = supabase.realtime
+      if (!rt) return true
+      try {
+        if (typeof rt.isConnected === 'function' && rt.isConnected()) return true
+        if (typeof rt.isConnecting === 'function' && rt.isConnecting()) return true
+        // No public helpers — do not assume down
+        if (typeof rt.isConnected !== 'function') return true
+        return false
+      } catch {
+        return true
+      }
+    }
 
-      if (!isConnected && netStatus.online) {
-        netStatus.online = false
-        useStore.getState().setConnectionStatus('reconnecting')
-        useStore.getState().setConnectionNote('Connection lost — trying again…')
-        useStore.getState().setOnline(false)
-        useStore.getState().flash('Connection lost — reconnecting…', 'warn')
-      } else if (isConnected && !netStatus.online && netStatus.ready) {
+    const reconnectInterval = setInterval(() => {
+      if (disposed || !netStatus.ready) return
+
+      const healthy = realtimeHealthy()
+      const connected =
+        typeof supabase.realtime?.isConnected === 'function'
+          ? supabase.realtime.isConnected()
+          : healthy
+
+      if (!healthy && netStatus.online) {
+        realtimeFailStreak += 1
+        // Debounce: 2×3s unhealthy before UI goes "reconnecting"
+        if (realtimeFailStreak >= 2) {
+          netStatus.online = false
+          useStore.getState().setConnectionStatus('reconnecting')
+          useStore.getState().setConnectionNote('Connection lost — trying again…')
+          useStore.getState().setOnline(false)
+          useStore.getState().flash('Connection lost — reconnecting…', 'warn')
+        }
+      } else if (connected && !netStatus.online && netStatus.ready) {
+        realtimeFailStreak = 0
         netStatus.online = true
         useStore.getState().setConnectionStatus('connected')
         useStore.getState().setConnectionNote(null)
@@ -984,11 +1113,14 @@ export default function Net() {
           })
         }
         subscribeWorld()
+      } else if (healthy) {
+        realtimeFailStreak = 0
       }
     }, 3000)
 
     return () => {
       disposed = true
+      initGen += 1 // invalidate any in-flight initOnce/retry
       bridge.online = false
       bridge.saveIdentity = async () => {}
       bridge.syncPosition = async () => ({ ok: true })
@@ -1017,6 +1149,20 @@ export default function Net() {
 
   // position broadcast + region switching + server position heartbeat (#6)
   useFrame((_, dt) => {
+    // Heartbeat must run even before region channels join — harvest/plant RPCs
+    // require a fresh last_pos and used to 400 with "position unknown/stale"
+    // while posChannelRef was still null.
+    if (netStatus.online && ONLINE && supabase) {
+      posRpcAcc.current += dt
+      if (posRpcAcc.current >= 0.5) {
+        posRpcAcc.current = 0
+        supabase.rpc('update_position', {
+          p_x: +P.pos.x.toFixed(2),
+          p_z: +P.pos.z.toFixed(2),
+        }).then(() => {}).catch(() => {})
+      }
+    }
+
     if (!netStatus.online || !posChannelRef.current) return
 
     const { rx, rz } = regionOf(P.pos.x, P.pos.z)
@@ -1057,16 +1203,6 @@ export default function Net() {
           ],
         })
       }
-    }
-
-    // Trustworthy last position for proximity RPCs (#6)
-    posRpcAcc.current += dt
-    if (posRpcAcc.current >= 0.5 && ONLINE && supabase) {
-      posRpcAcc.current = 0
-      supabase.rpc('update_position', {
-        p_x: +P.pos.x.toFixed(2),
-        p_z: +P.pos.z.toFixed(2),
-      }).then(() => {}).catch(() => {})
     }
   })
 

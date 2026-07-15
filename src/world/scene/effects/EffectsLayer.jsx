@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import {
   Bloom,
   BrightnessContrast,
@@ -16,7 +17,14 @@ export default function EffectsLayer() {
   if (!enabled) return null
 
   return (
-    <EffectComposer multisampling={0} autoClear={false}>
+    // multisampling={0} + disableNormalPass + 8-bit targets: avoids ANGLE
+    // depth-stencil blit (GL_INVALID_OPERATION: read/write depth stencil same
+    // image) that floods the console and can brick the context after too many errors.
+    <EffectComposer
+      multisampling={0}
+      disableNormalPass
+      frameBufferType={THREE.UnsignedByteType}
+    >
       <HueSaturation saturation={0.03} />
       <BrightnessContrast brightness={0.008} contrast={0.02} />
       <Bloom

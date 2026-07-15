@@ -1010,7 +1010,18 @@ export const useStore = create((set, get) => ({
               stone: kind === 'rock' ? s.stone - reward : s.stone
             }
           })
-          get().flash(res.error || `could not harvest ${kind}`)
+          const err = (res.error || '').toLowerCase()
+          let friendly
+          if (err.includes('position unknown') || err.includes('position stale'))
+            friendly = 'walk a step, then harvest again'
+          else if (err.includes('too far')) friendly = 'get closer to harvest'
+          else if (err.includes('already cut')) friendly = 'already harvested'
+          else if (err.includes('daily harvest')) friendly = 'daily harvest limit reached — try tomorrow'
+          else if (err.includes('invalid resource') || err.includes('bad id'))
+            friendly = 'that resource cannot be harvested'
+          else if (err.includes('not signed in')) friendly = 'reconnecting — try again'
+          else if (err.includes('rate limit')) friendly = 'slow down a moment'
+          get().flash(friendly || res.error || `could not harvest ${kind}`)
         } else {
           if (typeof res.wood === 'number') set({ wood: res.wood })
           if (typeof res.stone === 'number') set({ stone: res.stone })
