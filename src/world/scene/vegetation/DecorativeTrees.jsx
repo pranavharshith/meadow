@@ -76,7 +76,7 @@ export default function DecorativeTrees({ trees, cutResources }) {
   // then harvests it — the same calm rhythm as planted trees. A click that was
   // really a camera drag is ignored.
   const toggleSelect = (tree) => {
-    if (pointer.moved) return
+    if (pointer.moved || !tree.harvestable) return
     const id = proceduralTreeId(tree)
     const current = useStore.getState().selection
     const already = current && current.kind === 'procedural' && current.id === id
@@ -127,6 +127,9 @@ export default function DecorativeTrees({ trees, cutResources }) {
         const id = proceduralTreeId(tree)
         if (cutResources[id]) return null
         const selected = selection && selection.kind === 'procedural' && selection.id === id
+        // Only the harvestable subset reacts to clicks; the dense decorative
+        // canopy is scenery and stays non-interactive.
+        const interactive = tree.harvestable
         return (
           <group
             key={id}
@@ -138,9 +141,9 @@ export default function DecorativeTrees({ trees, cutResources }) {
               tree.scale * tree.height,
               tree.scale * tree.width,
             ]}
-            onClick={(event) => handleNearClick(tree, event)}
-            onPointerOver={() => { document.body.style.cursor = 'pointer' }}
-            onPointerOut={() => { document.body.style.cursor = '' }}
+            onClick={interactive ? (event) => handleNearClick(tree, event) : undefined}
+            onPointerOver={interactive ? () => { document.body.style.cursor = 'pointer' } : undefined}
+            onPointerOut={interactive ? () => { document.body.style.cursor = '' } : undefined}
           >
             <Select enabled={!!selected}>
               <DecorativeTreeSpecies shape={tree.shape} variant={tree.variant} />

@@ -45,7 +45,11 @@ export default function App() {
         dpr={[1, 1.75]}
         camera={{ position: [0, 4, 10], fov: 62, near: 0.1, far: 600 }}
         gl={{
-          antialias: true,
+          // No MSAA: with preserveDrawingBuffer the multisampled default
+          // framebuffer must resolve its depth-stencil every frame, which ANGLE
+          // rejects ("read and write depth stencil ... same image"). SMAA in the
+          // effect stack provides anti-aliasing during normal play instead.
+          antialias: false,
           powerPreference: 'high-performance',
           preserveDrawingBuffer: true,
         }}

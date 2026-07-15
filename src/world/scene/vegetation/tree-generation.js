@@ -8,8 +8,13 @@ import {
 import { CHUNK, seedFor } from '../../chunk'
 import { isInsideAnyPlot } from '../contracts/placement-mask'
 
+// Harvestable trees carry the server-validated id "{cx},{cz}_{idx}_tree" with
+// idx < n. Purely decorative trees use a non-matching "_deco" key so they never
+// collide with a harvest id and are never sent to the cut RPC.
 export function proceduralTreeId(tree) {
-  return `${tree.chunkKey}_${tree.localId}_tree`
+  return tree.harvestable
+    ? `${tree.chunkKey}_${tree.localId}_tree`
+    : `${tree.chunkKey}_d${tree.candidateId}_deco`
 }
 
 export function treeRegistryEntry(tree) {
@@ -25,14 +30,22 @@ export function treeRegistryEntry(tree) {
   }
 }
 
-/** Deterministic grove generation. Candidate index remains the persisted ID. */
+// The server's cut_procedural_resource derives the cuttable count per chunk as
+// n = 3 + floor(rand * 3) from mulberry32(seedFor ^ 0x7) and rejects any index
+// >= n. We mirror that exactly so harvest ids validate server-side.
+function serverHarvestCount(cx, cz) {
+  const rand = mulberry32(seedFor(cx, cz) ^ 0x7)()
+  return 3 + Math.floor(rand * 3)
+}
+
+/** Deterministic grove generation with a small server-matching harvestable set. */
 export function generateTreeChunk(cx, cz, plots) {
   const chunkKey = `${cx},${cz}`
   const trees = []
   const random = mulberry32(seedFor(cx, cz) ^ 0x7)
   const candidateCount = 76 + Math.floor(random() * 23)
 
-  for (let localId = 0; localId < candidateCount; localId++) {
+  for (let candidateId = 0; candidateId < candidateCount; candidateId++) {
     const x = cx * CHUNK + random() * CHUNK
     const z = cz * CHUNK + random() * CHUNK
     const ageRoll = random()
@@ -67,12 +80,23 @@ export function generateTreeChunk(cx, cz, plots) {
     else if (biome.warmth > 0.62 && speciesRoll > 0.955) shape = 4
 
     trees.push({
-      localId, chunkKey, x, y, z, shape, variant,
+      candidateId, chunkKey, x, y, z, shape, variant,
       scale, rotation, width, height, leanX, leanZ,
       forest: biome.forest,
       moisture: biome.moisture,
+      harvestable: false,
+      localId: -1,
     })
   }
+
+  // Promote the largest trees (up to the server count) to harvestable so the
+  // obvious, prominent trees are the choppable ones and their idx stays < n.
+  const harvestCount = serverHarvestCount(cx, cz)
+  const harvestable = [...trees].sort((a, b) => b.scale - a.scale).slice(0, harvestCount)
+  harvestable.forEach((tree, index) => {
+    tree.harvestable = true
+    tree.localId = index
+  })
 
   return trees
 }
