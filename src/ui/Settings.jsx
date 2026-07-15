@@ -1,4 +1,4 @@
-import { useStore, DAILY_BONUS_GOLD } from '../store'
+import { useStore } from '../store'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useFocusTrap, useEscapeKey } from './a11y'
 
@@ -65,7 +65,7 @@ function ToggleRow({ label, on, onToggle, title }) {
   )
 }
 
-// Settings panel — gear icon always visible in the button row.
+// Settings — graphics, audio, keybinds only. Progress lives in ProgressPanel.
 export default function Settings() {
   const open = useStore((s) => s.settingsOpen)
   const setOpen = useStore((s) => s.setSettingsOpen)
@@ -79,25 +79,11 @@ export default function Settings() {
   const toggleParticles = useStore((s) => s.toggleParticles)
   const setGrassDensity = useStore((s) => s.setGrassDensity)
   const setJoystickEnabled = useStore((s) => s.setJoystickEnabled)
-  const lastBonus = useStore((s) => s.lastBonus)
-  const claimDailyBonus = useStore((s) => s.claimDailyBonus)
-  const discovered = useStore((s) => s.discovered) || []
-  const gold = useStore((s) => s.gold)
-  const wood = useStore((s) => s.wood)
-  const online = useStore((s) => s.online)
-  const worldTreeWood = useStore((s) => s.worldTreeWood)
-  const donateToWorldTree = useStore((s) => s.donateToWorldTree)
-  const [claiming, setClaiming] = useState(false)
-  const [donateAmt, setDonateAmt] = useState('50')
-  const [donating, setDonating] = useState(false)
 
   const panelRef = useRef(null)
   const close = useCallback(() => setOpen(false), [setOpen])
   useFocusTrap(panelRef, open)
   useEscapeKey(open, close)
-
-  const today = new Date().toISOString().slice(0, 10)
-  const dailyClaimedToday = lastBonus === today
 
   return (
     <div className="settings-wrap no-look">
@@ -131,105 +117,6 @@ export default function Settings() {
           </div>
 
           <div className="settings-group">
-            <div className="settings-hint settings-hint-block">Progress</div>
-            <div className="settings-progress-card">
-              <div className="settings-progress-row">
-                <span>Places found</span>
-                <strong>{discovered.length}</strong>
-              </div>
-              <div className="settings-progress-row">
-                <span>Gold</span>
-                <strong className="settings-progress-gold">
-                  <span className="shop-coin" aria-hidden="true" /> {gold}
-                </strong>
-              </div>
-              <button
-                type="button"
-                className={`settings-daily-btn${dailyClaimedToday ? ' claimed' : ''}`}
-                disabled={claiming}
-                onClick={async () => {
-                  setClaiming(true)
-                  try {
-                    await claimDailyBonus({ forceToast: true })
-                  } finally {
-                    setClaiming(false)
-                  }
-                }}
-              >
-                {claiming
-                  ? 'Claiming…'
-                  : dailyClaimedToday
-                    ? 'Daily bonus claimed today'
-                    : `Claim daily bonus · +${DAILY_BONUS_GOLD}g`}
-              </button>
-              <p className="settings-hint">
-                {dailyClaimedToday
-                  ? 'Come back tomorrow for another +10 gold.'
-                  : 'One free claim per day. New online accounts wait 12 hours.'}
-              </p>
-
-              <div className="settings-divider" />
-              <div className="settings-hint settings-hint-block">World Tree</div>
-              <div className="settings-progress-row">
-                <span>Shared wood</span>
-                <strong>🪵 {worldTreeWood ?? 0}</strong>
-              </div>
-              <div className="settings-progress-row">
-                <span>Your wood</span>
-                <strong>🪵 {wood}</strong>
-              </div>
-              {online ? (
-                <>
-                  <div className="settings-donate-row">
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      className="settings-donate-input"
-                      value={donateAmt}
-                      onChange={(e) => setDonateAmt(e.target.value)}
-                      aria-label="Wood amount to donate"
-                    />
-                    <button
-                      type="button"
-                      className="settings-daily-btn"
-                      disabled={donating}
-                      onClick={async () => {
-                        setDonating(true)
-                        try {
-                          await donateToWorldTree(donateAmt)
-                        } finally {
-                          setDonating(false)
-                        }
-                      }}
-                    >
-                      {donating ? 'Donating…' : 'Donate wood'}
-                    </button>
-                  </div>
-                  <div className="settings-donate-presets" role="group" aria-label="Quick donate amounts">
-                    {[10, 50, 100, 500].map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        className="settings-seg-btn"
-                        onClick={() => setDonateAmt(String(n))}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="settings-hint">
-                    Donate 500+ total wood (lifetime) for a chat donor badge. Online only.
-                  </p>
-                </>
-              ) : (
-                <p className="settings-hint">
-                  Join online to donate wood to the shared World Tree and earn a chat badge.
-                </p>
-              )}
-            </div>
-
-            <div className="settings-divider" />
             <ToggleRow label="Sound" on={!muted} onToggle={toggleMute} />
             <ToggleRow label="Fireflies" on={fireflies} onToggle={toggleFireflies} />
             <ToggleRow label="Wildlife" on={particles} onToggle={toggleParticles} />

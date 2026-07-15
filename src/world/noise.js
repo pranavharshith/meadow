@@ -243,6 +243,39 @@ export function clusterField(x, z) {
   return smooth(clamp((n - 0.35) / 0.5, 0, 1))
 }
 
+/**
+ * Deterministic large-scale ecology shared by terrain, trees and ground cover.
+ * `slope` and `height` are accepted from callers that already sampled them so
+ * dense systems (grass) do not have to repeat expensive terrain lookups.
+ */
+export function biomeSample(x, z, slope = 0, height = 0) {
+  const broadWet = valueNoise(x * 0.0042 + 31.7, z * 0.0042 - 18.4)
+  const localWet = valueNoise(x * 0.013 - 9.2, z * 0.013 + 42.6)
+  const moisture = smooth(clamp((broadWet * 0.72 + localWet * 0.28 - 0.18) / 0.68, 0, 1))
+
+  const warmthNoise = valueNoise(x * 0.0031 - 71.0, z * 0.0031 + 16.0)
+  const warmth = smooth(clamp(warmthNoise * 0.86 + 0.12 - Math.max(height, 0) * 0.012, 0, 1))
+
+  const groveNoise = clusterField(x, z)
+  const groveBreakup = valueNoise(x * 0.008 + 83.0, z * 0.008 - 57.0)
+  const forest = smooth(clamp(
+    groveNoise * 0.68 + groveBreakup * 0.24 + moisture * 0.34 - slope * 0.72 - 0.30,
+    0,
+    1,
+  ))
+
+  const rock = smooth(clamp((slope - 0.20) / 0.58 + Math.max(height - 4, 0) * 0.025, 0, 1))
+  const dryness = smooth(clamp((1 - moisture) * 0.72 + warmth * 0.22 + slope * 0.22 - 0.14, 0, 1))
+  const meadow = smooth(clamp(1.08 - forest * 0.82 - rock * 0.74, 0, 1))
+
+  return { moisture, warmth, forest, meadow, rock, dryness }
+}
+
+/** Stable acceptance mask for decorative woodland generation. */
+export function forestDensity(x, z, slope = 0, height = 0) {
+  return biomeSample(x, z, slope, height).forest
+}
+
 function clamp(v, a, b) {
   return v < a ? a : v > b ? b : v
 }

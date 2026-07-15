@@ -20,6 +20,7 @@ import PlotCustomizer from './PlotCustomizer'
 import Compass from './Compass'
 import FirstWalkQuest from './FirstWalkQuest'
 import MobileActionBar from './MobileActionBar'
+import ProgressPanel from './ProgressPanel'
 
 const VIEW_LABEL = { third: 'Follow', first: 'First person', top: 'Map', drone: 'Drone' }
 
@@ -188,6 +189,7 @@ export default function Hud() {
       <CreateHub />
       <WorldMap />
       <NavIndicator />
+      <ProgressPanel />
       <TouchJoystick />
 
       <div
