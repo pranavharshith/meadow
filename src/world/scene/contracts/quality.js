@@ -6,44 +6,23 @@ export function terrainSegmentsFor(density) {
 }
 
 /**
- * Mesh grass budgets preserve the terrain grass-cover shader at every setting.
- * Detail disappears from tallest/most decorative layers first so low settings
- * remain a convincing green field instead of reverting to exposed ground.
+ * The short grass carpet survives quality reductions. It is intentionally
+ * cheap geometry, so adaptive quality removes tall accents before it creates
+ * the sparse-prototype look seen in the earlier renderer.
  */
 export function coverDetailFor(density, autoTier = 0) {
-  if (density === 'off') {
-    return { near: 0, mid: 0, tall: 0, flowers: 0, forest: 0 }
-  }
+  if (density === 'off') return { near: 0, mid: 0, tall: 0, flowers: 0, forest: 0 }
 
-  const userScale = density === 'half' ? 0.55 : 1
+  const userScale = density === 'half' ? 0.72 : 1
   if (autoTier === 2) {
-    return {
-      near: userScale * 0.42,
-      mid: 0,
-      tall: 0,
-      flowers: 0,
-      forest: userScale * 0.28,
-    }
+    return { near: userScale * 0.70, mid: userScale * 0.24, tall: 0, flowers: 0, forest: 0 }
   }
   if (autoTier === 1) {
-    return {
-      near: userScale * 0.72,
-      mid: userScale * 0.22,
-      tall: 0,
-      flowers: userScale * 0.22,
-      forest: userScale * 0.56,
-    }
+    return { near: userScale * 0.86, mid: userScale * 0.32, tall: userScale * 0.24, flowers: userScale * 0.35, forest: 0 }
   }
-  return {
-    near: userScale,
-    mid: userScale * 0.46,
-    tall: userScale,
-    flowers: userScale,
-    forest: userScale,
-  }
+  return { near: userScale, mid: userScale * 0.34, tall: userScale, flowers: userScale, forest: 0 }
 }
 
-// Kept for existing consumers that only need a single density multiplier.
 export function coverScaleFor(density, autoTier = 0) {
   return coverDetailFor(density, autoTier).near
 }

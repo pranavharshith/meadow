@@ -5,7 +5,6 @@ function applyWoodlandShader(shader) {
     varying vec3 vWoodlandWorldPosition;
     varying vec3 vWoodlandWorldNormal;
   ` + shader.vertexShader
-
   shader.vertexShader = shader.vertexShader.replace(
     '#include <worldpos_vertex>',
     `#include <worldpos_vertex>
@@ -44,12 +43,12 @@ function applyWoodlandShader(shader) {
       float macro = grasslandFbm(worldPosition * 0.011);
       float patch = grasslandFbm(worldPosition * 0.043 + 31.0);
       float fine = grasslandFbm(worldPosition * 0.19 - 14.0);
-      vec3 shade = vec3(0.16, 0.34, 0.08);
-      vec3 healthy = vec3(0.31, 0.56, 0.13);
-      vec3 sunlit = vec3(0.50, 0.72, 0.20);
-      vec3 meadow = mix(shade, healthy, smoothstep(0.24, 0.78, macro));
-      meadow = mix(meadow, sunlit, smoothstep(0.58, 0.88, patch) * 0.42);
-      return meadow * (0.92 + fine * 0.14);
+      vec3 shade = vec3(0.22, 0.45, 0.10);
+      vec3 healthy = vec3(0.42, 0.70, 0.17);
+      vec3 sunlit = vec3(0.68, 0.86, 0.30);
+      vec3 meadow = mix(shade, healthy, smoothstep(0.20, 0.74, macro));
+      meadow = mix(meadow, sunlit, smoothstep(0.54, 0.86, patch) * 0.45);
+      return meadow * (0.98 + fine * 0.12);
     }
   ` + shader.fragmentShader
 
@@ -58,23 +57,16 @@ function applyWoodlandShader(shader) {
     `#include <color_fragment>
      vec3 woodlandNormal = normalize(vWoodlandWorldNormal);
      float slope = 1.0 - clamp(abs(woodlandNormal.y), 0.0, 1.0);
-     float rock = smoothstep(0.30, 0.66, slope);
-     float damp = smoothstep(0.62, 0.86, grasslandFbm(vWoodlandWorldPosition.xz * 0.014 + 9.0)) * (1.0 - rock);
-     float dry = smoothstep(0.72, 0.95, grasslandFbm(vWoodlandWorldPosition.xz * 0.009 - 37.0)) * (1.0 - damp - rock);
+     float rock = smoothstep(0.36, 0.70, slope);
+     float damp = smoothstep(0.64, 0.88, grasslandFbm(vWoodlandWorldPosition.xz * 0.014 + 9.0)) * (1.0 - rock);
 
      vec3 meadow = grasslandMeadowColor(vWoodlandWorldPosition.xz);
-     vec3 moss = vec3(0.20, 0.42, 0.12);
-     vec3 soil = vec3(0.34, 0.28, 0.12);
+     vec3 moss = vec3(0.19, 0.45, 0.11);
      vec3 stone = vec3(0.43, 0.46, 0.39);
-     vec3 grassCover = mix(meadow, moss, damp * 0.16);
-     grassCover = mix(grassCover, soil, dry * 0.08);
-     grassCover = mix(grassCover, stone, rock * 0.74);
-
-     // The shader remains the far-field meadow carpet whenever mesh grass is
-     // reduced by distance or quality settings.
-     diffuseColor.rgb = mix(diffuseColor.rgb, grassCover, 0.90);`,
+     vec3 grassCover = mix(meadow, moss, damp * 0.12);
+     grassCover = mix(grassCover, stone, rock * 0.66);
+     diffuseColor.rgb = mix(diffuseColor.rgb, grassCover, 0.96);`,
   )
-
   shader.fragmentShader = shader.fragmentShader.replace(
     '#include <roughnessmap_fragment>',
     `#include <roughnessmap_fragment>
@@ -87,11 +79,13 @@ export function createTerrainMaterial() {
     vertexColors: true,
     roughness: 0.96,
     metalness: 0,
+    emissive: '#173707',
+    emissiveIntensity: 0.16,
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   })
   material.onBeforeCompile = applyWoodlandShader
-  material.customProgramCacheKey = () => 'lush-grassland-terrain-v1'
+  material.customProgramCacheKey = () => 'lush-grassland-terrain-v2'
   return material
 }
