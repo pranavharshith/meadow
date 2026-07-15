@@ -1,4 +1,16 @@
-# Netlify / Cloudflare Pages style headers (also mirrored in vercel.json)
+# Netlify / Cloudflare Pages headers
+# (Vercel uses vercel.json instead)
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+
+/assets/*.css
+  Content-Type: text/css; charset=utf-8
+
+/assets/*.js
+  Content-Type: application/javascript; charset=utf-8
+
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
