@@ -17,7 +17,16 @@ const UP = new THREE.Vector3(0, 1, 0)
 const WALK = 4.2
 const RUN = 9
 const SUBSTEP = 0.3
+// Steepness limit for open terrain. Always evaluated against at least SUBSTEP
+// of horizontal travel so slow walk and sprint judge the same slope the same
+// way (a pure dy/stepDist ratio blocked walk at the Meadow Gate while run
+// tunnelled through because stepDist was larger).
 const MAX_CLIMB_RATIO = 2.2
+// Absolute vertical step limits (metres). Plaza rings are ~0.35–0.55m each.
+const MAX_STEP_UP = 0.85
+const MAX_STEP_DOWN = 1.6
+const PLAZA_MAX_STEP_UP = 1.2
+const PLAZA_MAX_STEP_DOWN = 2.2
 
 // One authoritative walk height: plaza slab first, otherwise the exact rendered
 // terrain facet, preserving any water-wade lift so the player wades rather than
@@ -191,10 +200,21 @@ export default function Player() {
 
         ;[nx, nz] = pushOut(nx, nz)
 
-        // Reject a substep that would scale a near-vertical wall.
+        // Reject a substep that would scale a cliff — but treat walk and run
+        // the same. The old dy/stepDist test blocked slow WASD at the Meadow
+        // Gate (tiny stepDist → huge ratio) while Shift+WASD still crossed.
         const nextSurface = samplePlayerSurface(nx, nz, segments)
         const stepDist = Math.hypot(nx - curX, nz - curZ)
-        if (stepDist > 1e-5 && Math.abs(nextSurface - curSurface) / stepDist > MAX_CLIMB_RATIO) break
+        const dy = nextSurface - curSurface
+        const leavingOrInPlaza =
+          inPlaza || plazaFloorHeight(curX, curZ) !== null
+        const maxUp = leavingOrInPlaza ? PLAZA_MAX_STEP_UP : MAX_STEP_UP
+        const maxDown = leavingOrInPlaza ? PLAZA_MAX_STEP_DOWN : MAX_STEP_DOWN
+        if (dy > maxUp || dy < -maxDown) break
+        // Speed-independent steepness: floor horizontal basis at SUBSTEP so a
+        // 0.05m walk sample and a 0.25m sprint sample see the same geometry.
+        const climbBasis = Math.max(stepDist, SUBSTEP)
+        if (stepDist > 1e-5 && Math.abs(dy) / climbBasis > MAX_CLIMB_RATIO) break
 
         curX = nx
         curZ = nz

@@ -15,27 +15,36 @@ function mergedTransformed(source, transforms) {
   return mergeGeometries(parts)
 }
 
-export const GRASS_BLADE_HEIGHT = 0.92
+function softenNormals(geometry, amount = 0.7) {
+  const normals = geometry.getAttribute('normal')
+  const normal = new THREE.Vector3()
+  const up = new THREE.Vector3(0, 1, 0)
 
-// One curved, tapered blade: several rows wide at the root, narrowing to a
-// point, gently bending forward. Reads as a broad leaf rather than a stick.
-function createGrassBladeGeometry(height, baseWidth, bend, rows = 5) {
+  for (let index = 0; index < normals.count; index++) {
+    normal.fromBufferAttribute(normals, index).lerp(up, amount).normalize()
+    normals.setXYZ(index, normal.x, normal.y, normal.z)
+  }
+  normals.needsUpdate = true
+}
+
+// Opaque modeled blades keep the meadow soft without the fill-rate cost of
+// alpha cards. Clumps are deliberately irregular to avoid radial repetition.
+function createGrassBladeGeometry(height, baseWidth, bend, rows = 4) {
   const positions = []
   const indices = []
-  for (let i = 0; i <= rows; i++) {
-    const t = i / rows
-    const y = t * height
-    const halfWidth = (baseWidth * 0.5) * Math.pow(1 - t, 0.68)
-    const z = bend * t * t
-    positions.push(-halfWidth, y, z, halfWidth, y, z)
+  for (let row = 0; row <= rows; row++) {
+    const t = row / rows
+    const halfWidth = baseWidth * 0.5 * Math.pow(1 - t, 0.72)
+    positions.push(
+      -halfWidth, t * height, bend * t * t,
+      halfWidth, t * height, bend * t * t,
+    )
   }
-  for (let i = 0; i < rows; i++) {
-    const a = i * 2
-    const b = i * 2 + 1
-    const c = (i + 1) * 2
-    const d = (i + 1) * 2 + 1
-    indices.push(a, b, d, a, d, c)
+  for (let row = 0; row < rows; row++) {
+    const start = row * 2
+    indices.push(start, start + 1, start + 3, start, start + 3, start + 2)
   }
+
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
   geometry.setIndex(indices)
@@ -43,22 +52,166 @@ function createGrassBladeGeometry(height, baseWidth, bend, rows = 5) {
   return geometry
 }
 
-// A tuft is a few overlapping blades fanned around the root so tufts read as
-// soft clumps that merge into a continuous meadow at distance.
-function createGrassTuftGeometry() {
-  const count = 6
+function createGrassClumpGeometry({ bladeCount, maxHeight, baseWidth, bend, spread, normalSoftness }) {
   const blades = []
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 + (i % 2) * 0.4
-    const height = GRASS_BLADE_HEIGHT * (0.78 + (i % 3) * 0.15)
-    const bend = 0.15 + (i % 2) * 0.08
-    const blade = createGrassBladeGeometry(height, 0.15, bend, 5)
+  for (let index = 0; index < bladeCount; index++) {
+    const angle = index * 2.399963 + Math.sin(index * 1.71) * 0.31
+    const heightVariation = 0.64 + (((index * 37) % 13) / 12) * 0.34
+    const widthVariation = 0.78 + (((index * 19) % 9) / 8) * 0.28
+    const blade = createGrassBladeGeometry(
+      maxHeight * heightVariation,
+      baseWidth * widthVariation,
+      bend * (0.72 + (index % 4) * 0.12),
+    )
+    const radius = spread * (0.22 + ((index * 11) % 7) / 8)
     blade.rotateY(angle)
-    blade.translate(Math.cos(angle) * 0.045, -0.02, Math.sin(angle) * 0.045)
+    blade.translate(Math.cos(angle) * radius, -0.018, Math.sin(angle) * radius)
     blades.push(blade)
   }
-  return mergeGeometries(blades)
+
+  const geometry = mergeGeometries(blades)
+  softenNormals(geometry, normalSoftness)
+  geometry.computeBoundingSphere()
+  return geometry
 }
+
+function createGrassMaterial({ bladeHeight, windScale, cacheKey }) {
+  const material = new THREE.MeshStandardMaterial({
+    color: '#ffffff',
+    side: THREE.DoubleSide,
+    roughness: 0.94,
+    metalness: 0,
+  })
+
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = windTime
+    shader.uniforms.uWind = windStrength
+    shader.vertexShader = `
+      uniform float uTime;
+      uniform float uWind;
+      varying float vGrassHeight;
+      varying vec3 vGrassWorldPosition;
+    ` + shader.vertexShader
+
+    // The terrain-facing local up vector becomes the terrain normal because
+    // instances are aligned to the sampled terrain facet before rendering.
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <beginnormal_vertex>',
+      `#include <beginnormal_vertex>
+       objectNormal = normalize(mix(objectNormal, vec3(0.0, 1.0, 0.0), 0.62));`,
+    )
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+       float grassHeight = clamp(position.y / ${bladeHeight.toFixed(3)}, 0.0, 1.0);
+       vGrassHeight = grassHeight;
+       vec3 grassOrigin = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+       float travelingGust = sin(dot(grassOrigin.xz, vec2(0.035, 0.022)) - uTime * 0.62);
+       float crossGust = sin(dot(grassOrigin.xz, vec2(-0.071, 0.047)) + uTime * 0.31);
+       float localFlutter = sin(uTime * 1.9 + grassOrigin.x * 0.17 + grassOrigin.z * 0.11);
+       float bendAmount = pow(grassHeight, 1.65);
+       float gust = travelingGust * 0.72 + crossGust * 0.24 + localFlutter * 0.08;
+       transformed.x += gust * ${windScale.toFixed(3)} * bendAmount * uWind;
+       transformed.z += (travelingGust * 0.42 + crossGust * 0.18) * ${windScale.toFixed(3)} * bendAmount * uWind;
+       vGrassWorldPosition = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;`,
+    )
+
+    shader.fragmentShader = `
+      varying float vGrassHeight;
+      varying vec3 vGrassWorldPosition;
+
+      float grasslandHash(vec2 point) {
+        point = fract(point * vec2(123.34, 456.21));
+        point += dot(point, point + 45.32);
+        return fract(point.x * point.y);
+      }
+
+      float grasslandNoise(vec2 point) {
+        vec2 cell = floor(point);
+        vec2 local = fract(point);
+        local = local * local * (3.0 - 2.0 * local);
+        return mix(
+          mix(grasslandHash(cell), grasslandHash(cell + vec2(1.0, 0.0)), local.x),
+          mix(grasslandHash(cell + vec2(0.0, 1.0)), grasslandHash(cell + vec2(1.0, 1.0)), local.x),
+          local.y
+        );
+      }
+
+      float grasslandFbm(vec2 point) {
+        return grasslandNoise(point) * 0.62
+          + grasslandNoise(point * 2.03 + 17.2) * 0.25
+          + grasslandNoise(point * 4.11 - 9.7) * 0.13;
+      }
+
+      vec3 grasslandGroundColor(vec2 worldPosition) {
+        float macro = grasslandFbm(worldPosition * 0.011);
+        float patch = grasslandFbm(worldPosition * 0.043 + 31.0);
+        float fine = grasslandFbm(worldPosition * 0.19 - 14.0);
+        vec3 shade = vec3(0.16, 0.34, 0.08);
+        vec3 healthy = vec3(0.31, 0.56, 0.13);
+        vec3 sunlit = vec3(0.50, 0.72, 0.20);
+        vec3 meadow = mix(shade, healthy, smoothstep(0.24, 0.78, macro));
+        meadow = mix(meadow, sunlit, smoothstep(0.58, 0.88, patch) * 0.42);
+        return meadow * (0.92 + fine * 0.14);
+      }
+    ` + shader.fragmentShader
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+       float rootBlend = smoothstep(0.05, 0.46, vGrassHeight);
+       float tipLight = smoothstep(0.32, 1.0, vGrassHeight);
+       vec3 rootColor = grasslandGroundColor(vGrassWorldPosition.xz) * 0.82;
+       vec3 bladeColor = diffuseColor.rgb * mix(0.78, 1.10, vGrassHeight);
+       bladeColor = mix(bladeColor, bladeColor * vec3(1.05, 1.10, 0.82), tipLight * 0.34);
+       diffuseColor.rgb = mix(rootColor, bladeColor, rootBlend);`,
+    )
+  }
+  material.customProgramCacheKey = () => cacheKey
+  return material
+}
+
+// Each layer is opaque modeled geometry. The dense short layer creates the
+// continuous carpet; the other two add silhouette and depth above it.
+export const shortGrassGeometry = createGrassClumpGeometry({
+  bladeCount: 11,
+  maxHeight: 0.58,
+  baseWidth: 0.11,
+  bend: 0.10,
+  spread: 0.14,
+  normalSoftness: 0.78,
+})
+export const meadowGrassGeometry = createGrassClumpGeometry({
+  bladeCount: 9,
+  maxHeight: 0.96,
+  baseWidth: 0.135,
+  bend: 0.18,
+  spread: 0.18,
+  normalSoftness: 0.70,
+})
+export const tallGrassGeometry = createGrassClumpGeometry({
+  bladeCount: 7,
+  maxHeight: 1.36,
+  baseWidth: 0.12,
+  bend: 0.26,
+  spread: 0.21,
+  normalSoftness: 0.62,
+})
+
+export const shortGrassMaterial = createGrassMaterial({
+  bladeHeight: 0.58,
+  windScale: 0.045,
+  cacheKey: 'lush-short-grass-v1',
+})
+export const meadowGrassMaterial = createGrassMaterial({
+  bladeHeight: 0.96,
+  windScale: 0.095,
+  cacheKey: 'lush-meadow-grass-v1',
+})
+export const tallGrassMaterial = createGrassMaterial({
+  bladeHeight: 1.36,
+  windScale: 0.145,
+  cacheKey: 'lush-tall-grass-v1',
+})
 
 function createFernGeometry() {
   const positions = []
@@ -105,7 +258,6 @@ const berrySource = new THREE.IcosahedronGeometry(0.07, 0)
 const flowerPlane = new THREE.PlaneGeometry(0.22, 0.27)
 flowerPlane.translate(0, 0.135, 0)
 
-export const grassTuftGeometry = createGrassTuftGeometry()
 export const fernGeometry = createFernGeometry()
 export const shrubGeometry = mergedTransformed(bushSource, [
   { position: [-0.28, 0.32, 0], scale: [0.9, 0.75, 0.9] },
@@ -128,39 +280,6 @@ export const pebbleGeometry = new THREE.IcosahedronGeometry(0.22, 0)
 pebbleGeometry.scale(1, 0.58, 0.82)
 export const stumpGeometry = new THREE.CylinderGeometry(0.28, 0.38, 0.72, 7)
 export const stumpCapGeometry = new THREE.CylinderGeometry(0.285, 0.285, 0.035, 7)
-
-export const grassMaterial = (() => {
-  // White base so the per-instance colors render at full value instead of being
-  // multiplied down into muddy olive. Lushness/gradient comes from instanceColor
-  // and the shader tip gradient below.
-  const material = new THREE.MeshStandardMaterial({ color: '#ffffff', side: THREE.DoubleSide, roughness: 1, metalness: 0 })
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = windTime
-    shader.uniforms.uWind = windStrength
-    shader.vertexShader = 'uniform float uTime;\nuniform float uWind;\nvarying float vGrassH;\n' + shader.vertexShader
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      `#include <begin_vertex>
-       float grassHeight = clamp(position.y / ${GRASS_BLADE_HEIGHT.toFixed(3)}, 0.0, 1.0);
-       vGrassH = grassHeight;
-       vec3 grassOrigin = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
-       float grassPhase = grassOrigin.x * 0.31 + grassOrigin.z * 0.27;
-       float grassSway = sin(uTime * 1.1 + grassPhase) + 0.4 * sin(uTime * 2.3 + grassPhase * 1.7);
-       float bendAmt = pow(grassHeight, 1.6);
-       transformed.x += grassSway * 0.17 * bendAmt * uWind;
-       transformed.z += cos(uTime * 0.9 + grassPhase) * 0.09 * bendAmt * uWind;`,
-    )
-    shader.fragmentShader = 'varying float vGrassH;\n' + shader.fragmentShader
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <color_fragment>',
-      `#include <color_fragment>
-       diffuseColor.rgb *= mix(0.6, 1.12, vGrassH);
-       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.06, 1.1, 0.82), vGrassH * 0.5);`,
-    )
-  }
-  material.customProgramCacheKey = () => 'woodland-grass-ribbon-v1'
-  return material
-})()
 
 export const fernMaterial = new THREE.MeshStandardMaterial({ color: '#426f3f', side: THREE.DoubleSide, roughness: 1, flatShading: true })
 export const shrubMaterial = new THREE.MeshStandardMaterial({ color: '#3d6337', roughness: 1, flatShading: true })

@@ -1,172 +1,230 @@
-# Security & UI Audit — *a shared garden* (Meadow)
+# Opinion: Should Meadow stay fully open-world?
 
-**Date:** 2026-07-14  
-**Last updated:** 2026-07-15 — full session rollup (security 1–14, UX P0–P3, first-walk quest, modular schema)  
-**Stack:** React 18 + Vite + Three.js + Supabase (Auth / Realtime / Postgres RPCs) + Zustand  
-
----
-
-## Session status (all work in this chat)
-
-| Area | Status |
-|------|--------|
-| Security issues **1–14** | **Fixed** in code + modular schema |
-| Security **15–25** (medium/low residual) | Partially improved (see notes); not all closed |
-| UI a11y + design tokens + Create hub | **Done** |
-| Mobile action bar + top-bar declutter | **Done** |
-| Chat UX, connection toasts, first-walk quest | **Done** |
-| P0 / P1 / P2 / P3 roadmap | **Done** |
-| Modular Supabase schema `01`–`04` | **Done**; legacy archived |
-
-### Security #13 — Friend system RLS — **already fixed**
-
-No further code change required. Confirmed in live modular files:
-
-| Requirement | Implementation |
-|-------------|----------------|
-| No client DELETE on friendships | Policy `"Users can delete their own friendships"` **dropped** |
-| No direct INSERT/UPDATE/DELETE | `REVOKE insert, update, delete` on `friends` + `friend_requests` from `anon`/`authenticated` |
-| SELECT only for participants | Policy: `auth.uid() = user1_id OR user2_id` (friends); sender/receiver for requests |
-| Mutations RPC-only | `send_*` / `accept` / `decline` / `unfriend` only |
-| DEFINER + fixed search_path | All social RPCs: `security definer set search_path = public` |
-| Rate limits | 5s between friend requests; max **25** pending outbound |
-
-**Files:** `supabase/schema/03_social.sql`, `supabase/schema/04_security.sql`  
-**Apply:** re-run `03_social.sql` then `04_security.sql` (or full `01`→`04`) on the live project if the DB was never updated.
+**Date:** 2026-07-15  
+**Product:** *a shared garden* (Meadow) — multiplayer browser meadow, React + Three.js + Supabase  
+**Question:** Keep an endless open plane, or change direction?  
+**Bottom line:** **Do not keep “infinite open world” as the long-term product promise.** Keep the *feeling* of a wide meadow, but **bound the shared multiplayer world** and invest density over distance.
 
 ---
 
-## Database source of truth
+## 1. What you have today
 
-```
-supabase/schema/
-  01_core.sql      # players, rate limits, position, profile, cosmetics, world tree
-  02_world.sql     # trees/rocks/plots/craft/cuts + world RPCs
-  03_social.sql    # friends, chat, reports, bans
-  04_security.sql  # authoritative RLS, REVOKE, GRANT, realtime
-```
+Meadow already *behaves* like an open world:
 
-Apply **01 → 02 → 03 → 04** in the Supabase SQL editor.  
-Legacy: `archive/supabase-legacy/` (old `schema.sql` + `migrations/*`). Do not apply on new projects.
+- Procedural terrain and props in **100×100 chunks**, streamed in a 3×3 window around the player.
+- Realtime presence/chat in **regions** (~120 units).
+- Persistent placed stuff (trees, rocks, plots, crafts) via Supabase RPCs.
+- Fixed **landmarks** out to ~400 units (Meadow Gate → mid/far rings).
+- Anyone can walk forever; the mesh keeps generating.
 
----
+So the design question is not “do we have open world tech?” — you do.  
+It’s: **should the product stay unbounded, multiplayer, and free-roam forever?**
 
-## Part 1 — Security issues
-
-### Critical / High (1–14) — **FIXED**
-
-| # | Issue | Resolution (where) |
-|---|--------|-------------------|
-| 1 | Free rocks via client `p_cost` | Server cost by `rock_shape` (5/8g); remove +2g; no client cost — `02_world.sql`, `Net.jsx` |
-| 2 | Free craft via client wood/stone | Server catalog by `item_id`; partial refunds — `02_world.sql` |
-| 3 | Fake procedural cut IDs | Format/chunk/type/index + near chunk — `02_world.sql` |
-| 4 | Free trees print +5g | Free shapes bonus `0`; paid +5 — `02_world.sql`, `store.js` |
-| 5 | Landmark gold without whitelist | Whitelist + proximity — `02_world.sql` |
-| 6 | No server position | `update_position` + `require_near` — `01_core.sql`, `Net.jsx` |
-| 7 | Captcha optional | Prod fail-closed — `captcha.js`, `Net.jsx` |
-| 8 | Region chat client-broadcast | `send_region_chat` server emit — `03_social.sql`, `Net.jsx` |
-| 9 | Client-trusted world mutations | Server `broadcast_chunk_event`; client dropped forge sends — `02_world.sql`, `Net.jsx` |
-| 10 | Players world-readable | RLS self SELECT only — `04_security.sql` |
-| 11 | Friends graph world-readable | Participant SELECT + DML revoke — `03`/`04` |
-| 12 | `cut_resources` full scan | `.in(chunk_key).select(...).limit(500)` — `Net.jsx` |
-| 13 | Friend RLS incomplete | See table above — **already fixed** |
-| 14 | Schema drift | Modular `schema/01`–`04`; legacy archived |
-
-**Residual (acceptable for now):** client-broadcast of `pos` / `dye` (session cosmetic only; DB is truth on reload).
-
-### Medium residual (not fully closed)
-
-| # | Topic | Status |
-|---|--------|--------|
-| 15 | Water any tree for gold | **Improved** — proximity via `require_near`; daily gold cap still optional |
-| 16 | Weak profanity filter | **Improved** — report/ban tooling; filter itself still simple |
-| 17 | Mute persistence | **Fixed** — `moderation.js` localStorage + server `blocked_users` |
-| 18 | CSS injection via colors | **Improved** — hex validation on receive paths |
-| 19 | CSP / headers | **Fixed** — `vercel.json`, `public/_headers`, Vite headers |
-| 20 | Sentry scrubbing | Unchanged (OK defaults) |
-| 21 | Offline localStorage trust | Online hydrate still authoritative |
-| 22 | Welcome/Identity null supabase | **Fixed** |
-| 23 | Debug logs | **Fixed** — DEV-gated |
-| 24 | Rate limiter | Unchanged (token bucket OK) |
-| 25 | `old_net.jsx` | **Fixed** — `archive/old_net.jsx` |
+My answer: **no, not fully.** Soft bounds + denser “one garden” is the better product.
 
 ---
 
-## Part 2 — UI / UX
+## 2. Why pure open world will hurt you
 
-| Item | Status | Notes |
+Your instinct that it will be problematic is right. Not because open world is bad in general — because **your stack, team size, and game fantasy** fight infinite space.
+
+### A. Empty world is death for a social garden
+
+The fantasy is *shared*: meeting people, seeing others’ trees, chat, friends, the World Tree.  
+
+In an infinite plane:
+
+| Effect | Why it hurts Meadow |
+|--------|---------------------|
+| Players scatter | Spawn at Gate → discover → plant far away → never meet again |
+| Landmarks become a checklist | Far rings reward *distance*, not *presence* |
+| Social features feel dead | Friends list, region chat, “N in zone” only matter if people share space |
+| Content looks sparse | Same grass forever reads as unfinished, not vast |
+
+Animal Crossing / shared-garden vibes win on **density and familiarity**, not on how far the map goes.
+
+### B. Multiplayer cost scales with space, not with beauty
+
+You already pay for:
+
+- Chunk load RPCs (`get_nearby_world`)
+- Per-chunk Realtime channels
+- Region chat / presence
+- Proximity checks, harvest caps, rate limits
+- Position heartbeats
+
+Infinite placement means:
+
+- Tables grow without a natural ceiling (trees, rocks, plots, cuts).
+- Griefing and spam move *outward* (harder to moderate, easier to abandon mess).
+- “Who is near me?” gets worse as population thins.
+- Support and ops stay firefighting **scale** instead of polishing **moments**.
+
+You can engineer for scale later. You cannot easily re-teach players a new social contract after months of “walk forever and plant anywhere.”
+
+### C. Browser 3D has a hard ceiling
+
+Even with chunk streaming:
+
+- GPU cost (grass, trees, postprocessing, shadows) is per-view, not per-map.
+- You’ve already hit **WebGL / postprocessing / connect flap** issues — classic browser multiplayer pain.
+- Open world multiplies edge cases: gate collision, climb ratios, chunk seams, stale position RPCs, channel resubscribe.
+
+A smaller, denser world is **more playable on phones and low-end laptops** — which is exactly who a web garden should serve.
+
+### D. Design and narrative get diluted
+
+Landmarks to 400 units already sketch a “known meadow.” Infinite beyond that adds little story:
+
+- No seasons-per-biome progression without huge work.
+- No “our village” identity if everyone lives 2km apart.
+- Economy (gold, wood, daily caps) is harder to balance when farm space is infinite.
+
+### E. Security / moderation surface grows with the map
+
+You closed a lot of exploit paths (RPC-only writes, captcha, proximity, harvest limits). Good.  
+
+Unbounded world still means:
+
+- More places to hide grief builds.
+- Harder “report this place” UX.
+- Harder to reason about fairness (who owns the good spots?).
+
+A **bounded shared garden** is easier to police and easier to make feel fair.
+
+---
+
+## 3. What *is* worth keeping from open world
+
+Do **not** throw away:
+
+1. **Chunk streaming** — keep it; it’s the right way to render a large area.
+2. **Deterministic terrain** — “meet at the Lonely Oak” is a real, shareable promise.
+3. **Landmark discovery** — excellent onboarding and gold loop.
+4. **Soft multiplayer** — anonymous + optional friends, not MMO login hell.
+5. **The Meadow Gate as home** — best brand moment you have.
+
+Open-world *technology* can serve a **large but finite** garden. The mistake is promising **infinite multiplayer frontier**.
+
+---
+
+## 4. Best direction I recommend
+
+### Product model: **“One Shared Meadow”** (not infinite Earth)
+
+Think **Animal Crossing island / public park / single valley**, not Minecraft infinite survival.
+
+| Layer | Recommendation |
+|-------|----------------|
+| **Playable multiplayer radius** | Finite. Roughly **current far-landmark ring** (on the order of **±400–600** from origin), with a soft edge. |
+| **Feel of space** | Still “wide meadow” — hills, landmarks, long walks — but you eventually **loop, soft-wall, or fog-and-turn-back**, not endless empty grass. |
+| **Where people live** | Strong **pull back to Gate + near ring** (social gravity). Far landmarks = day trips, not permanent exile. |
+| **Persistence** | Prefer denser plots near home; optional stricter caps far out (or no permanent builds past a ring). |
+| **New content** | **Vertical / systems** (events, seasons, World Tree goals, garden contests) over **new distant biomes**. |
+
+### Soft edge (preferred over hard wall)
+
+At the rim of the shared meadow:
+
+- Visual: haze, wind, “the wild grows thick here…”
+- Gameplay: slow move, gentle push inward, or “the path turns back toward the Gate”
+- Optional: one-time discovery “Edge of the Meadow” landmark so it feels intentional, not broken
+
+Hard invisible walls feel cheap; **narrative soft bounds** feel designed.
+
+### Social gravity (more important than map size)
+
+Design so the default session is *near other people*:
+
+1. **Meadow Gate** = always warm (spawn, daily, World Tree, notices).
+2. **Near ring landmarks** = primary destinations (already good).
+3. **Far landmarks** = optional pilgrimage, weaker permanent build rights if needed.
+4. **Region chat + “N nearby”** stay meaningful because population isn’t diluted to zero.
+5. **First-walk quest** already points at landmarks — extend that into “return home / share the Gate” loops.
+
+### Build rules that match the fantasy
+
+| Zone | Builds | Intent |
 |------|--------|--------|
-| Compass missing import | **Fixed** | `Hud.jsx` |
-| Inline styles / tokens | **Fixed** | `:root` tokens, utilities, `Modal.jsx` |
-| Accessibility (focus, dialogs, OTP, reduced-motion) | **Fixed** | `a11y.js`, forms, teleport |
-| Mobile action bar + top bar clutter | **Fixed** | `MobileActionBar.jsx`, resource pill |
-| Create hub (shop+craft) | **Fixed** | `CreateHub.jsx` — Trees · Rocks · Craft · Land · Style; G/Q |
-| Chat UX (mutes, errors, limits) | **Fixed** | Mutes panel, `chatError`, `CHAT_TEXT_MAX=160` |
-| Guest email progress warning | **Fixed** | WelcomeScreen |
-| Connection / offline feedback | **Fixed** | Status + typed toasts + `goOffline(reason)` |
-| First-session landmark walk | **Fixed** | `FirstWalkQuest.jsx` → Lonely Oak |
-| Loading fade non-blocking | **Fixed** | Unmount after fade |
-| Chat re-renders | **Fixed** | Memo + selectors |
+| Gate plaza | Limited / curated | Public commons, not junkyard |
+| Near meadow | Full plant/place with soft caps | “Our neighborhood” |
+| Mid ring | OK, maybe higher cost / lower density | Adventure + light settlement |
+| Far / edge | Discover + harvest, little or no permanent plot spam | Keeps world readable |
+
+Exact numbers can wait; the **policy** matters now.
+
+### What to stop optimizing for
+
+- Infinite chunk channels “just in case”
+- Far-out farm meta that empties the Gate
+- New systems that only make sense if the map is infinite
+
+### What to optimize for instead
+
+- **First 10 minutes:** beautiful, clear, social, one good loop (walk → discover → plant → see someone else’s tree).
+- **Return visit:** Gate feels alive; something changed (World Tree, friends, weather, daily).
+- **Stability:** connection, collision, harvest, plant — the stuff that already burned time.
+- **One strong multiplayer moment** per session beats 2km of empty grass.
 
 ---
 
-## Part 3 — Roadmap
+## 5. Directions I would *not* pick (for this project)
 
-| Phase | Status |
-|-------|--------|
-| **P0** Economy / captcha / compass | **Done** |
-| **P1** Chat integrity, RLS, proximity, schema | **Done** |
-| **P2** Modal, mobile bar, Create hub, toasts, a11y | **Done** |
-| **P3** CSP, archive old_net, friend limits, report/ban, chat constants | **Done** |
+| Direction | Why not (for you now) |
+|-----------|------------------------|
+| **True infinite MMO open world** | Ops, moderation, emptiness, browser limits |
+| **Tiny single room only** | Throws away your terrain/landmark strength |
+| **Instanced private islands only** | Kills “shared garden”; maybe a *later* mode, not the core |
+| **Procedural multiplayer shards with no center** | No home, no culture, weak brand |
 
----
-
-## Key files (current)
-
-| Area | Path |
-|------|------|
-| Schema modules | `supabase/schema/01_core.sql` … `04_security.sql` |
-| Schema docs | `supabase/README.md` |
-| Legacy SQL archive | `archive/supabase-legacy/` |
-| Net / captcha | `src/net/Net.jsx`, `captcha.js`, `moderation.js`, `bridge.js` |
-| Create hub | `src/ui/CreateHub.jsx`, `Modal.jsx` |
-| Mobile dock | `src/ui/MobileActionBar.jsx` |
-| First walk | `src/ui/FirstWalkQuest.jsx` |
-| Store | `src/store.js` (`CHAT_TEXT_MAX`, connection notes, firstWalkQuest) |
-| Headers | `vercel.json`, `public/_headers`, `vite.config.js` |
+**Later (optional):** private plots / “my corner” as a *mode*, while the default world stays one public meadow. Not the first bet.
 
 ---
 
-## Apply / ops checklist
+## 6. Practical roadmap (opinionated order)
 
-- [ ] Run `supabase/schema/01` → `04` on the live Supabase project (required for #13 and all server fixes)
-- [ ] Production: `VITE_TURNSTILE_SITE_KEY` + Supabase Auth CAPTCHA secret
-- [ ] Host serves security headers (Vercel / Netlify headers files already present)
-- [ ] Optional: JWT `app_metadata.role = admin` for `admin_set_ban`
+### Now (direction, not a big rewrite)
 
-### Quick verify for #13 (SQL editor)
+1. **Decide the shared radius** (e.g. soft edge past farthest landmark).
+2. **Document it** in-game (“This meadow has an edge — the Gate is home”).
+3. **Stop adding far systems** until near-ring density feels good.
+4. Keep fixing reliability (connect, harvest, collision) — those matter more than map size.
 
-```sql
--- Should show SELECT-only policies for friends (no DELETE/INSERT policies for clients)
-select polname, polcmd from pg_policy
-  join pg_class on pg_class.oid = polrelid
- where relname in ('friends', 'friend_requests');
+### Next
 
--- Direct DML should fail for authenticated role (run as anon key client, not service role)
-```
+5. Soft edge implementation (move damp + message + optional landmark).
+6. Placement policy by zone (if grief/emptiness shows up).
+7. Social pull: Gate events, World Tree goals, “someone planted near you” moments.
+8. Cap or decay abandoned far builds if tables grow.
 
----
+### Later (only if product is healthy)
 
-## Testing checklist (high level)
-
-- [ ] Friend request works via UI; second request within 5s fails  
-- [ ] Client cannot `DELETE` from `friends` with anon key  
-- [ ] Free plant does not mint gold; free rock cost rejected  
-- [ ] Region chat spoof without RPC not trusted  
-- [ ] Create hub opens with G/Q; mobile bar on narrow width  
-- [ ] First walk appears after new guest welcome  
-- [ ] Offline shows connection reason toast/status  
+9. Seasons / weather stories on the **same** map.
+10. Optional private garden instance.
+11. Larger map **only** if concurrent players and retention prove the center is crowded.
 
 ---
 
-*This document is the session rollup of security + UI work. Advisory history preserved as FIXED notes; implement live DB by applying modular schema files.*
+## 7. Decision framework (if you argue with yourself later)
+
+Ask:
+
+1. Does this feature make **two strangers more likely to meet**?
+2. Does it make the **Gate feel more like home**?
+3. Does it add **density / meaning**, or only **distance**?
+4. Can a phone browser run it without another WebGL war?
+5. Can one person moderate it?
+
+If the answer to 1–3 is “only distance,” skip it.
+
+---
+
+## 8. Final recommendation
+
+**Keep:** streaming chunks, landmarks, multiplayer RPCs, the open *feel*.  
+**Drop (as a product goal):** infinite unbounded shared world.  
+**Build:** one finite, dense, soft-edged **Shared Meadow** centered on the Meadow Gate, with far land as pilgrimage not suburb.
+
+You are right that full open world will be problematic — not as a tech demo, but as a **social garden**. The best path is a **bounded commons with room to wander**, not an endless frontier.
+
+That direction matches your stack, your brand, and the features you’ve already invested in. Infinite space can wait until (if ever) the center is too full of people — and that’s a good problem to have.
