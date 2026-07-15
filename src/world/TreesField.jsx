@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { useMemo, useRef, useState, useEffect } from 'react'
 import { generateTreeGeometries } from './ProceduralTree'
 import { useFrame } from '@react-three/fiber'
-import { terrainHeight, mulberry32, plotSignatureForChunk } from './noise'
+import { terrainHeight, mulberry32, plotSignatureForChunk, isBadPropSpot } from './noise'
 import { CHUNK, seedFor } from './chunk'
 import {
   trunkGeo, leafGeo, trunkMat, leafMats,
@@ -406,16 +406,14 @@ export default function TreesField() {
           for (let i = 0; i < n; i++) {
             const x = cx * CHUNK + rng() * CHUNK
             const z = cz * CHUNK + rng() * CHUNK
-            const t = {
-              localId: i,
-              x, z,
-              y: plazaFloorHeight(x, z) !== null ? plazaFloorHeight(x, z) : terrainHeight(x, z),
-              s: 1.4 + rng() * 1.2,
-              rot: rng() * Math.PI * 2,
-              variant: (rng() * 3) | 0,
-              shape: (rng() * 3) | 0,
-              chunkKey: key
-            }
+            // Always consume RNG for seed stability (G2.6 skip water)
+            const s = 1.4 + rng() * 1.2
+            const rot = rng() * Math.PI * 2
+            const variant = (rng() * 3) | 0
+            const shape = (rng() * 3) | 0
+            if (isBadPropSpot(x, z) || Math.hypot(x, z) < 18) continue
+            const y = plazaFloorHeight(x, z) !== null ? plazaFloorHeight(x, z) : terrainHeight(x, z)
+            const t = { localId: i, x, z, y, s, rot, variant, shape, chunkKey: key }
             arr.push(t)
             treeRegistry.push({
               x: t.x, z: t.z,

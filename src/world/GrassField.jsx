@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { useMemo, useRef, useState, useLayoutEffect, useEffect } from 'react'
+import { useMemo, useRef, useState, useLayoutEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import {
   terrainHeight,
@@ -9,7 +9,10 @@ import {
   PLAZA_GRASS_CLEAR_R,
   syncTerrainPlots,
   plotSignatureForChunk,
+  getTerrainPlotRev,
+  isBadPropSpot,
 } from './noise'
+import { isInsidePlot } from './plot-utils'
 import { CHUNK, seedFor } from './chunk'
 import { windTime, windStrength } from '../wind'
 import { P } from '../player-state'
@@ -44,14 +47,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
     const isInPlot = (x, z) => {
       if (!plots) return false
       for (let i = 0; i < plots.length; i++) {
-        const p = plots[i]
-        const w = p.width ?? p.radius ?? 10
-        const d = p.depth ?? p.radius ?? 10
-        if (p.shapeType === 1) {
-          if (Math.abs(x - p.x) <= w && Math.abs(z - p.z) <= d) return true
-        } else {
-          if (Math.hypot(x - p.x, z - p.z) <= w) return true
-        }
+        if (isInsidePlot(plots[i], x, z)) return true
       }
       return false
     }
@@ -68,8 +64,8 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
       const scX  = 0.8 + rngG() * 0.4
       const scY  = 0.7 + rngG() * 0.9 + lush * 0.8
 
-      // Suppress blades inside the Meadow Gate plaza stone floor and inside plots (fix #9)
-      if (Math.hypot(x, z) < PLAZA_GRASS_CLEAR_R || isInPlot(x, z)) {
+      // Suppress blades: plaza, plots, water (G2.6/G2.9)
+      if (Math.hypot(x, z) < PLAZA_GRASS_CLEAR_R || isInPlot(x, z) || isBadPropSpot(x, z)) {
         d.position.set(0, -9999, 0)
         d.scale.setScalar(0.0001)
         d.updateMatrix()
@@ -93,7 +89,7 @@ function GrassChunk({ cx, cz, bladeGeo, bladeMat, flowerGeo, flowerMat, bladeCou
       const z = cz * CHUNK + rngF() * CHUNK
       if (clusterField(x, z) < 0.6) continue
 
-      if (Math.hypot(x, z) < PLAZA_GRASS_CLEAR_R || isInPlot(x, z)) {
+      if (Math.hypot(x, z) < PLAZA_GRASS_CLEAR_R || isInPlot(x, z) || isBadPropSpot(x, z)) {
         d.position.set(0, -9999, 0)
         d.scale.setScalar(0.0001)
         d.updateMatrix()
@@ -169,8 +165,8 @@ export default function GrassField() {
   const grassDensity = useStore((s) => s.grassDensity)
   const plots = useStore((s) => s.plots)
 
-  // Keep plot flatten cache warm for grass heights (C1)
-  useEffect(() => {
+  // Keep plot flatten cache warm for grass heights (C1 / G1)
+  useLayoutEffect(() => {
     syncTerrainPlots(plots)
   }, [plots])
 
@@ -273,6 +269,7 @@ export default function GrassField() {
 
   if (grassDensity === 'off') return null
 
+  const plotRev = getTerrainPlotRev()
   const chunks = []
   for (let dx = -1; dx <= 1; dx++) {
     for (let dz = -1; dz <= 1; dz++) {
@@ -281,7 +278,7 @@ export default function GrassField() {
       const plotSig = plotSignatureForChunk(cx, cz, CHUNK)
       chunks.push(
         <GrassChunk
-          key={`${cx},${cz},${grassDensity},${bladeCount},${plotSig}`}
+          key={`${cx},${cz},${grassDensity},${bladeCount},${plotSig},${plotRev}`}
           cx={cx}
           cz={cz}
           bladeGeo={bladeGeo}

@@ -54,6 +54,9 @@ export const rockRegistry = []
 // Each entry: { x, z, r }
 export const craftedRegistry = []
 
+// Static landmark colliders (windmill, lighthouse, etc.) — { x, z, r }
+export const landmarkColliders = []
+
 // Dynamic terrain deformations
 export const groundChunks = new Map() // 'cx,cz' -> geometry
 export const terrainDeformations = new Map() // 'cx,cz' -> Float32Array

@@ -13,6 +13,7 @@ import {
   STREAM_WIDTH,
   PONDS,
 } from './water-path'
+import { isInsidePlot } from './plot-utils'
 import { plazaFloorHeight, PLAZA_OUTER_RADIUS } from './SpawnPlaza'
 
 // Placement preview:
@@ -186,15 +187,8 @@ export default function PlacementPreview() {
     let valid = true
     let reason = ''
 
-    // Helper for plot bounds checking
-    const inPlot = (px, pz, p) => {
-      const w = p.width ?? p.radius ?? 10
-      const d = p.depth ?? p.radius ?? 10
-      if (p.shapeType === 1) {
-        return Math.abs(px - p.x) <= w && Math.abs(pz - p.z) <= d
-      }
-      return Math.hypot(p.x - px, p.z - pz) <= w
-    }
+    // Helper for plot bounds checking (shared with grass / terrain — G1.4)
+    const inPlot = (px, pz, p) => isInsidePlot(p, px, pz)
 
     if (mode === 'plot') {
       const store = useStore.getState()

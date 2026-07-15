@@ -100,20 +100,40 @@ export const PLAZA_OUTER_RADIUS = 14.5
  *   r <=  4.8 → top of inner platform   (step3Top)
  *   else      → top of the base slab    (slabTop)   ← was missing, caused sinking
  */
+/**
+ * Walkable plaza height. Soft blend in outer ring toward terrain (G2.7)
+ * so leaving the gate does not hard-clip feet.
+ */
 export function plazaFloorHeight(wx, wz, cx = 0, cz = 0) {
   const r = Math.hypot(wx - cx, wz - cz)
-  if (r > PLAZA_OUTER_RADIUS) return null   // outside plaza, use terrain
+  if (r > PLAZA_OUTER_RADIUS + 2.5) return null
 
   const terrainY = terrainHeight(cx, cz)
-  const slabTop  = terrainY + SLAB_H                  // top of the base stone slab
-  const step1Top = slabTop  + STEP1_H                 // top of outer step ring
-  const step2Top = step1Top + STEP2_H                 // top of middle step ring
-  const step3Top = step2Top + STEP3_H                 // top of inner platform
+  const slabTop = terrainY + SLAB_H
+  const step1Top = slabTop + STEP1_H
+  const step2Top = step1Top + STEP2_H
+  const step3Top = step2Top + STEP3_H
 
-  if (r <= 4.8)  return step3Top   // center platform
-  if (r <= 6.8)  return step2Top   // middle ring
-  if (r <= 10.0) return step1Top   // outer ring
-  return slabTop                    // slab foundation (between outer ring and wall)
+  let plazaY = slabTop
+  if (r <= 4.8) plazaY = step3Top
+  else if (r <= 6.8) plazaY = step2Top
+  else if (r <= 10.0) plazaY = step1Top
+  else plazaY = slabTop
+
+  // Soft blend to natural terrain at the rim (G2.7 / G3.10)
+  if (r > PLAZA_OUTER_RADIUS - 1.2) {
+    const outer = PLAZA_OUTER_RADIUS + 2.5
+    const t = Math.min(1, Math.max(0, (r - (PLAZA_OUTER_RADIUS - 1.2)) / (outer - (PLAZA_OUTER_RADIUS - 1.2))))
+    const s = t * t * (3 - 2 * t)
+    const ground = terrainHeight(wx, wz)
+    if (r > PLAZA_OUTER_RADIUS) {
+      // Outside hard radius: only blend, return null past outer so walkSurface takes over when fully blended
+      if (t >= 0.999) return null
+      return plazaY + (ground - plazaY) * s
+    }
+    return plazaY + (ground - plazaY) * s * 0.35
+  }
+  return plazaY
 }
 
 export default function SpawnPlaza({ x = 0, z = 0 }) {

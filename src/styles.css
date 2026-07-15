@@ -2789,6 +2789,62 @@ input.invalid {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* Create hub: select then Place */
+.create-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.create-footer-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.create-place-btn {
+  flex-shrink: 0;
+  background: rgba(139, 179, 82, 0.4) !important;
+  border-color: rgba(184, 233, 134, 0.5) !important;
+  font-weight: 700;
+  padding: 8px 16px !important;
+}
+.create-place-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Settings World Tree donate */
+.settings-donate-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+.settings-donate-input {
+  width: 88px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.28);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-donate-input:focus {
+  outline: 2px solid rgba(184, 233, 134, 0.45);
+  outline-offset: 1px;
+}
+.settings-donate-presets {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
 /* Create hub wallet strip */
 .create-wallet {
   display: flex;

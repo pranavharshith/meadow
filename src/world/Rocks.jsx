@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { terrainHeight, mulberry32, clusterField, plotSignatureForChunk } from './noise'
+import { terrainHeight, mulberry32, clusterField, plotSignatureForChunk, isBadPropSpot } from './noise'
 import { CHUNK, seedFor } from './chunk'
 import { P, rockRegistry } from '../player-state'
 import { ROCK_GEOS, ROCK_MATS } from './rock-assets'
@@ -58,9 +58,11 @@ export default function Rocks() {
             const sink = 0.15 + rng() * 0.25
             const shape = (rng() * 3) | 0
             const matIdx = (rng() * 3) | 0
+            // Skip stream/pond so rocks don't float over carved water (G2.6)
+            if (isBadPropSpot(x, z)) continue
             const r = { localId: i, x, z, y: terrainHeight(x, z), rot, sx, sy, sz, sink, shape, matIdx, chunkKey: key }
             arr.push(r)
-            
+
             const placementR = Math.max(sx, sz)
             if (sy >= 0.55) {
               rockRegistry.push({ x, z, r: Math.max(sx, sz) * 0.5 + 0.3, placementR, _source: 'decorative', chunkKey: key, idStr: `${key}_${i}_rock` })

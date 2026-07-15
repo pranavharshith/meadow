@@ -3,7 +3,8 @@ import { P, placement } from './player-state'
 import { LANDMARKS } from './world/places'
 import { bridge } from './net/bridge'
 import { maskProfanity, clientChatCooldown } from './net/moderation'
-import { terrainHeight } from './world/noise'
+import { terrainHeight, syncTerrainPlots } from './world/noise'
+import { normalizePlot, normalizePlots } from './world/plot-utils'
 import { plazaFloorHeight } from './world/SpawnPlaza'
 
 const LS_KEY = 'meadow-save-v1'
@@ -75,14 +76,24 @@ export const useStore = create((set, get) => ({
   isUpdatingName: false,
   // 'active' | 'done' | 'dismissed' — only new welcomes start as 'active'
   firstWalkQuest: saved.firstWalkQuest ?? 'done',
+  // Soft ladder after first walk: plant → water → craft → plot → done | dismissed
+  // Legacy saves (walk already finished, no softQuest key) skip the ladder.
+  softQuest:
+    saved.softQuest ??
+    ((saved.firstWalkQuest ?? 'done') === 'active' ? null : 'done'),
 
   completeWelcome: () => {
     const lm = LANDMARKS.find((l) => l.id === FIRST_WALK_LANDMARK_ID)
     const alreadyFound = (get().discovered || []).includes(FIRST_WALK_LANDMARK_ID)
     const quest = alreadyFound ? 'done' : 'active'
+    const nextSoft =
+      quest === 'done' && (get().softQuest == null || get().softQuest === 'done')
+        ? 'plant'
+        : get().softQuest
     set({
       hasCompletedWelcome: true,
       firstWalkQuest: quest,
+      ...(quest === 'done' && nextSoft === 'plant' ? { softQuest: 'plant' } : {}),
       ...(quest === 'active' && lm
         ? { navTarget: { id: lm.id, x: lm.x, z: lm.z, name: lm.name } }
         : {}),
@@ -90,37 +101,73 @@ export const useStore = create((set, get) => ({
     const st = loadSave()
     st.hasCompletedWelcome = true
     st.firstWalkQuest = quest
+    if (quest === 'done' && nextSoft === 'plant') st.softQuest = 'plant'
     localStorage.setItem(LS_KEY, JSON.stringify(st))
     if (quest === 'active' && lm) {
       // Delay so welcome UI unmounts first
       setTimeout(() => {
         get().flash(`First walk: head to ${lm.name}`)
       }, 400)
+    } else if (quest === 'done' && nextSoft === 'plant') {
+      setTimeout(() => get().flash('Next · plant a free oak (G → Trees)'), 400)
     }
   },
 
   dismissFirstWalk: () => {
-    set({ firstWalkQuest: 'dismissed' })
+    set({ firstWalkQuest: 'dismissed', softQuest: 'plant' })
     const st = loadSave()
     st.firstWalkQuest = 'dismissed'
+    st.softQuest = 'plant'
     localStorage.setItem(LS_KEY, JSON.stringify(st))
     // Clear nav only if still aimed at the first-walk landmark
     const nav = get().navTarget
     if (nav && nav.id === FIRST_WALK_LANDMARK_ID) set({ navTarget: null })
+    setTimeout(() => get().flash('Next · plant a free oak (G → Trees)'), 500)
   },
 
   completeFirstWalk: () => {
     if (get().firstWalkQuest !== 'active') return
-    set({ firstWalkQuest: 'done' })
+    set({ firstWalkQuest: 'done', softQuest: 'plant' })
     const st = loadSave()
     st.firstWalkQuest = 'done'
+    st.softQuest = 'plant'
     localStorage.setItem(LS_KEY, JSON.stringify(st))
     const lm = LANDMARKS.find((l) => l.id === FIRST_WALK_LANDMARK_ID)
     get().flash(lm ? `You found ${lm.name} — nice walking` : 'First walk complete')
-    // Soft mid-loop coach (B3): point at discovery / map / earn paths
     setTimeout(() => {
-      get().flash('Tip · walk near places for gold · M opens map · plant free oaks anytime')
-    }, 2800)
+      get().flash('Next · plant a free oak · open Create with G')
+    }, 2200)
+  },
+
+  /** Advance soft ladder when the matching action succeeds. */
+  advanceSoftQuest: (step) => {
+    const order = ['plant', 'water', 'craft', 'plot']
+    const cur = get().softQuest
+    if (cur !== step) return
+    const idx = order.indexOf(step)
+    if (idx < 0) return
+    const next = idx + 1 < order.length ? order[idx + 1] : 'done'
+    set({ softQuest: next })
+    const st = loadSave()
+    st.softQuest = next
+    localStorage.setItem(LS_KEY, JSON.stringify(st))
+    const tips = {
+      water: 'Next · water a young sapling (R near your tree)',
+      craft: 'Next · cut a tree for wood, then Craft in Create (Q)',
+      plot: 'Next · claim a personal plot (Create → Land)',
+      done: 'You know the basics — explore, craft, and grow the meadow',
+    }
+    const tip = tips[next]
+    if (tip) setTimeout(() => get().flash(tip), 900)
+  },
+
+  dismissSoftQuest: () => {
+    const cur = get().softQuest
+    if (!cur || cur === 'done' || cur === 'dismissed') return
+    set({ softQuest: 'dismissed' })
+    const st = loadSave()
+    st.softQuest = 'dismissed'
+    localStorage.setItem(LS_KEY, JSON.stringify(st))
   },
 
   startFirstWalkNav: () => {
@@ -164,7 +211,11 @@ export const useStore = create((set, get) => ({
   customSpawn: saved.customSpawn ?? null,
 
   // personal plots (server-owned when online; localStorage for offline)
-  plots: saved.plots ?? [],
+  plots: (() => {
+    const initial = normalizePlots(saved.plots ?? [])
+    syncTerrainPlots(initial)
+    return initial
+  })(),
 
   // crafted items
   craftedItems: saved.craftedItems ?? [],
@@ -425,11 +476,28 @@ export const useStore = create((set, get) => ({
     set((s) => (s.placedRocks.some((x) => x.id === r.id) ? {} : { placedRocks: [...s.placedRocks, r] })),
   removeRockLocal: (id) => set((s) => ({ placedRocks: s.placedRocks.filter((r) => r.id !== id) })),
 
-  // --- Plot server sync ---
-  setPlots: (plots) => set({ plots }),
-  addPlot: (p) =>
-    set((s) => (s.plots.some((x) => x.id === p.id) ? {} : { plots: [...s.plots, p] })),
-  removePlotLocal: (id) => set((s) => ({ plots: s.plots.filter((p) => p.id !== id) })),
+  // --- Plot server sync (G1: normalize + push into height cache immediately) ---
+  setPlots: (plots) => {
+    const next = normalizePlots(plots)
+    syncTerrainPlots(next)
+    set({ plots: next })
+  },
+  addPlot: (p) => {
+    const n = normalizePlot(p)
+    if (!n) return
+    set((s) => {
+      if (s.plots.some((x) => x.id === n.id)) return {}
+      const next = [...s.plots, n]
+      syncTerrainPlots(next)
+      return { plots: next }
+    })
+  },
+  removePlotLocal: (id) =>
+    set((s) => {
+      const next = s.plots.filter((p) => p.id !== id)
+      syncTerrainPlots(next)
+      return { plots: next }
+    }),
 
   // --- Crafted Items server sync ---
   setCraftedItems: (items) => set({ craftedItems: items }),
@@ -491,6 +559,22 @@ export const useStore = create((set, get) => ({
       })
       return
     }
+    if (sel.type === 'crafted') {
+      const cw = sel.costWood ?? 0
+      const cs = sel.costStone ?? 0
+      if (state.wood < cw || state.stone < cs) {
+        const need = []
+        if (state.wood < cw) need.push(`${cw - state.wood} more wood`)
+        if (state.stone < cs) need.push(`${cs - state.stone} more stone`)
+        state.flash(`need ${need.join(' and ')} to craft`)
+        return
+      }
+      set({
+        placementMode: 'crafted',
+        placementSubject: { ...sel, kind: 'crafted' },
+      })
+      return
+    }
     const kind = sel.type === 'rock' ? 'rock' : 'tree'
     const cost = sel.cost ?? 0
     if (state.gold < cost) {
@@ -528,6 +612,8 @@ export const useStore = create((set, get) => ({
       await get()._finalizePlaceRock(px, pz, sub)
     } else if (mode === 'plot') {
       await get()._finalizeBuyPlot(px, pz, sub)
+    } else if (mode === 'crafted') {
+      await get()._finalizeCraft(px, pz, sub)
     }
   },
 
@@ -552,7 +638,11 @@ export const useStore = create((set, get) => ({
     }
     // Free shapes award no gold (matches server #4). Paid shapes keep +5 bonus.
     const PLANT_REWARD = cost > 0 ? 5 : 0
-    set((s) => ({ trees: [...s.trees, t], gold: s.gold - cost + PLANT_REWARD }))
+    set((s) => ({
+      trees: [...s.trees, t],
+      gold: s.gold - cost + PLANT_REWARD,
+      treesPlanted: (s.treesPlanted || 0) + 1,
+    }))
     const costStr = cost > 0 ? ` · -${cost} gold` : ''
     const rewardStr = PLANT_REWARD > 0 ? ` · +${PLANT_REWARD} gold` : ''
     state.flash(`planted a sapling${costStr}${rewardStr}`)
@@ -563,6 +653,7 @@ export const useStore = create((set, get) => ({
         set((s) => ({
           trees: s.trees.filter((x) => x.id !== t.id),
           gold: s.gold + cost - PLANT_REWARD,
+          treesPlanted: Math.max(0, (s.treesPlanted || 1) - 1),
         }))
         const err = (res.error || '').toLowerCase()
         get().flash(
@@ -576,6 +667,61 @@ export const useStore = create((set, get) => ({
       }
       if (typeof res.gold === 'number') set({ gold: res.gold })
     }
+    get().advanceSoftQuest('plant')
+  },
+
+  _finalizeCraft: async (px, pz, sub) => {
+    const state = get()
+    const costWood = sub.costWood ?? 0
+    const costStone = sub.costStone ?? 0
+    if (state.wood < costWood || state.stone < costStone) {
+      const need = []
+      if (state.wood < costWood) need.push(`${costWood - state.wood} more wood`)
+      if (state.stone < costStone) need.push(`${costStone - state.stone} more stone`)
+      state.flash(`need ${need.join(' and ')} to craft`)
+      return
+    }
+    const item = {
+      id: genId(),
+      itemId: sub.id,
+      x: px,
+      z: pz,
+      rot: P.avatarYaw,
+      placedAt: Date.now(),
+      owner: true,
+    }
+    set((s) => ({
+      craftedItems: [...s.craftedItems, item],
+      wood: s.wood - costWood,
+      stone: s.stone - costStone,
+    }))
+    const bits = []
+    if (costWood > 0) bits.push(`-${costWood} wood`)
+    if (costStone > 0) bits.push(`-${costStone} stone`)
+    state.flash(`placed ${sub.id.replace(/_/g, ' ')}${bits.length ? ` · ${bits.join(' · ')}` : ''}`)
+
+    if (bridge.online) {
+      const res = await bridge.placeCraftedItem(item, costWood, costStone)
+      if (!res.ok) {
+        set((s) => ({
+          craftedItems: s.craftedItems.filter((x) => x.id !== item.id),
+          wood: s.wood + costWood,
+          stone: s.stone + costStone,
+        }))
+        const err = (res.error || '').toLowerCase()
+        get().flash(
+          err.includes('crowded') ? 'too crowded here'
+            : err.includes('wood') || err.includes('stone') ? 'not enough materials'
+            : err.includes('too far') ? 'too far away'
+            : err.includes('position') ? 'move a little first'
+            : res.error || 'could not place craft'
+        )
+        return
+      }
+      if (typeof res.wood === 'number') set({ wood: res.wood })
+      if (typeof res.stone === 'number') set({ stone: res.stone })
+    }
+    get().advanceSoftQuest('craft')
   },
 
   // Rock placement — now server-persisted and broadcast to region peers.
@@ -653,35 +799,41 @@ export const useStore = create((set, get) => ({
         id: plot.id,
         x: px,
         z: pz,
-        radius: plot.width,
         shapeType: plot.shapeType ?? 0,
         width: plot.width,
-        depth: plot.depth,
+        depth: plot.depth ?? plot.width,
         owner: true,
         name: get().name,
       })
       get().flash('plot claimed! 🏡')
-    } else {
-      const myPlots = state.plots.filter((p) => p.owner)
-      if (myPlots.length >= 5) {
-        state.flash('you can only own up to 5 plots')
-        return
-      }
-      set((s) => {
-        let cost = 0
-        if (sub.shapeType === 0) cost = Math.round((3.14159 * sub.width * sub.width) * 0.8)
-        else cost = Math.round((sub.width * 2 * sub.depth * 2) * 0.15)
-        
-        return {
-          gold: s.gold - cost,
-          plots: [...s.plots, { 
-            id: genId(), x: px, z: pz, owner: true, 
-            radius: sub.width, shapeType: sub.shapeType, width: sub.width, depth: sub.depth, name: s.name 
-          }],
-        }
-      })
+      get().advanceSoftQuest('plot')
+      return
     }
-    state.flash('plot claimed!')
+    const myPlots = state.plots.filter((p) => p.owner)
+    if (myPlots.length >= 5) {
+      state.flash('you can only own up to 5 plots')
+      return
+    }
+    let cost = 0
+    if (sub.shapeType === 0) cost = Math.round((3.14159 * sub.width * sub.width) * 0.8)
+    else cost = Math.round((sub.width * 2 * sub.depth * 2) * 0.15)
+    if (state.gold < cost) {
+      state.flash(`need ${cost} gold for this plot size`)
+      return
+    }
+    get().addPlot({
+      id: genId(),
+      x: px,
+      z: pz,
+      owner: true,
+      shapeType: sub.shapeType ?? 0,
+      width: sub.width,
+      depth: sub.depth ?? sub.width,
+      name: state.name,
+    })
+    set((s) => ({ gold: s.gold - cost }))
+    state.flash(`plot claimed · -${cost} gold`)
+    get().advanceSoftQuest('plot')
   },
 
   // Public entry points: first press → enter placement, second press → confirm.
@@ -936,6 +1088,7 @@ export const useStore = create((set, get) => ({
       if (!res.ok) {
         set((s) => ({
           trees: s.trees.map((t) => (t.id === best.id ? { ...t, plantedAt: plantedBefore } : t)),
+          gold: s.gold - 1,
         }))
         const map = {
           'water cooldown': 'wait a moment before watering again',
@@ -947,6 +1100,40 @@ export const useStore = create((set, get) => ({
       }
       if (typeof res.gold === 'number') set({ gold: res.gold })
     }
+    get().advanceSoftQuest('water')
+  },
+
+  donateToWorldTree: async (amount) => {
+    const n = Math.floor(Number(amount))
+    if (!Number.isFinite(n) || n <= 0) {
+      get().flash('enter a wood amount to donate')
+      return { ok: false }
+    }
+    const state = get()
+    if (!bridge.online) {
+      get().flash('World Tree donations need online mode')
+      return { ok: false }
+    }
+    if (state.wood < n) {
+      get().flash(`need ${n} wood (have ${state.wood})`)
+      return { ok: false }
+    }
+    const res = await bridge.donateToWorldTree(n)
+    if (!res.ok) {
+      const err = (res.error || '').toLowerCase()
+      get().flash(
+        err.includes('wood') ? 'not enough wood'
+          : err.includes('signed') ? 'reconnecting — try again'
+          : res.error || 'could not donate'
+      )
+      return { ok: false }
+    }
+    set((s) => ({
+      wood: s.wood - n,
+      worldTreeWood: (s.worldTreeWood || 0) + n,
+    }))
+    get().flash(`donated ${n} wood to the World Tree 🌳`)
+    return { ok: true }
   },
 
   sendChat: async (text) => {
@@ -1266,6 +1453,7 @@ useStore.subscribe((s) => {
         customSpawn: s.customSpawn,
         playtimeSeconds: s.playtimeSeconds,
         firstWalkQuest: s.firstWalkQuest,
+        softQuest: s.softQuest,
         hasCompletedWelcome: s.hasCompletedWelcome,
         lastBonus: s.lastBonus, // daily-claim UI works online + offline
       }

@@ -155,8 +155,9 @@ export const PLOT_ITEM = {
   id: 'plot',
   name: 'Personal Plot',
   type: 'plot',
+  /** Catalog sticker only — real price is area-based (circle min ~60g). */
   cost: 60,
   emoji: '📌',
-  desc: 'Claim land! Starts at 60g',
+  desc: 'Claim land · price by size (from ~60g)',
   color: '#5ba8d8',
 }

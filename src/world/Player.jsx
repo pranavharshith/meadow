@@ -1,9 +1,11 @@
 import * as THREE from 'three'
 import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { terrainHeight } from './noise'
+import { terrainHeight, walkSurfaceHeight } from './noise'
 import { plazaFloorHeight } from './SpawnPlaza'
-import { P, look, keys, treeRegistry, rockRegistry, addRipple } from '../player-state'
+import {
+  P, look, keys, treeRegistry, rockRegistry, landmarkColliders, addRipple,
+} from '../player-state'
 import { useStore } from '../store'
 import AvatarMesh from './AvatarMesh'
 import { deformTerrain } from './deform'
@@ -49,6 +51,20 @@ function pushOut(x, z) {
     const dx = x - r.x
     const dz = z - r.z
     const rr = r.r + 0.4
+    const d2 = dx * dx + dz * dz
+    if (d2 < rr * rr && d2 > 1e-6) {
+      const d = Math.sqrt(d2)
+      const push = rr - d
+      x += (dx / d) * push
+      z += (dz / d) * push
+    }
+  }
+  // Landmark volumes (windmill, lighthouse, ruins…) — G3.4
+  for (let i = 0; i < landmarkColliders.length; i++) {
+    const c = landmarkColliders[i]
+    const dx = x - c.x
+    const dz = z - c.z
+    const rr = c.r + 0.35
     const d2 = dx * dx + dz * dz
     if (d2 < rr * rr && d2 > 1e-6) {
       const d = Math.sqrt(d2)
@@ -165,12 +181,12 @@ export default function Player() {
         }
       }
     }
-    // Ground the player on whichever surface is highest at their XZ:
-    // inside the Meadow Gate plaza the raised step geometry sits above raw
-    // terrain, so we must use the plaza floor height there instead of the
-    // terrain noise (which would put the player underground).
+    // Ground: plaza steps, else walk surface (dry pad / wade near water surface — G2.5).
+    // Tiny foot lift avoids z-fight / toe clip (G1.8).
+    const FOOT_LIFT = 0.03
     const plazaY = plazaFloorHeight(P.pos.x, P.pos.z)
-    P.pos.y = plazaY !== null ? plazaY : terrainHeight(P.pos.x, P.pos.z)
+    const groundY = plazaY !== null ? plazaY : walkSurfaceHeight(P.pos.x, P.pos.z)
+    P.pos.y = groundY + FOOT_LIFT
 
     const g = groupRef.current
     g.position.set(P.pos.x, P.pos.y, P.pos.z)

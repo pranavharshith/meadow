@@ -113,3 +113,16 @@ export function isOverWater(x, z, margin = 0.25) {
   }
   return streamCenterDist(x, z) < STREAM_WIDTH * 0.5 + margin
 }
+
+/**
+ * Lift from carved bed to visual water surface (pond disk / stream ribbon).
+ * Used so the player wades near the surface instead of walking the bed (G2.5).
+ */
+export function waterSurfaceLift(x, z) {
+  for (let i = 0; i < PONDS.length; i++) {
+    const p = PONDS[i]
+    if (Math.hypot(x - p.x, z - p.z) < p.r + 0.3) return 0.32
+  }
+  if (streamCenterDist(x, z) < STREAM_WIDTH * 0.5 + 0.4) return 0.22
+  return 0
+}

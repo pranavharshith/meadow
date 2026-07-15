@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { useMemo, useRef, useEffect, useLayoutEffect } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
-import { terrainHeight } from './noise'
+import { walkSurfaceHeight } from './noise'
 import { plazaFloorHeight } from './SpawnPlaza'
 import { P, look } from '../player-state'
 import { useStore } from '../store'
@@ -23,7 +23,7 @@ export default function CameraRig() {
     const cp = Math.cos(look.pitch)
     const dist = THIRD_DIST * look.zoom
     const plazaY = plazaFloorHeight(P.pos.x, P.pos.z)
-    const groundY = plazaY !== null ? plazaY : terrainHeight(P.pos.x, P.pos.z)
+    const groundY = plazaY !== null ? plazaY : walkSurfaceHeight(P.pos.x, P.pos.z)
     // Actually set P.pos.y correctly here too, so the target aligns perfectly
     P.pos.y = groundY
     return new THREE.Vector3(
@@ -98,7 +98,7 @@ export default function CameraRig() {
     // By ensuring the target destination is valid, the lerp smoothly resolves to it
     // without fighting the post-lerp safety clamp.
     const posPlazaY = plazaFloorHeight(pos.x, pos.z)
-    const posFloorY = posPlazaY !== null ? posPlazaY : terrainHeight(pos.x, pos.z)
+    const posFloorY = posPlazaY !== null ? posPlazaY : walkSurfaceHeight(pos.x, pos.z)
     if (pos.y < posFloorY + 0.6 && view !== 'top') {
       pos.y = posFloorY + 0.6
     }
@@ -117,7 +117,7 @@ export default function CameraRig() {
     // Post-lerp collision check: prevent camera from dipping under terrain or plaza structures
     // (We do this on curPos to prevent clipping during fast movement or view transitions)
     const plazaY = plazaFloorHeight(curPos.x, curPos.z)
-    const floorY = plazaY !== null ? plazaY : terrainHeight(curPos.x, curPos.z)
+    const floorY = plazaY !== null ? plazaY : walkSurfaceHeight(curPos.x, curPos.z)
     if (curPos.y < floorY + 0.6 && view !== 'top') {
       curPos.y = floorY + 0.6
     }

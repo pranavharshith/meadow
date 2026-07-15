@@ -4,9 +4,19 @@ import {
   PONDS,
   STREAM_BED_DEPTH,
   streamCorridorT,
+  isOverWater,
+  waterSurfaceLift,
 } from './water-path'
+import {
+  normalizePlot,
+  plotEdgeDist,
+  plotRemeshKey,
+  PLOT_BLEND,
+  PLOT_PAD_TOP,
+} from './plot-utils'
 
 export { PONDS } from './water-path'
+export { normalizePlot, normalizePlots, PLOT_PAD_TOP, isInsidePlot } from './plot-utils'
 
 /** Plaza terrain flatten radius (matches SpawnPlaza slab ~14.5 + margin). */
 export const PLAZA_FLAT_R = 15.0
@@ -85,9 +95,10 @@ let _plotRev = 0
 
 /**
  * Call when plot list changes (Terrain / Grass / store). Cheap invalidate.
+ * Always normalizes so width/radius/depth stay consistent (G1.4).
  */
 export function syncTerrainPlots(plots) {
-  _plots = plots || []
+  _plots = (plots || []).map(normalizePlot).filter(Boolean)
   _plotRev += 1
 }
 
@@ -95,7 +106,7 @@ export function getTerrainPlotRev() {
   return _plotRev
 }
 
-/** Signature of plots that touch a chunk AABB — for selective remesh (C1/C5). */
+/** Signature of plots that touch a chunk AABB — for selective remesh (C1/C5/G1.3). */
 export function plotSignatureForChunk(cx, cz, chunkSize = 100) {
   const minX = cx * chunkSize - 8
   const maxX = (cx + 1) * chunkSize + 8
@@ -104,86 +115,104 @@ export function plotSignatureForChunk(cx, cz, chunkSize = 100) {
   const parts = []
   for (let i = 0; i < _plots.length; i++) {
     const p = _plots[i]
-    const w = (p.width ?? p.radius ?? 10) + 6
-    const d = (p.depth ?? p.radius ?? 10) + 6
+    const w = p.width + PLOT_BLEND + 2
+    const d = p.depth + PLOT_BLEND + 2
     if (p.x + w < minX || p.x - w > maxX || p.z + d < minZ || p.z - d > maxZ) continue
-    parts.push(
-      `${p.id || i}:${p.x | 0}:${p.z | 0}:${p.shapeType | 0}:${(p.width ?? 10) | 0}:${(p.depth ?? 10) | 0}`,
-    )
+    parts.push(plotRemeshKey(p))
   }
-  return parts.join('|')
+  // Include global rev so forced rebuilds always win even if geometry equal
+  return `${_plotRev}|${parts.join('|')}`
 }
 
+/** Stable pad-center height (raw hill at claim center). */
+export function plotPadBaseHeight(plot) {
+  const p = normalizePlot(plot)
+  return rawTerrainHeight(p.x, p.z)
+}
+
+/** Walkable Y on a plot pad (base + stone top). */
+export function plotPadSurfaceHeight(plot) {
+  return plotPadBaseHeight(plot) + PLOT_PAD_TOP
+}
+
+/**
+ * Plot flatten: hard-flat pad (with pad top lift) + short blend to hills.
+ * Returns null if (x,z) not near any plot.
+ */
 function plotFlatten(x, z, raw) {
+  let best = null
+  let bestDist = Infinity
   for (let i = 0; i < _plots.length; i++) {
     const p = _plots[i]
-    let dist = 0
-    if (p.shapeType === 1) {
-      const dx = Math.max(Math.abs(x - p.x) - (p.width ?? p.radius ?? 10), 0)
-      const dz = Math.max(Math.abs(z - p.z) - (p.depth ?? p.radius ?? 10), 0)
-      dist = Math.hypot(dx, dz)
-    } else {
-      const pr = Math.hypot(x - p.x, z - p.z)
-      dist = Math.max(pr - (p.width ?? p.radius ?? 10), 0)
-    }
-    // Wider soft blend (8u) reduces harsh ramps (C5)
-    const BLEND = 8.0
-    if (dist <= BLEND) {
-      const centerH = rawTerrainHeight(p.x, p.z)
-      if (dist === 0) return centerH
-      const t = dist / BLEND
-      const s = t * t * (3 - 2 * t)
-      return centerH + (raw - centerH) * s
+    const dist = plotEdgeDist(p, x, z)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = p
     }
   }
-  return null
+  if (!best || bestDist > PLOT_BLEND) return null
+
+  const centerH = rawTerrainHeight(best.x, best.z)
+  const padTop = centerH + PLOT_PAD_TOP
+  // Inside pad: solid walkable surface matching PlotPad mesh top (G1.1/G1.2)
+  if (bestDist <= 0) return padTop
+  // Soft blend to surrounding terrain (G1.5 — shorter blend than before)
+  const t = bestDist / PLOT_BLEND
+  const s = t * t * (3 - 2 * t)
+  return padTop + (raw - padTop) * s
 }
 
 /**
  * Authoritative world height at (x,z). Used for mesh, props, player, water.
- * Footstep mesh dents were removed so this is the single truth (C2).
+ * Order: plaza → ponds/stream → plots last so claimed land wins over water (G1.6).
  */
 export function terrainHeight(x, z) {
   const raw = rawTerrainHeight(x, z)
 
   // Spawn plaza crater
   const r = Math.hypot(x, z)
+  let h = raw
   if (r <= PLAZA_FLAT_R) {
-    return CENTER_Y
-  }
-  if (r < PLAZA_FLAT_R + PLAZA_BLEND_W) {
+    h = CENTER_Y
+  } else if (r < PLAZA_FLAT_R + PLAZA_BLEND_W) {
     const t = (r - PLAZA_FLAT_R) / PLAZA_BLEND_W
     const s = t * t * (3 - 2 * t)
-    return CENTER_Y + (raw - CENTER_Y) * s
+    h = CENTER_Y + (raw - CENTER_Y) * s
+  } else {
+    // Pond basins
+    let pondDone = false
+    for (let i = 0; i < PONDS.length; i++) {
+      const p = PONDS[i]
+      const pr = Math.hypot(x - p.x, z - p.z)
+      const bed = POND_HEIGHTS[i] - 0.45
+      if (pr <= p.r) {
+        h = bed
+        pondDone = true
+        break
+      }
+      if (pr < p.r + 6.0) {
+        const t = (pr - p.r) / 6.0
+        const s = t * t * (3 - 2 * t)
+        h = bed + (raw - bed) * s
+        pondDone = true
+        break
+      }
+    }
+    if (!pondDone) {
+      // Stream corridor carve (C3)
+      const st = streamCorridorT(x, z)
+      if (st < 1) {
+        const bed = raw - STREAM_BED_DEPTH
+        h = bed + (raw - bed) * st
+      }
+    }
   }
 
-  // Player plots
-  const plotH = plotFlatten(x, z, raw)
+  // Plots last — dry claimed land overrides water/hills (G1.6)
+  const plotH = plotFlatten(x, z, h)
   if (plotH !== null) return plotH
 
-  // Pond basins
-  for (let i = 0; i < PONDS.length; i++) {
-    const p = PONDS[i]
-    const pr = Math.hypot(x - p.x, z - p.z)
-    const bed = POND_HEIGHTS[i] - 0.45
-    if (pr <= p.r) {
-      return bed
-    }
-    if (pr < p.r + 6.0) {
-      const t = (pr - p.r) / 6.0
-      const s = t * t * (3 - 2 * t)
-      return bed + (raw - bed) * s
-    }
-  }
-
-  // Stream corridor carve (C3) — same path as water mesh
-  const st = streamCorridorT(x, z)
-  if (st < 1) {
-    const bed = raw - STREAM_BED_DEPTH
-    return bed + (raw - bed) * st
-  }
-
-  return raw
+  return h
 }
 
 export function terrainSlope(x, z) {
@@ -191,6 +220,22 @@ export function terrainSlope(x, z) {
   const hx = terrainHeight(x + e, z) - terrainHeight(x - e, z)
   const hz = terrainHeight(x, z + e) - terrainHeight(x, z - e)
   return Math.sqrt(hx * hx + hz * hz) / (2 * e)
+}
+
+/**
+ * Walkable surface for the player (G2.5): on dry land = terrainHeight;
+ * over water = near the visual water surface so you wade, not sink the bed.
+ */
+export function walkSurfaceHeight(x, z) {
+  const ground = terrainHeight(x, z)
+  const lift = waterSurfaceLift(x, z)
+  if (lift <= 0) return ground
+  return ground + lift
+}
+
+/** True if decorative props should avoid this spot (stream/pond). */
+export function isBadPropSpot(x, z) {
+  return isOverWater(x, z, 1.2)
 }
 
 export function clusterField(x, z) {
